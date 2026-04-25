@@ -516,42 +516,39 @@ static bool download_avatar_to_file(const char *url, const char *file_path)
     return system(command) == 0 && FileExists(file_path);
 }
 
-static Texture2D *get_addon_avatar_texture(const AhcAddon *addon)
+static bool ahc_complete_avatar_entry(AvatarCacheEntry *entry)
 {
-    char avatar_url[AHC_PATH_CAPACITY];
-    if (!addon_avatar_url(addon, avatar_url, sizeof(avatar_url))) {
-        return NULL;
-    }
-
-    char cache_key[AHC_PATH_CAPACITY];
-    addon_avatar_cache_key(addon, avatar_url, cache_key, sizeof(cache_key));
-    AvatarCacheEntry *entry = avatar_cache_get_or_create(cache_key);
-    if (!entry || entry->failed) {
-        return NULL;
-    }
     if (entry->loaded) {
-        return &entry->texture;
+        return true;
+    }
+    if (entry->failed) {
+        return true;
+    }
+    if (entry->fetch_url[0] == '\0') {
+        return true;
     }
 
     char cache_dir[AHC_PATH_CAPACITY];
     ensure_avatar_cache_dir(cache_dir, sizeof(cache_dir));
 
     char cache_name[AHC_PATH_CAPACITY];
-    sanitize_cache_key(avatar_url, cache_name, sizeof(cache_name));
+    sanitize_cache_key(entry->fetch_url, cache_name, sizeof(cache_name));
 
     char cache_path[AHC_PATH_CAPACITY];
     path_join(cache_path, sizeof(cache_path), cache_dir, cache_name);
     strncat(cache_path, ".png", sizeof(cache_path) - strlen(cache_path) - 1);
 
-    if (!FileExists(cache_path) && !download_avatar_to_file(avatar_url, cache_path)) {
+    if (!FileExists(cache_path) && !download_avatar_to_file(entry->fetch_url, cache_path)) {
         entry->failed = true;
-        return NULL;
+        entry->load_pending = false;
+        return true;
     }
 
     Image avatar_image = LoadImage(cache_path);
     if (avatar_image.data == NULL || avatar_image.width == 0 || avatar_image.height == 0) {
         entry->failed = true;
-        return NULL;
+        entry->load_pending = false;
+        return true;
     }
     if (avatar_image.width > AHC_AVATAR_TEXTURE_MAX || avatar_image.height > AHC_AVATAR_TEXTURE_MAX) {
         const int max_side = AHC_AVATAR_TEXTURE_MAX;
@@ -576,13 +573,50 @@ static Texture2D *get_addon_avatar_texture(const AhcAddon *addon)
     UnloadImage(avatar_image);
     if (texture.id == 0) {
         entry->failed = true;
-        return NULL;
+        entry->load_pending = false;
+        return true;
     }
 
     SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
     entry->texture = texture;
     entry->loaded = true;
-    return &entry->texture;
+    entry->load_pending = false;
+    return true;
+}
+
+static void ahc_process_avatar_deferred_loads(void)
+{
+    for (size_t i = 0; i < g_avatar_cache_count; i++) {
+        AvatarCacheEntry *e = &g_avatar_cache[i];
+        if (e->load_pending && !e->loaded && !e->failed) {
+            (void)ahc_complete_avatar_entry(e);
+            return;
+        }
+    }
+}
+
+static Texture2D *get_addon_avatar_texture(const AhcAddon *addon)
+{
+    char avatar_url[AHC_PATH_CAPACITY];
+    if (!addon_avatar_url(addon, avatar_url, sizeof(avatar_url))) {
+        return NULL;
+    }
+
+    char cache_key[AHC_PATH_CAPACITY];
+    addon_avatar_cache_key(addon, avatar_url, cache_key, sizeof(cache_key));
+    AvatarCacheEntry *entry = avatar_cache_get_or_create(cache_key);
+    if (!entry || entry->failed) {
+        return NULL;
+    }
+    if (entry->loaded) {
+        return &entry->texture;
+    }
+    snprintf(entry->fetch_url, sizeof(entry->fetch_url), "%s", avatar_url);
+    entry->load_pending = true;
+    if (g_avatar_placeholder_valid) {
+        return &g_avatar_placeholder;
+    }
+    return NULL;
 }
 
 static const char *addon_source_label(const AhcAddon *addon)
