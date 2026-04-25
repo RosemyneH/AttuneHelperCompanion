@@ -1,6 +1,9 @@
 #if defined(_MSC_VER)
 #define _CRT_SECURE_NO_WARNINGS
 #endif
+#if defined(__linux__) && !defined(_DEFAULT_SOURCE) && !defined(_GNU_SOURCE)
+#define _DEFAULT_SOURCE
+#endif
 
 #include "addons/addon_catalog.h"
 #include "addons/addon_manifest.h"
@@ -194,6 +197,7 @@ static void init_latin_font_codepoints(void)
 static void set_status(CompanionState *state, const char *message);
 static void set_action_status(CompanionState *state, const char *status, const char *action);
 static void path_join(char *out, size_t out_capacity, const char *left, const char *right);
+static void ahc_init_exe_dir_once(void);
 static bool validate_synastria_path(const char *path);
 #if !defined(_WIN32)
 static bool ahc_posix_wine_or_proton_ready(void);
