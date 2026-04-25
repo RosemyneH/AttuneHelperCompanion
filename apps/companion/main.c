@@ -483,12 +483,17 @@ static AvatarCacheEntry *avatar_cache_get_or_create(const char *key)
 
 static void ensure_avatar_cache_dir(char *out, size_t out_capacity)
 {
-    char build_dir[AHC_PATH_CAPACITY];
-    snprintf(build_dir, sizeof(build_dir), "build");
-    if (!DirectoryExists(build_dir)) {
-        AHC_MKDIR(build_dir);
+    ahc_init_exe_dir_once();
+    if (s_have_exe_dir) {
+        path_join(out, out_capacity, s_exe_dir, "avatar-cache");
+    } else {
+        char build_dir[AHC_PATH_CAPACITY];
+        snprintf(build_dir, sizeof(build_dir), "build");
+        if (!DirectoryExists(build_dir)) {
+            AHC_MKDIR(build_dir);
+        }
+        snprintf(out, out_capacity, "build/avatar-cache");
     }
-    snprintf(out, out_capacity, "build/avatar-cache");
     if (!DirectoryExists(out)) {
         AHC_MKDIR(out);
     }
