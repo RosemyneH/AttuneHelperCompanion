@@ -8,6 +8,13 @@
 #include "ahc_tray.h"
 
 #include "raylib.h"
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#if defined(DrawText)
+#undef DrawText
+#endif
+#endif
 #if defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable: 4100 4244 4267 4456 4996)
@@ -1282,23 +1289,62 @@ static bool ahc_linux_exe_directory(char *out, size_t out_size)
 }
 #endif
 
+#if defined(_WIN32)
+static bool ahc_windows_exe_directory(char *out, size_t out_size)
+{
+    char path[AHC_PATH_CAPACITY];
+    DWORD n = GetModuleFileNameA(NULL, path, (DWORD)sizeof(path));
+    if (n == 0u || n >= (DWORD)sizeof(path)) {
+        return false;
+    }
+    const char *slash = strrchr(path, '\\');
+    if (slash == NULL) {
+        slash = strrchr(path, '/');
+    }
+    if (slash == NULL) {
+        return false;
+    }
+    size_t len = (size_t)(slash - path);
+    if (len + 1u > out_size) {
+        return false;
+    }
+    memcpy(out, path, len);
+    out[len] = '\0';
+    return true;
+}
+#endif
+
+static void ahc_init_exe_dir_once(void)
+{
+    static bool done;
+    if (done) {
+        return;
+    }
+    done = true;
+#if defined(_WIN32)
+    s_have_exe_dir = ahc_windows_exe_directory(s_exe_dir, sizeof(s_exe_dir));
+#elif defined(__linux__)
+    s_have_exe_dir = ahc_linux_exe_directory(s_exe_dir, sizeof(s_exe_dir));
+#else
+    s_have_exe_dir = false;
+#endif
+}
+
 static void load_addon_catalog(CompanionState *state)
 {
+    ahc_init_exe_dir_once();
     state->addons = ahc_addon_catalog_items();
     state->addon_count = ahc_addon_catalog_count();
     state->addon_manifest_loaded = false;
     snprintf(state->addon_catalog_source, sizeof(state->addon_catalog_source), "built-in fallback");
 
-#if defined(__linux__)
-    char exe_dir[AHC_PATH_CAPACITY];
-    char exe_manifest[AHC_PATH_CAPACITY];
-    if (ahc_linux_exe_directory(exe_dir, sizeof(exe_dir))) {
-        path_join(exe_manifest, sizeof(exe_manifest), exe_dir, "manifest/addons.json");
+    if (s_have_exe_dir) {
+        char exe_manifest[AHC_PATH_CAPACITY];
+        path_join(exe_manifest, sizeof(exe_manifest), s_exe_dir, "manifest/addons.json");
         if (try_load_addon_manifest(state, exe_manifest)) {
             return;
         }
     }
-#endif
 
     const char *manifest_paths[] = {
         "manifest/addons.json",
