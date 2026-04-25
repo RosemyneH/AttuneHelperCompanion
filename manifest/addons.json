@@ -467,6 +467,231 @@
         "enabled": false
       },
       "direct_zip": null
+    },
+    {
+      "id": "omniinventory-syn",
+      "name": "OmniInventory Syn",
+      "author": "RosemyneH",
+      "category": "Inventory",
+      "folder": "OmniInventory",
+      "source_subdir": "OmniInventory",
+      "description": "Inventory management addon adapted for Synastria.",
+      "repo": "https://github.com/RosemyneH/OmniInv-Syn.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/OmniInv-Syn.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "OmniInv-Syn",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "boss-tracker",
+      "name": "BossTracker",
+      "author": "nayalist",
+      "category": "Dungeon",
+      "folder": "BossTracker",
+      "source_subdir": "BossTracker",
+      "description": "Tracks boss kills and dungeon lockout details.",
+      "repo": "https://github.com/nayalist/boss-tracker.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/nayalist/boss-tracker.git"
+      },
+      "github_release": {
+        "owner": "nayalist",
+        "repo": "boss-tracker",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "talented-synastria",
+      "name": "Talented Synastria",
+      "author": "RosemyneH",
+      "category": "Talents",
+      "folder": "Talented-synastria",
+      "source_subdir": "Talented-synastria",
+      "description": "Talent build manager adapted for Synastria.",
+      "repo": "https://github.com/RosemyneH/talented-synastria.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/talented-synastria.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "talented-synastria",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "qtrunner",
+      "name": "qtRunner",
+      "author": "RosemyneH",
+      "category": "Dungeon",
+      "folder": "qtRunner",
+      "source_subdir": "qtRunner",
+      "description": "Dungeon runner helper with bindings and run tracking.",
+      "repo": "https://github.com/RosemyneH/qtRunner.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/qtRunner.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "qtRunner",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "questie-335",
+      "name": "Questie 3.3.5",
+      "author": "Netrinil",
+      "category": "Questing",
+      "folder": "Questie-335",
+      "source_subdir": "Questie-335",
+      "description": "Quest helper for the 3.3.5 client.",
+      "repo": "https://github.com/Netrinil/Questie-335.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/Netrinil/Questie-335.git"
+      },
+      "github_release": {
+        "owner": "Netrinil",
+        "repo": "Questie-335",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "lizard-dmp",
+      "name": "LizardDMP",
+      "author": "Versicoloris",
+      "category": "Gear",
+      "folder": "LizardDMP",
+      "description": "Fast gear optimizer based on stat priority.",
+      "repo": "https://github.com/Versicoloris/LizardDMP.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/Versicoloris/LizardDMP.git"
+      },
+      "github_release": {
+        "owner": "Versicoloris",
+        "repo": "LizardDMP",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "lizard-kts",
+      "name": "LizardKTS",
+      "author": "Versicoloris",
+      "category": "Gear",
+      "folder": "LizardKTS",
+      "description": "Shows Synastria upgrade chains to prevent vendoring.",
+      "repo": "https://github.com/Versicoloris/LizardKTS.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/Versicoloris/LizardKTS.git"
+      },
+      "github_release": {
+        "owner": "Versicoloris",
+        "repo": "LizardKTS",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "lizard-wwg",
+      "name": "LizardWWG",
+      "author": "Versicoloris",
+      "category": "Map",
+      "folder": "LizardWWG",
+      "description": "Right-click warps to instantly open their map.",
+      "repo": "https://github.com/Versicoloris/LizardWWG.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/Versicoloris/LizardWWG.git"
+      },
+      "github_release": {
+        "owner": "Versicoloris",
+        "repo": "LizardWWG",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "lizard-stb",
+      "name": "LizardSTB",
+      "author": "Versicoloris",
+      "category": "Utility",
+      "folder": "LizardSTB",
+      "description": "Save an action bar and automatically share it across all characters.",
+      "repo": "https://github.com/Versicoloris/LizardSTB.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/Versicoloris/LizardSTB.git"
+      },
+      "github_release": {
+        "owner": "Versicoloris",
+        "repo": "LizardSTB",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "lizard-mmu",
+      "name": "LizardMMU",
+      "author": "Versicoloris",
+      "category": "Mounts",
+      "folder": "LizardMMU",
+      "description": "Pick your favorite mounts and summon one at random with a single click.",
+      "repo": "https://github.com/Versicoloris/LizardMMU.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/Versicoloris/LizardMMU.git"
+      },
+      "github_release": {
+        "owner": "Versicoloris",
+        "repo": "LizardMMU",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "lizard-tmo",
+      "name": "LizardTMO",
+      "author": "Versicoloris",
+      "category": "Transmog",
+      "folder": "LizardTMO",
+      "description": "Store your transmog import codes in-game-no more lost outfits after prestige.",
+      "repo": "https://github.com/Versicoloris/LizardTMO.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/Versicoloris/LizardTMO.git"
+      },
+      "github_release": {
+        "owner": "Versicoloris",
+        "repo": "LizardTMO",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
     }
   ]
 }

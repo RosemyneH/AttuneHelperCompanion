@@ -10,6 +10,7 @@ typedef struct AhcAddon {
     const char *folder;
     const char *repo;
     const char *description;
+    const char *source_subdir;
 } AhcAddon;
 
 const AhcAddon *ahc_addon_catalog_items(void);

@@ -11,6 +11,7 @@ option(AHC_BUILD_TESTS "Build tests" ON)
 
 add_library(ahc_core
     src/addons/addon_catalog.c
+    src/addons/addon_manifest.c
     src/attune/attune_snapshot.c
 )
 
@@ -60,11 +61,21 @@ if(AHC_BUILD_APP)
         PRIVATE
             ${raygui_SOURCE_DIR}/src
     )
+    target_compile_definitions(attune_helper_companion
+        PRIVATE
+            AHC_SOURCE_MANIFEST_PATH="${CMAKE_CURRENT_SOURCE_DIR}/manifest/addons.json"
+    )
 
     target_link_libraries(attune_helper_companion
         PRIVATE
             ahc_core
             raylib
+    )
+
+    add_custom_command(TARGET attune_helper_companion POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/manifest
+            $<TARGET_FILE_DIR:attune_helper_companion>/manifest
     )
 
     if(MSVC)
@@ -80,8 +91,15 @@ if(AHC_BUILD_TESTS)
     add_executable(attune_snapshot_test
         tests/attune_snapshot_test.c
     )
+    add_executable(addon_manifest_test
+        tests/addon_manifest_test.c
+    )
 
     target_link_libraries(attune_snapshot_test
+        PRIVATE
+            ahc_core
+    )
+    target_link_libraries(addon_manifest_test
         PRIVATE
             ahc_core
     )
@@ -90,12 +108,19 @@ if(AHC_BUILD_TESTS)
         PRIVATE
             AHC_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
     )
+    target_compile_definitions(addon_manifest_test
+        PRIVATE
+            AHC_TEST_MANIFEST_PATH="${CMAKE_CURRENT_SOURCE_DIR}/manifest/addons.json"
+    )
 
     if(MSVC)
         target_compile_options(attune_snapshot_test PRIVATE /W4)
+        target_compile_options(addon_manifest_test PRIVATE /W4)
     else()
         target_compile_options(attune_snapshot_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(addon_manifest_test PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     add_test(NAME attune_snapshot_test COMMAND attune_snapshot_test)
+    add_test(NAME addon_manifest_test COMMAND addon_manifest_test)
 endif()

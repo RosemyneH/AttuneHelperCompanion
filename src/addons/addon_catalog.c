@@ -23,7 +23,18 @@ static const AhcAddon AHC_ADDONS[] = {
     { "Synastria Build Manager", "Namira", "Builds", "SynastriaBuildManager", "https://github.com/Lubricated/SynastriaBuildManager.git", "Exports and imports perks and talents." },
     { "Synastria Tooltip Enhancer", "Lulleh", "Tooltip", "SynastriaTooltipEnhancer", "https://github.com/binnesman/Synastria-Tooltip-Enhancer.git", "Enhances Synastria item tooltips." },
     { "The Journal", "Qt", "Dungeon", "TheJournal", "https://github.com/RosemyneH/TheJournal.git", "Dungeon journal with item and boss details." },
-    { "WarpRing", "Namira", "Utility", "WarpRing", "https://github.com/binnesman/namira_warpring.git", "Warp Ring UI." }
+    { "WarpRing", "Namira", "Utility", "WarpRing", "https://github.com/binnesman/namira_warpring.git", "Warp Ring UI." },
+    { "OmniInventory Syn", "RosemyneH", "Inventory", "OmniInventory", "https://github.com/RosemyneH/OmniInv-Syn.git", "Inventory management addon adapted for Synastria.", "OmniInventory" },
+    { "BossTracker", "nayalist", "Dungeon", "BossTracker", "https://github.com/nayalist/boss-tracker.git", "Tracks boss kills and dungeon lockout details.", "BossTracker" },
+    { "Talented Synastria", "RosemyneH", "Talents", "Talented-synastria", "https://github.com/RosemyneH/talented-synastria.git", "Talent build manager adapted for Synastria.", "Talented-synastria" },
+    { "qtRunner", "RosemyneH", "Dungeon", "qtRunner", "https://github.com/RosemyneH/qtRunner.git", "Dungeon runner helper with bindings and run tracking.", "qtRunner" },
+    { "Questie 3.3.5", "Netrinil", "Questing", "Questie-335", "https://github.com/Netrinil/Questie-335.git", "Quest helper for the 3.3.5 client.", "Questie-335" },
+    { "LizardDMP", "Versicoloris", "Gear", "LizardDMP", "https://github.com/Versicoloris/LizardDMP.git", "Fast gear optimizer based on stat priority." },
+    { "LizardKTS", "Versicoloris", "Gear", "LizardKTS", "https://github.com/Versicoloris/LizardKTS.git", "Shows Synastria upgrade chains to prevent vendoring." },
+    { "LizardWWG", "Versicoloris", "Map", "LizardWWG", "https://github.com/Versicoloris/LizardWWG.git", "Right-click warps to instantly open their map." },
+    { "LizardSTB", "Versicoloris", "Utility", "LizardSTB", "https://github.com/Versicoloris/LizardSTB.git", "Save an action bar and automatically share it across all characters." },
+    { "LizardMMU", "Versicoloris", "Mounts", "LizardMMU", "https://github.com/Versicoloris/LizardMMU.git", "Pick your favorite mounts and summon one at random with a single click." },
+    { "LizardTMO", "Versicoloris", "Transmog", "LizardTMO", "https://github.com/Versicoloris/LizardTMO.git", "Store your transmog import codes in-game-no more lost outfits after prestige." }
 };
 
 const AhcAddon *ahc_addon_catalog_items(void)
