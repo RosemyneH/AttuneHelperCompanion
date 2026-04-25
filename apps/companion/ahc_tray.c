@@ -124,7 +124,7 @@ static HWND ahc_tray_create_owner_window(void)
         0,
         0,
         0,
-        HWND_MESSAGE,
+        NULL,
         NULL,
         instance,
         NULL);
