@@ -161,12 +161,18 @@ static Font g_ui_font;
 static bool g_has_ui_font;
 typedef struct AvatarCacheEntry {
     char key[AHC_AVATAR_KEY];
+    char fetch_url[AHC_PATH_CAPACITY];
     Texture2D texture;
     bool loaded;
     bool failed;
+    bool load_pending;
 } AvatarCacheEntry;
 static AvatarCacheEntry g_avatar_cache[AHC_AVATAR_CACHE_CAPACITY];
 static size_t g_avatar_cache_count;
+static Texture2D g_avatar_placeholder;
+static bool g_avatar_placeholder_valid;
+static char s_exe_dir[AHC_PATH_CAPACITY];
+static bool s_have_exe_dir;
 
 static int g_font_codepoints[AHC_FONT_GLYPHS];
 static bool g_chrome_drag;
