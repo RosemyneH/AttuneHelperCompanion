@@ -8,6 +8,7 @@
 #include "addons/addon_catalog.h"
 #include "addons/addon_manifest.h"
 #include "attune/attune_snapshot.h"
+#include "ahc_process.h"
 #include "ahc_tray.h"
 
 #include "raylib.h"
@@ -30,11 +31,14 @@
 
 #if defined(_WIN32)
 __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void *hModule, char *lpFilename, unsigned long nSize);
+__declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #include <direct.h>
+#include <process.h>
 #define AHC_MKDIR(path) _mkdir(path)
 #define AHC_RMDIR(path) _rmdir(path)
 #define AHC_STRICMP _stricmp
 #else
+#include <pthread.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #define AHC_MKDIR(path) mkdir(path, 0755)
@@ -145,6 +149,17 @@ typedef struct CompanionState {
     char process_action[AHC_STATUS_CAPACITY];
     double process_started_at;
     double process_until;
+    volatile int addon_job_running;
+    volatile int addon_job_done;
+    volatile int addon_job_success;
+    char addon_job_progress[AHC_STATUS_CAPACITY];
+    char addon_job_result[AHC_STATUS_CAPACITY];
+    char addon_job_action[AHC_STATUS_CAPACITY];
+#if defined(_WIN32)
+    uintptr_t addon_job_thread;
+#else
+    pthread_t addon_job_thread;
+#endif
     bool wow_config_loaded;
     bool wow_width_editing;
     bool wow_height_editing;
@@ -164,6 +179,7 @@ typedef struct CompanionState {
     char wow_ground_effect_density[16];
     bool wow_windowed;
     bool wow_borderless;
+    int ui_scale_index;
 } CompanionState;
 
 static const Color AHC_BACKGROUND = { 7, 12, 20, 255 };
@@ -205,6 +221,40 @@ static int g_font_codepoints[AHC_FONT_GLYPHS];
 static bool g_chrome_drag;
 static Vector2 g_chrome_grab;
 static bool g_quit;
+static float g_ui_scale = 1.0f;
+
+static float ui_scale_value(int index)
+{
+    switch (index) {
+        case 1: return 1.0f;
+        case 2: return 1.25f;
+        case 3: return 1.5f;
+        default: break;
+    }
+    float scale = (float)GetScreenHeight() / 1080.0f;
+    if (scale < 0.9f) {
+        scale = 0.9f;
+    }
+    if (scale > 1.45f) {
+        scale = 1.45f;
+    }
+    return scale;
+}
+
+static void update_ui_scale(const CompanionState *state)
+{
+    g_ui_scale = ui_scale_value(state->ui_scale_index);
+}
+
+static float sf(float value)
+{
+    return value * g_ui_scale;
+}
+
+static int si(int value)
+{
+    return (int)((float)value * g_ui_scale + 0.5f);
+}
 
 static void init_latin_font_codepoints(void)
 {
@@ -220,11 +270,14 @@ static void init_latin_font_codepoints(void)
 
 static void set_status(CompanionState *state, const char *message);
 static void set_action_status(CompanionState *state, const char *status, const char *action);
+static void set_process_action(CompanionState *state, const char *message);
+static void set_addon_job_progress(CompanionState *state, const char *message);
 static double app_time(void);
 static void path_join(char *out, size_t out_capacity, const char *left, const char *right);
 static void ahc_init_exe_dir_once(void);
 static bool validate_synastria_path(const char *path);
 static void addon_status_cache_invalidate(CompanionState *state);
+static bool addon_current_install_path(const CompanionState *state, const AhcAddon *addon, char *out, size_t out_capacity);
 #if !defined(_WIN32)
 static bool ahc_posix_wine_or_proton_ready(void);
 #endif
@@ -335,23 +388,23 @@ static void format_int_with_commas(int value, char *out, size_t out_capacity)
 
 static int content_left(void)
 {
-    return 26;
+    return si(26);
 }
 
 static int content_right(void)
 {
-    int right = GetScreenWidth() - 26;
+    int right = GetScreenWidth() - si(26);
     return right > content_left() + 420 ? right : content_left() + 420;
 }
 
 static int content_top(void)
 {
-    return AHC_CHROME_H + 128;
+    return AHC_CHROME_H + si(88);
 }
 
 static int content_bottom(void)
 {
-    int bottom = GetScreenHeight() - 66;
+    int bottom = GetScreenHeight() - si(56);
     return bottom > content_top() + 300 ? bottom : content_top() + 300;
 }
 
@@ -430,10 +483,10 @@ static void load_ui_font(void)
         }
 
         g_ui_font = LoadFontEx(
-            font_paths[i], 20, g_font_codepoints, AHC_FONT_GLYPHS
+            font_paths[i], 32, g_font_codepoints, AHC_FONT_GLYPHS
         );
         if (g_ui_font.texture.id == 0) {
-            g_ui_font = LoadFontEx(font_paths[i], 20, NULL, 0);
+            g_ui_font = LoadFontEx(font_paths[i], 32, NULL, 0);
         }
         if (g_ui_font.texture.id != 0) {
             SetTextureFilter(g_ui_font.texture, TEXTURE_FILTER_BILINEAR);
@@ -596,7 +649,7 @@ static bool download_avatar_to_file(const char *url, const char *file_path)
 {
     char command[AHC_PATH_CAPACITY * 3];
     snprintf(command, sizeof(command), "curl -L --fail --silent --show-error \"%s\" --output \"%s\"", url, file_path);
-    return system(command) == 0 && FileExists(file_path);
+    return ahc_run_command_hidden(command) && FileExists(file_path);
 }
 
 static bool ahc_complete_avatar_entry(AvatarCacheEntry *entry)
@@ -737,24 +790,17 @@ static bool addon_repo_is_zip_url(const AhcAddon *addon)
     return strstr(addon->repo, ".zip") != NULL;
 }
 
+static bool addon_has_install_source(const AhcAddon *addon)
+{
+    return addon_repo_is_git_checkout(addon) || addon_repo_is_zip_url(addon);
+}
+
 static bool open_external_url(const char *url)
 {
     if (!url || !url[0]) {
         return false;
     }
-#if defined(_WIN32)
-    char command[AHC_PATH_CAPACITY * 2];
-    snprintf(command, sizeof(command), "start \"\" \"%s\"", url);
-    return system(command) == 0;
-#elif defined(__APPLE__)
-    char command[AHC_PATH_CAPACITY * 2];
-    snprintf(command, sizeof(command), "open \"%s\"", url);
-    return system(command) == 0;
-#else
-    char command[AHC_PATH_CAPACITY * 2];
-    snprintf(command, sizeof(command), "xdg-open \"%s\" >/dev/null 2>&1", url);
-    return system(command) == 0;
-#endif
+    return ahc_open_url_hidden(url);
 }
 
 static void draw_source_badge(Rectangle bounds, const AhcAddon *addon)
@@ -956,11 +1002,10 @@ static AddonInstallStatus addon_install_status_for_index(CompanionState *state, 
         return *cached;
     }
 
-    char path[AHC_PATH_CAPACITY];
     char git_path[AHC_PATH_CAPACITY];
     char marker_path[AHC_PATH_CAPACITY];
-    path_join(path, sizeof(path), state->addon_status_root, addons[index].folder);
-    cached->installed = DirectoryExists(path);
+    char path[AHC_PATH_CAPACITY];
+    cached->installed = addon_current_install_path(state, &addons[index], path, sizeof(path));
     if (cached->installed) {
         path_join(git_path, sizeof(git_path), path, ".git");
         path_join(marker_path, sizeof(marker_path), path, ".attune-helper-companion");
@@ -1149,11 +1194,65 @@ static bool move_installed_addon_to_backup(CompanionState *state, const AhcAddon
     return true;
 }
 
+static void make_backup_path_for_folder(const CompanionState *state, const char *folder, const char *reason, char *out, size_t out_capacity)
+{
+    char root[AHC_PATH_CAPACITY];
+    if (!addon_backup_root(state, root, sizeof(root))) {
+        out[0] = '\0';
+        return;
+    }
+
+    char name[256];
+    snprintf(name, sizeof(name), "%s-%s-%lld", folder, reason, (long long)time(NULL));
+    path_join(out, out_capacity, root, name);
+}
+
+static bool move_addon_folder_to_backup(CompanionState *state, const char *folder_path, const char *folder, const char *reason)
+{
+    if (!DirectoryExists(folder_path)) {
+        return true;
+    }
+
+    char backup_path[AHC_PATH_CAPACITY];
+    make_backup_path_for_folder(state, folder, reason, backup_path, sizeof(backup_path));
+    if (!backup_path[0]) {
+        set_status(state, "Could not create addon backup folder.");
+        return false;
+    }
+    if (rename(folder_path, backup_path) != 0) {
+        set_status(state, "Could not move existing addon to backup folder.");
+        return false;
+    }
+    return true;
+}
+
 static bool git_clone_to_path(const AhcAddon *addon, const char *path)
 {
     char command[AHC_PATH_CAPACITY * 3];
     snprintf(command, sizeof(command), "git clone --depth 1 \"%s\" \"%s\"", addon->repo, path);
-    return system(command) == 0;
+    return ahc_run_command_hidden(command);
+}
+
+static bool curl_download_to_path(const char *url, const char *path)
+{
+    char command[AHC_PATH_CAPACITY * 3];
+    snprintf(command, sizeof(command), "curl -L --fail --silent --show-error \"%s\" --output \"%s\"", url, path);
+    return ahc_run_command_hidden(command);
+}
+
+static bool extract_zip_to_path(const char *zip_path, const char *destination)
+{
+    if (!ensure_directory(destination)) {
+        return false;
+    }
+
+    char command[AHC_PATH_CAPACITY * 4];
+#if defined(_WIN32)
+    snprintf(command, sizeof(command), "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '%s' -DestinationPath '%s' -Force\"", zip_path, destination);
+#else
+    snprintf(command, sizeof(command), "unzip -q -o \"%s\" -d \"%s\"", zip_path, destination);
+#endif
+    return ahc_run_command_hidden(command);
 }
 
 static void write_addon_managed_marker(const AhcAddon *addon, const char *path)
@@ -1171,106 +1270,345 @@ static void write_addon_managed_marker(const AhcAddon *addon, const char *path)
     fclose(file);
 }
 
-static bool download_addon_to_path(CompanionState *state, const AhcAddon *addon, const char *path)
+static bool addon_marker_matches(const AhcAddon *addon, const char *path)
 {
-    if (!addon_has_source_subdir(addon)) {
-        return git_clone_to_path(addon, path);
+    char marker_path[AHC_PATH_CAPACITY];
+    path_join(marker_path, sizeof(marker_path), path, ".attune-helper-companion");
+    FILE *file = fopen(marker_path, "rb");
+    if (!file) {
+        return false;
     }
 
-    char staging_root[AHC_PATH_CAPACITY];
-    char clone_name[256];
-    char clone_path[AHC_PATH_CAPACITY];
-    char source_path[AHC_PATH_CAPACITY];
+    char line[AHC_PATH_CAPACITY];
+    bool matches = false;
+    while (fgets(line, sizeof(line), file)) {
+        if (strncmp(line, "repo=", 5) == 0) {
+            char *value = line + 5;
+            value[strcspn(value, "\r\n")] = '\0';
+            matches = strcmp(value, addon->repo) == 0;
+            break;
+        }
+    }
+    fclose(file);
+    return matches;
+}
 
+static bool find_managed_addon_path_in_root(const AhcAddon *addon, const char *addons_path, char *out, size_t out_capacity)
+{
+    if (!DirectoryExists(addons_path)) {
+        return false;
+    }
+
+    FilePathList entries = LoadDirectoryFiles(addons_path);
+    bool found = false;
+    for (unsigned int i = 0; i < entries.count; i++) {
+        const char *entry = entries.paths[i];
+        if (DirectoryExists(entry) && addon_marker_matches(addon, entry)) {
+            snprintf(out, out_capacity, "%s", entry);
+            found = true;
+            break;
+        }
+    }
+    UnloadDirectoryFiles(entries);
+    return found;
+}
+
+static bool addon_current_install_path(const CompanionState *state, const AhcAddon *addon, char *out, size_t out_capacity)
+{
+    if (addon_install_path(state, addon, out, out_capacity) && DirectoryExists(out)) {
+        return true;
+    }
+
+    char addons_path[AHC_PATH_CAPACITY];
+    if (!resolve_addons_path(state, addons_path, sizeof(addons_path))) {
+        return false;
+    }
+    return find_managed_addon_path_in_root(addon, addons_path, out, out_capacity);
+}
+
+typedef struct AddonTocFolderList {
+    char paths[32][AHC_PATH_CAPACITY];
+    char names[32][128];
+    size_t count;
+} AddonTocFolderList;
+
+static bool directory_contains_toc(const char *path, char *toc_name, size_t toc_name_capacity)
+{
+    FilePathList entries = LoadDirectoryFiles(path);
+    bool found = false;
+    for (unsigned int i = 0; i < entries.count; i++) {
+        const char *entry = entries.paths[i];
+        if (DirectoryExists(entry)) {
+            continue;
+        }
+        const char *name = GetFileName(entry);
+        const char *dot = strrchr(name, '.');
+        if (dot && AHC_STRICMP(dot, ".toc") == 0) {
+            if (toc_name && toc_name_capacity > 0u) {
+                size_t len = (size_t)(dot - name);
+                if (len >= toc_name_capacity) {
+                    len = toc_name_capacity - 1u;
+                }
+                memcpy(toc_name, name, len);
+                toc_name[len] = '\0';
+            }
+            found = true;
+            break;
+        }
+    }
+    UnloadDirectoryFiles(entries);
+    return found;
+}
+
+static void find_toc_folders_recursive(const char *root, AddonTocFolderList *folders, int depth)
+{
+    if (!root || !DirectoryExists(root) || !folders || folders->count >= 32u || depth > 8) {
+        return;
+    }
+
+    char toc_name[128];
+    if (directory_contains_toc(root, toc_name, sizeof(toc_name))) {
+        snprintf(folders->paths[folders->count], sizeof(folders->paths[folders->count]), "%s", root);
+        snprintf(folders->names[folders->count], sizeof(folders->names[folders->count]), "%s", toc_name[0] ? toc_name : GetFileName(root));
+        folders->count++;
+        return;
+    }
+
+    FilePathList entries = LoadDirectoryFiles(root);
+    for (unsigned int i = 0; i < entries.count && folders->count < 32u; i++) {
+        const char *entry = entries.paths[i];
+        const char *name = GetFileName(entry);
+        if (!DirectoryExists(entry) || AHC_STRICMP(name, ".git") == 0 || AHC_STRICMP(name, ".github") == 0) {
+            continue;
+        }
+        find_toc_folders_recursive(entry, folders, depth + 1);
+    }
+    UnloadDirectoryFiles(entries);
+}
+
+static bool stage_addon_source(CompanionState *state, const AhcAddon *addon, char *package_root, size_t package_root_capacity)
+{
+    char staging_root[AHC_PATH_CAPACITY];
+    char stage_name[256];
     if (!addon_staging_root(state, staging_root, sizeof(staging_root))) {
         return false;
     }
 
-    snprintf(clone_name, sizeof(clone_name), "%s-repo-%lld", addon->folder, (long long)time(NULL));
-    path_join(clone_path, sizeof(clone_path), staging_root, clone_name);
-    remove_directory_tree(clone_path);
+    snprintf(stage_name, sizeof(stage_name), "%s-source-%lld", addon->folder, (long long)time(NULL));
+    path_join(package_root, package_root_capacity, staging_root, stage_name);
+    remove_directory_tree(package_root);
 
-    if (!git_clone_to_path(addon, clone_path)) {
-        remove_directory_tree(clone_path);
-        return false;
+    if (addon_repo_is_zip_url(addon)) {
+        set_addon_job_progress(state, "Downloading addon ZIP");
+        char zip_path[AHC_PATH_CAPACITY];
+        char extract_path[AHC_PATH_CAPACITY];
+        char zip_name[300];
+        snprintf(zip_name, sizeof(zip_name), "%s.zip", stage_name);
+        path_join(zip_path, sizeof(zip_path), staging_root, zip_name);
+        path_join(extract_path, sizeof(extract_path), staging_root, stage_name);
+        remove(zip_path);
+        remove_directory_tree(extract_path);
+        if (!curl_download_to_path(addon->repo, zip_path)) {
+            remove(zip_path);
+            remove_directory_tree(extract_path);
+            return false;
+        }
+        set_addon_job_progress(state, "Extracting addon ZIP");
+        if (!extract_zip_to_path(zip_path, extract_path)) {
+            remove(zip_path);
+            remove_directory_tree(extract_path);
+            return false;
+        }
+        remove(zip_path);
+        snprintf(package_root, package_root_capacity, "%s", extract_path);
+        return true;
     }
 
-    path_join(source_path, sizeof(source_path), clone_path, addon->source_subdir);
-    if (!DirectoryExists(source_path)) {
-        remove_directory_tree(clone_path);
+    set_addon_job_progress(state, "Cloning addon repository");
+    if (!git_clone_to_path(addon, package_root)) {
+        remove_directory_tree(package_root);
         return false;
     }
-
-    remove_directory_tree(path);
-    if (rename(source_path, path) != 0) {
-        remove_directory_tree(clone_path);
-        return false;
-    }
-
-    remove_directory_tree(clone_path);
-    write_addon_managed_marker(addon, path);
-    return DirectoryExists(path);
+    return true;
 }
 
-static void install_or_update_addon(CompanionState *state, const AhcAddon *addon)
+static bool promote_staged_addon_folders(CompanionState *state, const AhcAddon *addon, const char *package_root)
+{
+    char addons_path[AHC_PATH_CAPACITY];
+    char scan_root[AHC_PATH_CAPACITY];
+    if (!resolve_addons_path(state, addons_path, sizeof(addons_path))) {
+        return false;
+    }
+
+    snprintf(scan_root, sizeof(scan_root), "%s", package_root);
+    if (addon_has_source_subdir(addon)) {
+        char source_path[AHC_PATH_CAPACITY];
+        path_join(source_path, sizeof(source_path), package_root, addon->source_subdir);
+        if (DirectoryExists(source_path)) {
+            snprintf(scan_root, sizeof(scan_root), "%s", source_path);
+        }
+    }
+
+    set_addon_job_progress(state, "Finding addon folders");
+    AddonTocFolderList folders = { 0 };
+    find_toc_folders_recursive(scan_root, &folders, 0);
+    if (folders.count == 0u) {
+        set_status(state, "Download did not contain an addon folder with a .toc file.");
+        return false;
+    }
+
+    char legacy_path[AHC_PATH_CAPACITY];
+    addon_install_path(state, addon, legacy_path, sizeof(legacy_path));
+    for (size_t i = 0; i < folders.count; i++) {
+        char destination[AHC_PATH_CAPACITY];
+        path_join(destination, sizeof(destination), addons_path, folders.names[i]);
+        set_addon_job_progress(state, "Backing up existing addon folder");
+        if (!move_addon_folder_to_backup(state, destination, folders.names[i], "update")) {
+            return false;
+        }
+        if (AHC_STRICMP(folders.names[i], addon->folder) != 0 && DirectoryExists(legacy_path)) {
+            if (!move_addon_folder_to_backup(state, legacy_path, addon->folder, "legacy-backup")) {
+                return false;
+            }
+        }
+        set_addon_job_progress(state, "Installing addon folder");
+        if (rename(folders.paths[i], destination) != 0) {
+            if (!copy_directory_tree(folders.paths[i], destination)) {
+                set_status(state, "Could not promote staged addon folder.");
+                return false;
+            }
+            remove_directory_tree(folders.paths[i]);
+        }
+        write_addon_managed_marker(addon, destination);
+    }
+
+    return true;
+}
+
+static bool download_addon_to_addons(CompanionState *state, const AhcAddon *addon)
+{
+    char package_root[AHC_PATH_CAPACITY];
+    if (!stage_addon_source(state, addon, package_root, sizeof(package_root))) {
+        return false;
+    }
+
+    bool promoted = promote_staged_addon_folders(state, addon, package_root);
+    set_addon_job_progress(state, "Cleaning staging files");
+    remove_directory_tree(package_root);
+    return promoted;
+}
+
+static void install_or_update_addon_sync(CompanionState *state, const AhcAddon *addon)
 {
     char path[AHC_PATH_CAPACITY];
-    char command[AHC_PATH_CAPACITY * 3];
 
     if (!addon_install_path(state, addon, path, sizeof(path))) {
         set_status(state, "Set a valid Synastria folder before managing addons.");
         return;
     }
 
-    bool was_installed = DirectoryExists(path);
-    if (was_installed) {
-        bool was_managed = addon_is_managed(state, addon);
-        if (!addon_is_git_checkout(state, addon)) {
-            char staging_root[AHC_PATH_CAPACITY];
-            char staging_path[AHC_PATH_CAPACITY];
-            char backup_path[AHC_PATH_CAPACITY];
-
-            if (!addon_staging_root(state, staging_root, sizeof(staging_root))) {
-                set_status(state, "Could not create addon staging folder.");
-                return;
-            }
-
-            path_join(staging_path, sizeof(staging_path), staging_root, addon->folder);
-            remove_directory_tree(staging_path);
-            if (!download_addon_to_path(state, addon, staging_path)) {
-                remove_directory_tree(staging_path);
-                set_status(state, "Could not download addon update from GitHub.");
-                return;
-            }
-            if (!move_installed_addon_to_backup(state, addon, path, was_managed ? "managed-update" : "manual-backup", backup_path, sizeof(backup_path))) {
-                remove_directory_tree(staging_path);
-                return;
-            }
-
-            if (rename(staging_path, path) != 0) {
-                rename(backup_path, path);
-                remove_directory_tree(staging_path);
-                set_status(state, "Could not promote downloaded addon. Manual install was restored.");
-                return;
-            }
-            char message[AHC_STATUS_CAPACITY];
-            snprintf(message, sizeof(message), "%s %s. Backup saved.", was_managed ? "Updated" : "Updated manual", addon->name);
-            set_status(state, message);
-            addon_status_cache_invalidate(state);
-            return;
-        }
-
-        snprintf(command, sizeof(command), "git -C \"%s\" pull --ff-only", path);
-    }
-
-    int result = was_installed ? system(command) : (download_addon_to_path(state, addon, path) ? 0 : 1);
+    bool was_installed = addon_current_install_path(state, addon, path, sizeof(path));
+    set_addon_job_progress(state, was_installed ? "Updating addon" : "Installing addon");
+    bool result = download_addon_to_addons(state, addon);
     char message[AHC_STATUS_CAPACITY];
-    if (result == 0) {
+    if (result) {
         snprintf(message, sizeof(message), "%s %s.", was_installed ? "Updated" : "Installed", addon->name);
     } else {
-        snprintf(message, sizeof(message), "Git command failed for %s.", addon->name);
+        snprintf(message, sizeof(message), "Could not install %s from source.", addon->name);
     }
     set_status(state, message);
+    addon_status_cache_invalidate(state);
+}
+
+typedef struct AddonInstallJobArgs {
+    CompanionState *state;
+    const AhcAddon *addon;
+} AddonInstallJobArgs;
+
+static void addon_install_job_run(AddonInstallJobArgs *args)
+{
+    CompanionState *state = args->state;
+    const AhcAddon *addon = args->addon;
+    snprintf(state->addon_job_progress, sizeof(state->addon_job_progress), "Starting %s", addon->name);
+    install_or_update_addon_sync(state, addon);
+    snprintf(state->addon_job_result, sizeof(state->addon_job_result), "%s", state->status);
+    state->addon_job_success = strstr(state->status, "Could not") == NULL;
+    state->addon_job_done = 1;
+    free(args);
+}
+
+#if defined(_WIN32)
+static unsigned __stdcall addon_install_job_thread(void *opaque)
+{
+    addon_install_job_run((AddonInstallJobArgs *)opaque);
+    return 0u;
+}
+#else
+static void *addon_install_job_thread(void *opaque)
+{
+    addon_install_job_run((AddonInstallJobArgs *)opaque);
+    return NULL;
+}
+#endif
+
+static void begin_install_or_update_addon(CompanionState *state, const AhcAddon *addon)
+{
+    if (state->addon_job_running) {
+        set_action_status(state, "Another addon install is already running.", "Addon install busy");
+        return;
+    }
+
+    AddonInstallJobArgs *args = (AddonInstallJobArgs *)calloc(1, sizeof(*args));
+    if (!args) {
+        set_action_status(state, "Could not start addon install job.", "Install start failed");
+        return;
+    }
+    args->state = state;
+    args->addon = addon;
+    state->addon_job_running = 1;
+    state->addon_job_done = 0;
+    state->addon_job_success = 0;
+    snprintf(state->addon_job_progress, sizeof(state->addon_job_progress), "Queued %s", addon->name);
+    snprintf(state->addon_job_result, sizeof(state->addon_job_result), "");
+    set_process_action(state, state->addon_job_progress);
+
+#if defined(_WIN32)
+    state->addon_job_thread = _beginthreadex(NULL, 0, addon_install_job_thread, args, 0, NULL);
+    if (state->addon_job_thread == 0u) {
+        state->addon_job_running = 0;
+        free(args);
+        set_action_status(state, "Could not start addon install thread.", "Install start failed");
+    }
+#else
+    if (pthread_create(&state->addon_job_thread, NULL, addon_install_job_thread, args) != 0) {
+        state->addon_job_running = 0;
+        free(args);
+        set_action_status(state, "Could not start addon install thread.", "Install start failed");
+    } else {
+        pthread_detach(state->addon_job_thread);
+    }
+#endif
+}
+
+static void poll_addon_install_job(CompanionState *state)
+{
+    if (!state->addon_job_running) {
+        return;
+    }
+    snprintf(state->process_action, sizeof(state->process_action), "%s", state->addon_job_progress);
+    state->process_started_at = app_time();
+    state->process_until = state->process_started_at + 1.0;
+    if (!state->addon_job_done) {
+        return;
+    }
+#if defined(_WIN32)
+    if (state->addon_job_thread != 0u) {
+        CloseHandle((void *)state->addon_job_thread);
+        state->addon_job_thread = 0u;
+    }
+#endif
+    state->addon_job_running = 0;
+    set_action_status(state, state->addon_job_result[0] ? state->addon_job_result : "Addon install finished.", state->addon_job_success ? "Addon install complete" : "Addon install failed");
     addon_status_cache_invalidate(state);
 }
 
@@ -1279,7 +1617,7 @@ static void uninstall_addon(CompanionState *state, const AhcAddon *addon)
     char path[AHC_PATH_CAPACITY];
     char backup_path[AHC_PATH_CAPACITY];
 
-    if (!addon_install_path(state, addon, path, sizeof(path)) || !DirectoryExists(path)) {
+    if (!addon_current_install_path(state, addon, path, sizeof(path))) {
         set_status(state, "Addon is not installed.");
         return;
     }
@@ -1315,6 +1653,12 @@ static void set_action_status(CompanionState *state, const char *status, const c
 {
     set_status(state, status);
     set_process_action(state, action);
+}
+
+static void set_addon_job_progress(CompanionState *state, const char *message)
+{
+    snprintf(state->addon_job_progress, sizeof(state->addon_job_progress), "%s", message);
+    snprintf(state->addon_job_action, sizeof(state->addon_job_action), "%s", message);
 }
 
 static void path_join(char *out, size_t out_capacity, const char *left, const char *right)
@@ -1441,6 +1785,11 @@ static void load_settings(CompanionState *state)
             snprintf(state->synastria_path, sizeof(state->synastria_path), "%s", line + 15);
         } else if (strncmp(line, "launch_parameters=", 18) == 0) {
             snprintf(state->launch_parameters, sizeof(state->launch_parameters), "%s", line + 18);
+        } else if (strncmp(line, "ui_scale=", 9) == 0) {
+            state->ui_scale_index = atoi(line + 9);
+            if (state->ui_scale_index < 0 || state->ui_scale_index > 3) {
+                state->ui_scale_index = 0;
+            }
         }
     }
 
@@ -1459,6 +1808,7 @@ static bool save_settings(CompanionState *state)
 
     fprintf(file, "synastria_path=%s\n", state->synastria_path);
     fprintf(file, "launch_parameters=%s\n", state->launch_parameters);
+    fprintf(file, "ui_scale=%d\n", state->ui_scale_index);
     fclose(file);
     set_status(state, "Settings saved.");
     return true;
@@ -1552,7 +1902,7 @@ static void load_addon_catalog(CompanionState *state)
     state->addons = ahc_addon_catalog_items();
     state->addon_count = ahc_addon_catalog_count();
     state->addon_manifest_loaded = false;
-    snprintf(state->addon_catalog_source, sizeof(state->addon_catalog_source), "built-in fallback");
+    snprintf(state->addon_catalog_source, sizeof(state->addon_catalog_source), "baked manifest catalog");
 
     if (s_have_exe_dir) {
         char exe_manifest[AHC_PATH_CAPACITY];
@@ -2481,9 +2831,7 @@ static bool launch_game(CompanionState *state)
     set_process_action(state, "Launching Synastria");
 
 #if defined(_WIN32)
-    char command[AHC_PATH_CAPACITY * 3];
-    snprintf(command, sizeof(command), "start \"\" /D \"%s\" \"%s\" %s", state->synastria_path, wowext_path, state->launch_parameters);
-    if (system(command) != 0) {
+    if (!ahc_launch_file_hidden(wowext_path, state->launch_parameters, state->synastria_path)) {
         set_action_status(state, "Could not launch WoWExt.exe.", "Launch failed");
         return false;
     }
@@ -2535,7 +2883,7 @@ static void draw_card(Rectangle bounds, const char *title)
 
 static bool draw_tab_button(const char *label, Rectangle bounds, bool active)
 {
-    return draw_wow_button(label, bounds, active, 18);
+    return draw_wow_button(label, bounds, active, si(15));
 }
 
 static void draw_window_chrome(CompanionState *state)
@@ -2610,14 +2958,18 @@ static void draw_header(CompanionState *state)
 
 static void draw_tabs(CompanionState *state)
 {
-    const float y = 84.0f + (float)AHC_CHROME_H;
-    if (draw_tab_button("Attunes", (Rectangle){ (float)content_left(), y, 164.0f, 44.0f }, state->tab == COMPANION_TAB_ATTUNES)) {
+    const float y = (float)AHC_CHROME_H + sf(8.0f);
+    const float x = sf(380.0f);
+    const float width = sf(128.0f);
+    const float height = sf(34.0f);
+    const float gap = sf(10.0f);
+    if (draw_tab_button("Attunes", (Rectangle){ x, y, width, height }, state->tab == COMPANION_TAB_ATTUNES)) {
         state->tab = COMPANION_TAB_ATTUNES;
     }
-    if (draw_tab_button("Addons", (Rectangle){ (float)content_left() + 176.0f, y, 164.0f, 44.0f }, state->tab == COMPANION_TAB_ADDONS)) {
+    if (draw_tab_button("Addons", (Rectangle){ x + width + gap, y, width, height }, state->tab == COMPANION_TAB_ADDONS)) {
         state->tab = COMPANION_TAB_ADDONS;
     }
-    if (draw_tab_button("Settings", (Rectangle){ (float)content_left() + 352.0f, y, 164.0f, 44.0f }, state->tab == COMPANION_TAB_SETTINGS)) {
+    if (draw_tab_button("Settings", (Rectangle){ x + (width + gap) * 2.0f, y, width, height }, state->tab == COMPANION_TAB_SETTINGS)) {
         state->tab = COMPANION_TAB_SETTINGS;
     }
 }
@@ -3198,6 +3550,33 @@ static int draw_category_filters(CompanionState *state, const AhcAddon *addons, 
     return row + 1;
 }
 
+static void draw_tooltip_box(const char *text, Rectangle anchor)
+{
+    if (!text || !text[0] || !CheckCollisionPointRec(GetMousePosition(), anchor)) {
+        return;
+    }
+    int width = measure_text_width(text, 13) + 22;
+    if (width < 120) {
+        width = 120;
+    }
+    Rectangle tip = { anchor.x, anchor.y - 34.0f, (float)width, 26.0f };
+    if (tip.y < 42.0f) {
+        tip.y = anchor.y + anchor.height + 8.0f;
+    }
+    DrawRectangleRounded(tip, 0.12f, 8, (Color){ 6, 12, 20, 245 });
+    DrawRectangleRoundedLines(tip, 0.12f, 8, AHC_BORDER_BRIGHT);
+    draw_text(text, (int)tip.x + 11, (int)tip.y + 7, 13, AHC_TEXT);
+}
+
+static void draw_status_icon(Rectangle bounds, bool installed, bool managed)
+{
+    Color color = !installed ? (Color){ 210, 72, 78, 255 } : (managed ? (Color){ 92, 214, 143, 255 } : (Color){ 232, 194, 83, 255 });
+    const char *label = !installed ? "X" : (managed ? "OK" : "!");
+    DrawCircle((int)(bounds.x + bounds.width * 0.5f), (int)(bounds.y + bounds.height * 0.5f), bounds.width * 0.42f, color);
+    draw_centered_text(label, bounds, 12, (Color){ 10, 18, 28, 255 });
+    draw_tooltip_box(!installed ? "Not installed" : (managed ? "Managed install" : "Manual install detected"), bounds);
+}
+
 static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_t count, size_t index, Rectangle bounds)
 {
     const AhcAddon *addon = &addons[index];
@@ -3212,11 +3591,15 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_
     draw_source_badge(badge, addon);
     draw_text(addon->name, (int)bounds.x + 16, (int)bounds.y + 10, 21, AHC_TEXT);
 
+    char meta[320];
+    snprintf(meta, sizeof(meta), "%s  |  By %s  |  Folder: %s", addon_source_label(addon), addon->author, addon->folder);
+    draw_text(meta, (int)bounds.x + 48, (int)bounds.y + 39, 15, AHC_MUTED);
     char category_line[128];
     addon_category_line(addon, category_line, sizeof(category_line));
-    char meta[320];
-    snprintf(meta, sizeof(meta), "%s  |  %s  |  By %s  |  Folder: %s", category_line, addon_source_label(addon), addon->author, addon->folder);
-    draw_text(meta, (int)bounds.x + 16, (int)bounds.y + 39, 15, AHC_MUTED);
+    Rectangle category_icon = { bounds.x + 16.0f, bounds.y + 36.0f, 24.0f, 24.0f };
+    DrawRectangleRounded(category_icon, 0.24f, 8, (Color){ 34, 66, 103, 255 });
+    draw_centered_text("C", category_icon, 13, AHC_TEXT);
+    draw_tooltip_box(category_line, category_icon);
 
     char description_line[220];
     snprintf(description_line, sizeof(description_line), "%s", addon->description);
@@ -3229,20 +3612,18 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_
     snprintf(version_line, sizeof(version_line), "Version %s", version_text);
     draw_text(version_line, (int)bounds.x + 16, (int)bounds.y + 84, 13, AHC_MUTED);
 
-    bool installable = addon_repo_is_git_checkout(addon);
+    bool installable = addon_has_install_source(addon);
     bool downloadable = addon_repo_is_zip_url(addon);
-    const char *status_text = installable
-        ? (installed ? (managed ? "✓ Managed / up to date" : "Manual") : "Not installed")
-        : (downloadable ? "Direct download available" : "Website entry");
-    draw_text(status_text, (int)bounds.x + (int)bounds.width - 250, (int)bounds.y + 80, 14, installed ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
+    Rectangle status_icon = { bounds.x + bounds.width - 226.0f, bounds.y + 75.0f, 24.0f, 24.0f };
+    draw_status_icon(status_icon, installed, managed);
 
     if (installable) {
         const char *primary_label = installed ? (managed || git_checkout ? "Update" : "Replace") : "Install";
         float primary_x = installed ? bounds.x + bounds.width - 184.0f : bounds.x + bounds.width - 88.0f;
-        if (draw_wow_button(primary_label, (Rectangle){ primary_x, bounds.y + 58.0f, 74.0f, 30.0f }, false, 15)) {
-            install_or_update_addon(state, addon);
+        if (draw_wow_button(primary_label, (Rectangle){ primary_x, bounds.y + 58.0f, 74.0f, 30.0f }, state->addon_job_running != 0, 15)) {
+            begin_install_or_update_addon(state, addon);
         }
-        if (installed && draw_wow_button("Uninstall", (Rectangle){ bounds.x + bounds.width - 96.0f, bounds.y + 58.0f, 82.0f, 30.0f }, false, 15)) {
+        if (installed && draw_wow_button("Uninstall", (Rectangle){ bounds.x + bounds.width - 96.0f, bounds.y + 58.0f, 82.0f, 30.0f }, state->addon_job_running != 0, 15) && !state->addon_job_running) {
             uninstall_addon(state, addon);
         }
     } else if (draw_wow_button(downloadable ? "Download" : "Open Page", (Rectangle){ bounds.x + bounds.width - 108.0f, bounds.y + 58.0f, 96.0f, 30.0f }, false, 14)) {
@@ -3279,26 +3660,33 @@ static const char *community_favorite_description(const AhcAddon *addon)
     return NULL;
 }
 
-static void draw_community_favorite_card(const AhcAddon *addon, const char *description, Rectangle bounds)
+static void draw_community_favorite_card(CompanionState *state, const AhcAddon *addons, size_t count, size_t index, const char *description, Rectangle bounds)
 {
+    const AhcAddon *addon = &addons[index];
+    AddonInstallStatus install_status = addon_install_status_for_index(state, addons, count, index);
     DrawRectangleRounded(bounds, 0.08f, 8, AHC_PANEL);
     DrawRectangleRoundedLines(bounds, 0.08f, 8, AHC_BORDER);
-    draw_wrapped_text(addon->name, (int)bounds.x + 12, (int)bounds.y + 10, 17, (int)bounds.width - 24, 1, AHC_TEXT);
+    draw_wrapped_text(addon->name, (int)bounds.x + 12, (int)bounds.y + 10, 17, (int)bounds.width - 86, 1, AHC_TEXT);
+    draw_status_icon((Rectangle){ bounds.x + bounds.width - 32.0f, bounds.y + 10.0f, 22.0f, 22.0f }, install_status.installed, install_status.managed);
     char byline[96];
     snprintf(byline, sizeof(byline), "By %s", addon->author);
     draw_text(byline, (int)bounds.x + 12, (int)bounds.y + 34, 13, AHC_MUTED);
-    draw_wrapped_text(description, (int)bounds.x + 12, (int)bounds.y + 56, 13, (int)bounds.width - 24, 3, AHC_ACCENT);
+    draw_wrapped_text(description, (int)bounds.x + 12, (int)bounds.y + 56, 13, (int)bounds.width - 24, 2, AHC_ACCENT);
+    const char *label = install_status.installed ? (install_status.managed ? "Update" : "Replace") : "Install";
+    if (draw_wow_button(label, (Rectangle){ bounds.x + bounds.width - 82.0f, bounds.y + bounds.height - 34.0f, 70.0f, 26.0f }, state->addon_job_running != 0, 13)) {
+        begin_install_or_update_addon(state, addon);
+    }
 }
 
-static float draw_community_favorites_section(const AhcAddon *addons, size_t count, float x, float y, float right)
+static float draw_community_favorites_section(CompanionState *state, const AhcAddon *addons, size_t count, float x, float y, float right)
 {
-    const AhcAddon *favorites[5] = { 0 };
+    size_t favorites[5] = { 0 };
     const char *descriptions[5] = { 0 };
     size_t favorite_count = 0u;
     for (size_t i = 0; i < count && favorite_count < 5u; i++) {
         const char *description = community_favorite_description(&addons[i]);
         if (description) {
-            favorites[favorite_count] = &addons[i];
+            favorites[favorite_count] = i;
             descriptions[favorite_count] = description;
             favorite_count++;
         }
@@ -3318,7 +3706,7 @@ static float draw_community_favorites_section(const AhcAddon *addons, size_t cou
         columns = 1;
     }
     const float card_width = (available - (float)(columns - 1) * gap) / (float)columns;
-    const float card_height = 116.0f;
+    const float card_height = 126.0f;
     float cursor_x = x;
     float cursor_y = y + 48.0f;
     float bottom = cursor_y + card_height;
@@ -3329,7 +3717,7 @@ static float draw_community_favorites_section(const AhcAddon *addons, size_t cou
             cursor_y += card_height + gap;
             bottom = cursor_y + card_height;
         }
-        draw_community_favorite_card(favorites[i], descriptions[i], (Rectangle){ cursor_x, cursor_y, card_width, card_height });
+        draw_community_favorite_card(state, addons, count, favorites[i], descriptions[i], (Rectangle){ cursor_x, cursor_y, card_width, card_height });
         cursor_x += card_width + gap;
     }
 
@@ -3352,17 +3740,11 @@ static void draw_addons_tab(CompanionState *state)
     Rectangle content = content_rect();
     draw_card(content, title);
 
-    char source_line[AHC_PATH_CAPACITY + 96];
-    snprintf(source_line, sizeof(source_line), "%s catalog: %s", state->addon_manifest_loaded ? "Local manifest" : "Fallback", state->addon_catalog_source);
-    draw_text(source_line, (int)content.x + 20, (int)content.y + 40, 14, AHC_MUTED);
-    draw_text("GitHub installs clone repos; manual addons are backed up before replacement.", (int)content.x + 20, (int)content.y + 60, 14, AHC_MUTED);
-
-
-    float controls_y = content.y + 84.0f;
-    controls_y += draw_community_favorites_section(addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
+    float controls_y = content.y + 50.0f;
+    controls_y += draw_community_favorites_section(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
     int category_rows = draw_category_filters(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
     float list_y = controls_y + (float)(category_rows * 34) + 8.0f;
-    float list_height = content.y + content.height - list_y - 38.0f;
+    float list_height = content.y + content.height - list_y - 14.0f;
     if (list_height < 88.0f) {
         list_height = 88.0f;
     }
@@ -3414,7 +3796,6 @@ static void draw_addons_tab(CompanionState *state)
         }
         EndScissorMode();
     }
-    draw_text("For larger catalogs, release ZIP support will avoid GitHub clone friction.", (int)content.x + 20, (int)(content.y + content.height - 28.0f), 15, AHC_MUTED);
 }
 
 static void draw_labeled_textbox(const char *label, Rectangle bounds, char *value, int value_capacity, bool *editing)
@@ -3441,9 +3822,9 @@ static void draw_settings_tab(CompanionState *state)
         right_width = content.width;
     }
 
-    Rectangle setup_card = { content.x, content.y, left_width, 286.0f };
-    Rectangle data_card = { content.x, content.y + 304.0f, left_width, 174.0f };
-    Rectangle wow_card = { two_columns ? right_x : content.x, two_columns ? content.y : content.y + 496.0f, right_width, 456.0f };
+    Rectangle setup_card = { content.x, content.y, left_width, 326.0f };
+    Rectangle data_card = { content.x, content.y + 344.0f, left_width, 174.0f };
+    Rectangle wow_card = { two_columns ? right_x : content.x, two_columns ? content.y : content.y + 536.0f, right_width, 456.0f };
 
     draw_card(setup_card, "Setup");
     draw_text("Synastria folder", (int)setup_card.x + 20, (int)setup_card.y + 50, 22, AHC_TEXT);
@@ -3489,6 +3870,16 @@ static void draw_settings_tab(CompanionState *state)
             load_wow_config(state);
         }
     }
+    draw_text("UI scale", (int)setup_card.x + 20, (int)setup_card.y + 205, 15, AHC_MUTED);
+    const char *scale_labels[] = { "Auto", "100%", "125%", "150%" };
+    for (int i = 0; i < 4; i++) {
+        Rectangle scale_button = { setup_card.x + 92.0f + (float)i * 72.0f, setup_card.y + 199.0f, 64.0f, 30.0f };
+        if (draw_wow_button(scale_labels[i], scale_button, state->ui_scale_index == i, 13)) {
+            state->ui_scale_index = i;
+            update_ui_scale(state);
+            save_settings(state);
+        }
+    }
     {
         bool path_ok = validate_synastria_path(state->synastria_path);
 #if !defined(_WIN32)
@@ -3503,15 +3894,15 @@ static void draw_settings_tab(CompanionState *state)
         draw_text(ready_msg, (int)setup_card.x + 352, (int)setup_card.y + 171, 15, run_ok ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
     }
 
-    draw_text("Launch parameters", (int)setup_card.x + 20, (int)setup_card.y + 216, 16, AHC_MUTED);
-    Rectangle launch_box = { setup_card.x + 20.0f, setup_card.y + 238.0f, setup_card.width - 166.0f, 34.0f };
+    draw_text("Launch parameters", (int)setup_card.x + 20, (int)setup_card.y + 244, 16, AHC_MUTED);
+    Rectangle launch_box = { setup_card.x + 20.0f, setup_card.y + 266.0f, setup_card.width - 166.0f, 34.0f };
     if (launch_box.width < 300.0f) {
         launch_box.width = 300.0f;
     }
     if (GuiTextBox(launch_box, state->launch_parameters, (int)sizeof(state->launch_parameters), state->launch_parameters_editing)) {
         state->launch_parameters_editing = !state->launch_parameters_editing;
     }
-    draw_text("Use Play Game in the header for quick launch.", (int)setup_card.x + 352, (int)setup_card.y + 246, 14, AHC_MUTED);
+    draw_text("Use Play Game in the header for quick launch.", (int)setup_card.x + 352, (int)setup_card.y + 274, 14, AHC_MUTED);
 
     draw_card(data_card, "Data and backups");
     draw_text("Backups are copied under Synastria/AttuneHelperBackup.", (int)data_card.x + 20, (int)data_card.y + 52, 16, AHC_MUTED);
@@ -3633,7 +4024,7 @@ static void init_state(CompanionState *state)
     memset(state, 0, sizeof(*state));
     state->tab = COMPANION_TAB_ATTUNES;
     state->graph_metric = GRAPH_METRIC_ACCOUNT;
-    state->graph_display = GRAPH_DISPLAY_BARS;
+    state->graph_display = GRAPH_DISPLAY_PLOT;
     reset_wow_config_fields(state);
     load_addon_catalog(state);
     resolve_config_paths(state);
@@ -3756,6 +4147,8 @@ int main(void)
             ToggleFullscreen();
         }
 
+        update_ui_scale(&state);
+        poll_addon_install_job(&state);
         poll_attunehelper_snapshot(&state);
 
         bool throttled = IsWindowHidden() || IsWindowMinimized();

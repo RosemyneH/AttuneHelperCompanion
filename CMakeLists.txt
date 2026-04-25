@@ -5,6 +5,8 @@ project(AttuneHelperCompanion VERSION 0.1.0 LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+find_package(Threads REQUIRED)
 
 option(AHC_BUILD_APP "Build the native companion application" ON)
 option(AHC_BUILD_TESTS "Build tests" ON)
@@ -34,8 +36,23 @@ else()
     set(AHC_MEMCHR_SRC src/ahc/ahc_memchr_dispatch.c)
 endif()
 
+set(AHC_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(AHC_GENERATED_ADDON_CATALOG "${AHC_GENERATED_DIR}/addon_catalog_generated.c")
+add_custom_command(
+    OUTPUT "${AHC_GENERATED_ADDON_CATALOG}"
+    COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_addon_catalog.py"
+        --input "${CMAKE_CURRENT_SOURCE_DIR}/manifest/addons.json"
+        --output "${AHC_GENERATED_ADDON_CATALOG}"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/manifest/addons.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_addon_catalog.py"
+    COMMENT "Generating baked addon catalog"
+    VERBATIM
+)
+
 add_library(ahc_core
-    src/addons/addon_catalog.c
+    "${AHC_GENERATED_ADDON_CATALOG}"
     src/addons/addon_manifest.c
     src/attune/attune_snapshot.c
     src/ahc/ahc_arena.c
@@ -120,6 +137,7 @@ if(AHC_BUILD_APP)
     add_executable(attune_helper_companion
         apps/companion/main.c
         apps/companion/ahc_tray.c
+        apps/companion/ahc_process.c
     )
     if(WIN32)
         set_target_properties(attune_helper_companion PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -141,6 +159,7 @@ if(AHC_BUILD_APP)
         PRIVATE
             ahc_core
             raylib
+            Threads::Threads
     )
     if(WIN32)
         target_link_libraries(attune_helper_companion PRIVATE shell32 user32)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import re
+from email.utils import parsedate_to_datetime
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -43,6 +44,21 @@ def http_json(url: str) -> dict | list | None:
         return None
 
 
+def http_headers(url: str) -> dict[str, str]:
+    req = urllib.request.Request(
+        url,
+        method="HEAD",
+        headers={
+            "User-Agent": "attune-helper-companion-manifest-refresh",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=12) as response:
+            return {key.lower(): value for key, value in response.headers.items()}
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
+        return {}
+
+
 def resolve_github_version(owner: str, repo: str) -> str | None:
     release_url = f"https://api.github.com/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/releases/latest"
     release_data = http_json(release_url)
@@ -77,6 +93,25 @@ def resolve_github_version(owner: str, repo: str) -> str | None:
     return None
 
 
+def resolve_direct_zip_version(url: str) -> str:
+    headers = http_headers(url)
+    last_modified = headers.get("last-modified")
+    if last_modified:
+        try:
+            dt = parsedate_to_datetime(last_modified)
+            return f"zip-{dt:%Y%m%d}"
+        except (TypeError, ValueError, IndexError, OverflowError):
+            pass
+
+    etag = headers.get("etag")
+    if etag:
+        clean = re.sub(r"[^A-Za-z0-9]+", "", etag)
+        if clean:
+            return f"zip-etag-{clean[:12]}"
+
+    return "website"
+
+
 def main() -> None:
     manifest_path = Path("manifest/addons.json")
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -94,6 +129,8 @@ def main() -> None:
                 addon["version"] = resolved
             elif not addon.get("version"):
                 addon["version"] = "unknown"
+        elif repo.lower().split("?", 1)[0].endswith(".zip"):
+            addon["version"] = resolve_direct_zip_version(repo)
         elif not addon.get("version"):
             addon["version"] = "unknown"
 

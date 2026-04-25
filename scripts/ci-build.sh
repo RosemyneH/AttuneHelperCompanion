@@ -32,6 +32,8 @@ if [ "${RUNNER_OS:-}" = "Linux" ] && [ -n "${GITHUB_ACTIONS:-}" ] && [ "${AHC_SK
 fi
 
 # Same core flags as build-app.bat (no app launch in CI)
+"${PYTHON:-python}" scripts/generate_addon_catalog.py --check
+
 CMAKE_CMD=(
   -S "$ROOT"
   -B "$BUILD_DIR"

@@ -26,8 +26,25 @@ static int addon_has_category(const AhcAddon *addon, const char *category)
     return addon->category && strcmp(addon->category, category) == 0;
 }
 
+static int baked_catalog_has_source(const char *source)
+{
+    const AhcAddon *addons = ahc_addon_catalog_items();
+    size_t count = ahc_addon_catalog_count();
+    for (size_t i = 0; i < count; i++) {
+        if (addons[i].source && strcmp(addons[i].source, source) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int main(void)
 {
+    if (ahc_addon_catalog_count() < 1000u || !baked_catalog_has_source("Felbite")) {
+        fprintf(stderr, "Baked addon catalog does not include the full website catalog.\n");
+        return 1;
+    }
+
     AhcAddonManifest manifest = { 0 };
     if (!ahc_addon_manifest_load_file(AHC_TEST_MANIFEST_PATH, &manifest)) {
         fprintf(stderr, "Failed to load addon manifest: %s\n", AHC_TEST_MANIFEST_PATH);
