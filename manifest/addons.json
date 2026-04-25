@@ -1,0 +1,472 @@
+{
+  "manifest_version": 1,
+  "updated_at": "2026-04-25",
+  "default_install_type": "git",
+  "supported_install_types": [
+    "git",
+    "github_release",
+    "direct_zip"
+  ],
+  "addons": [
+    {
+      "id": "arkinventory",
+      "name": "ArkInventory",
+      "author": "Scoots",
+      "category": "Inventory",
+      "folder": "ArkInventory",
+      "description": "Adds support for attunements.",
+      "repo": "https://github.com/SynScoots/ArkInventory-modified-for-attunements-.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ArkInventory-modified-for-attunements-.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ArkInventory-modified-for-attunements-",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "atlasloot-mythic",
+      "name": "AtlasLoot Mythic",
+      "author": "imevul",
+      "category": "Loot",
+      "folder": "AtlasLoot_Mythic",
+      "description": "Adds mythic items to AtlasLoot.",
+      "repo": "https://github.com/imevul/AtlasLoot_Mythic.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/imevul/AtlasLoot_Mythic.git"
+      },
+      "github_release": {
+        "owner": "imevul",
+        "repo": "AtlasLoot_Mythic",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "attune-helper",
+      "name": "Attune Helper",
+      "author": "Qt",
+      "category": "Attunement",
+      "folder": "AttuneHelper",
+      "description": "Auto-equips attuneable gear and more.",
+      "repo": "https://github.com/RosemyneH/AttuneHelperHosting.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/AttuneHelperHosting.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "AttuneHelperHosting",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "attune-progress",
+      "name": "AttuneProgress",
+      "author": "QT",
+      "category": "Attunement",
+      "folder": "AttuneProgress",
+      "description": "Tracks attunement progress in inventory.",
+      "repo": "https://github.com/RosemyneH/AttuneProgress.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/AttuneProgress.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "AttuneProgress",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "droms-instance-timer",
+      "name": "Droms Instance Timer",
+      "author": "Dromkal",
+      "category": "Dungeon",
+      "folder": "DromsInstanceTimer",
+      "description": "Tracks how many instances you've entered in the last hour.",
+      "repo": "https://github.com/binnesman/DromsInstanceTimer-1.0.0.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/binnesman/DromsInstanceTimer-1.0.0.git"
+      },
+      "github_release": {
+        "owner": "binnesman",
+        "repo": "DromsInstanceTimer-1.0.0",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "droms-kill-counter",
+      "name": "Droms Kill Counter",
+      "author": "Dromkal",
+      "category": "Loot",
+      "folder": "DromsTrashKillCount",
+      "description": "Shows attuneable loot in your current zone.",
+      "repo": "https://github.com/binnesman/DromsKillCounter.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/binnesman/DromsKillCounter.git"
+      },
+      "github_release": {
+        "owner": "binnesman",
+        "repo": "DromsKillCounter",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "elvui",
+      "name": "ElvUI",
+      "author": "QT",
+      "category": "UI Suite",
+      "folder": "ElvUI",
+      "description": "ElvUI mod for Synastria.",
+      "repo": "https://github.com/RosemyneH/ElvUI_Attune.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/ElvUI_Attune.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "ElvUI_Attune",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "mehtrajectory",
+      "name": "MehTrajectory",
+      "author": "Meh",
+      "category": "Map",
+      "folder": "MehTrajectory",
+      "description": "Tracks movement trajectory on the map.",
+      "repo": "https://github.com/SynScoots/MehTrajectory.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/MehTrajectory.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "MehTrajectory",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "postal",
+      "name": "Postal",
+      "author": "Lulleh",
+      "category": "Utility",
+      "folder": "Postal",
+      "description": "Postal mod with faster Open All speed.",
+      "repo": "https://github.com/binnesman/Postal.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/binnesman/Postal.git"
+      },
+      "github_release": {
+        "owner": "binnesman",
+        "repo": "Postal",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "qt-auto-roller",
+      "name": "Qt's Auto-Roller",
+      "author": "Qt",
+      "category": "Loot",
+      "folder": "qtRoll",
+      "description": "Automatically rolls for loot while in a group.",
+      "repo": "https://github.com/RosemyneH/qtRoll.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/qtRoll.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "qtRoll",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "scoots-combat-attune-watch",
+      "name": "Scoots' Combat Attune Watch",
+      "author": "Scoots",
+      "category": "Combat",
+      "folder": "ScootsCombatAttuneWatch",
+      "description": "Tracks attunement progress in combat.",
+      "repo": "https://github.com/SynScoots/ScootsCombatAttuneWatch.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ScootsCombatAttuneWatch.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ScootsCombatAttuneWatch",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "scoots-confirmation-skip",
+      "name": "Scoots' Confirmation Skip",
+      "author": "Scoots",
+      "category": "Quality of Life",
+      "folder": "ScootsConfirmationSkip",
+      "description": "Skips confirmation prompts for BoE equips and BoP looting.",
+      "repo": "https://github.com/SynScoots/ScootsConfirmationSkip.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ScootsConfirmationSkip.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ScootsConfirmationSkip",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "scoots-craft",
+      "name": "Scoots' Craft",
+      "author": "Scoots",
+      "category": "Profession",
+      "folder": "ScootsCraft",
+      "description": "A complete overhaul of the profession UI.",
+      "repo": "https://github.com/SynScoots/ScootsCraft.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ScootsCraft.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ScootsCraft",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "scoots-quick-auction",
+      "name": "Scoots' Quick Auction",
+      "author": "Scoots",
+      "category": "Auction",
+      "folder": "ScootsQuickAuction",
+      "description": "Rapidly creates auctions at a specified price.",
+      "repo": "https://github.com/SynScoots/ScootsQuickAuction.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ScootsQuickAuction.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ScootsQuickAuction",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "scoots-rares",
+      "name": "Scoots' Rares",
+      "author": "Scoots",
+      "category": "Map",
+      "folder": "ScootsRares",
+      "description": "Creates a chat link to run .findnpc when near a rare.",
+      "repo": "https://github.com/SynScoots/ScootsRares.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ScootsRares.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ScootsRares",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "scoots-speedrun",
+      "name": "Scoots' Speedrun",
+      "author": "Scoots",
+      "category": "Dungeon",
+      "folder": "ScootsSpeedrun",
+      "description": "Instantly selects dialogue choices in dungeons.",
+      "repo": "https://github.com/SynScoots/ScootsSpeedrun.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ScootsSpeedrun.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ScootsSpeedrun",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "scoots-stats",
+      "name": "Scoots' Stats",
+      "author": "Scoots",
+      "category": "Character",
+      "folder": "ScootsStats",
+      "description": "Adds a stat panel beside the character panel.",
+      "repo": "https://github.com/SynScoots/ScootsStats.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ScootsStats.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ScootsStats",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "scoots-vendor-filter",
+      "name": "Scoots' Vendor Filter",
+      "author": "Scoots",
+      "category": "Vendor",
+      "folder": "ScootsVendorFilter",
+      "description": "Converts vendors to a scrollable list.",
+      "repo": "https://github.com/SynScoots/ScootsVendorFilter.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ScootsVendorFilter.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ScootsVendorFilter",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "scoots-vendor-forge",
+      "name": "Scoots' Vendor Forge",
+      "author": "Scoots",
+      "category": "Vendor",
+      "folder": "ScootsVendorForge",
+      "description": "Continuously purchases vendor items until forged.",
+      "repo": "https://github.com/SynScoots/ScootsVendorForge.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/SynScoots/ScootsVendorForge.git"
+      },
+      "github_release": {
+        "owner": "SynScoots",
+        "repo": "ScootsVendorForge",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "synastria-build-manager",
+      "name": "Synastria Build Manager",
+      "author": "Namira",
+      "category": "Builds",
+      "folder": "SynastriaBuildManager",
+      "description": "Exports and imports perks and talents.",
+      "repo": "https://github.com/Lubricated/SynastriaBuildManager.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/Lubricated/SynastriaBuildManager.git"
+      },
+      "github_release": {
+        "owner": "Lubricated",
+        "repo": "SynastriaBuildManager",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "synastria-tooltip-enhancer",
+      "name": "Synastria Tooltip Enhancer",
+      "author": "Lulleh",
+      "category": "Tooltip",
+      "folder": "SynastriaTooltipEnhancer",
+      "description": "Enhances Synastria item tooltips.",
+      "repo": "https://github.com/binnesman/Synastria-Tooltip-Enhancer.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/binnesman/Synastria-Tooltip-Enhancer.git"
+      },
+      "github_release": {
+        "owner": "binnesman",
+        "repo": "Synastria-Tooltip-Enhancer",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "the-journal",
+      "name": "The Journal",
+      "author": "Qt",
+      "category": "Dungeon",
+      "folder": "TheJournal",
+      "description": "Dungeon journal with item and boss details.",
+      "repo": "https://github.com/RosemyneH/TheJournal.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/TheJournal.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "TheJournal",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    },
+    {
+      "id": "warpring",
+      "name": "WarpRing",
+      "author": "Namira",
+      "category": "Utility",
+      "folder": "WarpRing",
+      "description": "Warp Ring UI.",
+      "repo": "https://github.com/binnesman/namira_warpring.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/binnesman/namira_warpring.git"
+      },
+      "github_release": {
+        "owner": "binnesman",
+        "repo": "namira_warpring",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null
+    }
+  ]
+}
