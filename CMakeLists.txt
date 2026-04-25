@@ -121,6 +121,12 @@ if(AHC_BUILD_APP)
         apps/companion/main.c
         apps/companion/ahc_tray.c
     )
+    if(WIN32)
+        set_target_properties(attune_helper_companion PROPERTIES WIN32_EXECUTABLE TRUE)
+        if(MSVC)
+            target_link_options(attune_helper_companion PRIVATE /ENTRY:mainCRTStartup)
+        endif()
+    endif()
 
     target_include_directories(attune_helper_companion
         PRIVATE

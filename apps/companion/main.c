@@ -51,6 +51,11 @@ __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void *hModule, 
 #define AHC_AVATAR_CACHE_CAPACITY 24
 #define AHC_AVATAR_TEXTURE_MAX 32
 #define AHC_AVATAR_KEY 256
+#define AHC_AVATAR_LOAD_INTERVAL_SECONDS 0.25
+#define AHC_ADDON_STATUS_CACHE_CAPACITY 4096
+#define AHC_ADDON_STATUS_REFRESH_SECONDS 5.0
+#define AHC_ADDON_STATIC_FPS 30
+#define AHC_HIDDEN_FPS 2
 #define AHC_FONT_GLYPHS 95
 #define AHC_SNAPSHOT_POLL_SECONDS 5.0
 #define AHC_PROCESS_ACTIVE_SECONDS 4.0
@@ -86,6 +91,14 @@ typedef struct DisplaySnapshot {
     bool synthetic;
 } DisplaySnapshot;
 
+typedef struct AddonInstallStatus {
+    double checked_at;
+    bool checked;
+    bool installed;
+    bool git_checkout;
+    bool managed;
+} AddonInstallStatus;
+
 typedef struct CompanionState {
     CompanionTab tab;
     char config_dir[AHC_PATH_CAPACITY];
@@ -109,6 +122,22 @@ typedef struct CompanionState {
     GraphDisplay graph_display;
     char selected_addon_category[64];
     char addon_catalog_source[AHC_PATH_CAPACITY];
+    const AhcAddon *addon_category_cache_items;
+    size_t addon_category_cache_count;
+    const char *addon_categories[AHC_CATEGORY_CAPACITY];
+    size_t addon_category_count;
+    bool addon_categories_valid;
+    const AhcAddon *addon_filter_cache_items;
+    size_t addon_filter_cache_count;
+    char addon_filter_cache_category[64];
+    size_t addon_filter_count;
+    bool addon_filter_valid;
+    const AhcAddon *addon_status_cache_items;
+    size_t addon_status_cache_count;
+    char addon_status_cache_synastria_path[AHC_PATH_CAPACITY];
+    char addon_status_root[AHC_PATH_CAPACITY];
+    bool addon_status_root_valid;
+    AddonInstallStatus addon_statuses[AHC_ADDON_STATUS_CACHE_CAPACITY];
     char launch_parameters[256];
     char monitor_name[128];
     long snapshot_mod_time;
@@ -168,6 +197,7 @@ static AvatarCacheEntry g_avatar_cache[AHC_AVATAR_CACHE_CAPACITY];
 static size_t g_avatar_cache_count;
 static Texture2D g_avatar_placeholder;
 static bool g_avatar_placeholder_valid;
+static double g_next_avatar_load_time;
 static char s_exe_dir[AHC_PATH_CAPACITY];
 static bool s_have_exe_dir;
 
@@ -190,9 +220,11 @@ static void init_latin_font_codepoints(void)
 
 static void set_status(CompanionState *state, const char *message);
 static void set_action_status(CompanionState *state, const char *status, const char *action);
+static double app_time(void);
 static void path_join(char *out, size_t out_capacity, const char *left, const char *right);
 static void ahc_init_exe_dir_once(void);
 static bool validate_synastria_path(const char *path);
+static void addon_status_cache_invalidate(CompanionState *state);
 #if !defined(_WIN32)
 static bool ahc_posix_wine_or_proton_ready(void);
 #endif
@@ -417,6 +449,7 @@ static void load_ui_images(void)
     g_avatar_cache_count = 0;
     memset(g_avatar_cache, 0, sizeof(g_avatar_cache));
     g_avatar_placeholder_valid = false;
+    g_next_avatar_load_time = 0.0;
     {
         Image ph = GenImageColor(32, 32, (Color){ 40, 58, 86, 255 });
         g_avatar_placeholder = LoadTextureFromImage(ph);
@@ -636,10 +669,16 @@ static bool ahc_complete_avatar_entry(AvatarCacheEntry *entry)
 
 static void ahc_process_avatar_deferred_loads(void)
 {
+    double now = app_time();
+    if (now < g_next_avatar_load_time) {
+        return;
+    }
+
     for (size_t i = 0; i < g_avatar_cache_count; i++) {
         AvatarCacheEntry *e = &g_avatar_cache[i];
         if (e->load_pending && !e->loaded && !e->failed) {
             (void)ahc_complete_avatar_entry(e);
+            g_next_avatar_load_time = now + AHC_AVATAR_LOAD_INTERVAL_SECONDS;
             return;
         }
     }
@@ -860,6 +899,75 @@ static bool addon_has_managed_marker(const CompanionState *state, const AhcAddon
 static bool addon_is_managed(const CompanionState *state, const AhcAddon *addon)
 {
     return addon_is_git_checkout(state, addon) || addon_has_managed_marker(state, addon);
+}
+
+static void addon_status_cache_invalidate(CompanionState *state)
+{
+    state->addon_status_cache_items = NULL;
+    state->addon_status_cache_count = 0u;
+    state->addon_status_cache_synastria_path[0] = '\0';
+    state->addon_status_root[0] = '\0';
+    state->addon_status_root_valid = false;
+    memset(state->addon_statuses, 0, sizeof(state->addon_statuses));
+}
+
+static void addon_status_cache_prepare(CompanionState *state, const AhcAddon *addons, size_t count)
+{
+    size_t capped_count = count < AHC_ADDON_STATUS_CACHE_CAPACITY ? count : AHC_ADDON_STATUS_CACHE_CAPACITY;
+    if (state->addon_status_cache_items == addons
+        && state->addon_status_cache_count == capped_count
+        && strcmp(state->addon_status_cache_synastria_path, state->synastria_path) == 0) {
+        return;
+    }
+
+    addon_status_cache_invalidate(state);
+    state->addon_status_cache_items = addons;
+    state->addon_status_cache_count = capped_count;
+    snprintf(state->addon_status_cache_synastria_path, sizeof(state->addon_status_cache_synastria_path), "%s", state->synastria_path);
+    state->addon_status_root_valid = resolve_addons_path(state, state->addon_status_root, sizeof(state->addon_status_root));
+}
+
+static AddonInstallStatus addon_install_status_for_index(CompanionState *state, const AhcAddon *addons, size_t count, size_t index)
+{
+    AddonInstallStatus status = { 0 };
+    if (!addons || index >= count) {
+        return status;
+    }
+
+    addon_status_cache_prepare(state, addons, count);
+    if (index >= state->addon_status_cache_count) {
+        status.installed = addon_is_installed(state, &addons[index]);
+        status.git_checkout = addon_is_git_checkout(state, &addons[index]);
+        status.managed = status.git_checkout || addon_has_managed_marker(state, &addons[index]);
+        status.checked = true;
+        return status;
+    }
+
+    AddonInstallStatus *cached = &state->addon_statuses[index];
+    double now = app_time();
+    if (cached->checked && now - cached->checked_at < AHC_ADDON_STATUS_REFRESH_SECONDS) {
+        return *cached;
+    }
+
+    memset(cached, 0, sizeof(*cached));
+    cached->checked_at = now;
+    cached->checked = true;
+    if (!state->addon_status_root_valid) {
+        return *cached;
+    }
+
+    char path[AHC_PATH_CAPACITY];
+    char git_path[AHC_PATH_CAPACITY];
+    char marker_path[AHC_PATH_CAPACITY];
+    path_join(path, sizeof(path), state->addon_status_root, addons[index].folder);
+    cached->installed = DirectoryExists(path);
+    if (cached->installed) {
+        path_join(git_path, sizeof(git_path), path, ".git");
+        path_join(marker_path, sizeof(marker_path), path, ".attune-helper-companion");
+        cached->git_checkout = DirectoryExists(git_path);
+        cached->managed = cached->git_checkout || FileExists(marker_path);
+    }
+    return *cached;
 }
 
 static bool remove_directory_tree(const char *path)
@@ -1148,6 +1256,7 @@ static void install_or_update_addon(CompanionState *state, const AhcAddon *addon
             char message[AHC_STATUS_CAPACITY];
             snprintf(message, sizeof(message), "%s %s. Backup saved.", was_managed ? "Updated" : "Updated manual", addon->name);
             set_status(state, message);
+            addon_status_cache_invalidate(state);
             return;
         }
 
@@ -1162,6 +1271,7 @@ static void install_or_update_addon(CompanionState *state, const AhcAddon *addon
         snprintf(message, sizeof(message), "Git command failed for %s.", addon->name);
     }
     set_status(state, message);
+    addon_status_cache_invalidate(state);
 }
 
 static void uninstall_addon(CompanionState *state, const AhcAddon *addon)
@@ -1181,6 +1291,7 @@ static void uninstall_addon(CompanionState *state, const AhcAddon *addon)
     char message[AHC_STATUS_CAPACITY];
     snprintf(message, sizeof(message), "Uninstalled %s. Backup saved.", addon->name);
     set_status(state, message);
+    addon_status_cache_invalidate(state);
 }
 
 static void set_status(CompanionState *state, const char *message)
@@ -2936,14 +3047,26 @@ static bool addon_matches_selected_category(const CompanionState *state, const A
     return addon->category && strcmp(addon->category, state->selected_addon_category) == 0;
 }
 
-static size_t addon_filtered_count(const CompanionState *state, const AhcAddon *addons, size_t count)
+static size_t addon_filtered_count(CompanionState *state, const AhcAddon *addons, size_t count)
 {
-    size_t filtered = 0;
+    if (state->addon_filter_valid
+        && state->addon_filter_cache_items == addons
+        && state->addon_filter_cache_count == count
+        && strcmp(state->addon_filter_cache_category, state->selected_addon_category) == 0) {
+        return state->addon_filter_count;
+    }
+
+    size_t filtered = 0u;
     for (size_t i = 0; i < count; i++) {
         if (addon_matches_selected_category(state, &addons[i])) {
             filtered++;
         }
     }
+    state->addon_filter_cache_items = addons;
+    state->addon_filter_cache_count = count;
+    snprintf(state->addon_filter_cache_category, sizeof(state->addon_filter_cache_category), "%s", state->selected_addon_category);
+    state->addon_filter_count = filtered;
+    state->addon_filter_valid = true;
     return filtered;
 }
 
@@ -3003,19 +3126,35 @@ static void addon_category_line(const AhcAddon *addon, char *out, size_t out_cap
     }
 }
 
-static int draw_category_filters(CompanionState *state, const AhcAddon *addons, size_t count, float x, float y, float right)
+static void addon_category_cache_prepare(CompanionState *state, const AhcAddon *addons, size_t count)
 {
-    const char *categories[AHC_CATEGORY_CAPACITY];
-    size_t category_count = 0;
-    for (size_t i = 0; i < count && category_count < AHC_CATEGORY_CAPACITY; i++) {
+    if (state->addon_categories_valid
+        && state->addon_category_cache_items == addons
+        && state->addon_category_cache_count == count) {
+        return;
+    }
+
+    state->addon_category_cache_items = addons;
+    state->addon_category_cache_count = count;
+    state->addon_category_count = 0u;
+    for (size_t i = 0; i < AHC_CATEGORY_CAPACITY; i++) {
+        state->addon_categories[i] = NULL;
+    }
+    for (size_t i = 0; i < count && state->addon_category_count < AHC_CATEGORY_CAPACITY; i++) {
         size_t addon_categories = addon_category_count(&addons[i]);
-        for (size_t j = 0; j < addon_categories && category_count < AHC_CATEGORY_CAPACITY; j++) {
+        for (size_t j = 0; j < addon_categories && state->addon_category_count < AHC_CATEGORY_CAPACITY; j++) {
             const char *category = addon_category_at(&addons[i], j);
-            if (category && category[0] && !category_seen(categories, category_count, category)) {
-                categories[category_count++] = category;
+            if (category && category[0] && !category_seen(state->addon_categories, state->addon_category_count, category)) {
+                state->addon_categories[state->addon_category_count++] = category;
             }
         }
     }
+    state->addon_categories_valid = true;
+}
+
+static int draw_category_filters(CompanionState *state, const AhcAddon *addons, size_t count, float x, float y, float right)
+{
+    addon_category_cache_prepare(state, addons, count);
 
     float cursor_x = x;
     float cursor_y = y;
@@ -3023,11 +3162,11 @@ static int draw_category_filters(CompanionState *state, const AhcAddon *addons, 
 
     const char *labels[AHC_CATEGORY_CAPACITY + 1];
     labels[0] = "All";
-    for (size_t i = 0; i < category_count; i++) {
-        labels[i + 1] = categories[i];
+    for (size_t i = 0; i < state->addon_category_count; i++) {
+        labels[i + 1] = state->addon_categories[i];
     }
 
-    for (size_t i = 0; i < category_count + 1; i++) {
+    for (size_t i = 0; i < state->addon_category_count + 1; i++) {
         const char *label = labels[i];
         float width = (float)measure_text_width(label, 14) + 26.0f;
         if (width < 58.0f) {
@@ -3059,11 +3198,13 @@ static int draw_category_filters(CompanionState *state, const AhcAddon *addons, 
     return row + 1;
 }
 
-static void draw_addon_card(CompanionState *state, const AhcAddon *addon, Rectangle bounds)
+static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_t count, size_t index, Rectangle bounds)
 {
-    bool installed = addon_is_installed(state, addon);
-    bool git_checkout = addon_is_git_checkout(state, addon);
-    bool managed = addon_is_managed(state, addon);
+    const AhcAddon *addon = &addons[index];
+    AddonInstallStatus install_status = addon_install_status_for_index(state, addons, count, index);
+    bool installed = install_status.installed;
+    bool git_checkout = install_status.git_checkout;
+    bool managed = install_status.managed;
     bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
     Rectangle badge = { bounds.x + bounds.width - 178.0f, bounds.y + 8.0f, 166.0f, 46.0f };
     DrawRectangleRounded(bounds, 0.035f, 8, hovered ? AHC_PANEL_HOVER : AHC_PANEL);
@@ -3268,7 +3409,7 @@ static void draw_addons_tab(CompanionState *state)
             int column = slot % column_count;
             float x = list_bounds.x + 4.0f + (float)column * (column_width + column_gap);
             float y = list_y + 4.0f + (float)row * row_stride;
-            draw_addon_card(state, &addons[i], (Rectangle){ x, y, column_width - 8.0f, addon_card_height });
+            draw_addon_card(state, addons, count, i, (Rectangle){ x, y, column_width - 8.0f, addon_card_height });
             slot++;
         }
         EndScissorMode();
@@ -3509,8 +3650,11 @@ static void init_state(CompanionState *state)
     }
 }
 
-static int ahc_display_fps_cap(void)
+static int ahc_display_fps_cap(const CompanionState *state)
 {
+    if (state->tab == COMPANION_TAB_ADDONS) {
+        return AHC_ADDON_STATIC_FPS;
+    }
     int m = GetCurrentMonitor();
     int rr = GetMonitorRefreshRate(m);
     return (rr > 0) ? rr : 60;
@@ -3602,6 +3746,7 @@ int main(void)
         if (acts & AHC_TRAYA_SHOW) {
             ClearWindowState(FLAG_WINDOW_HIDDEN);
             RestoreWindow();
+            SetWindowFocused();
         }
         if (g_quit) {
             break;
@@ -3618,14 +3763,15 @@ int main(void)
             ahc_process_avatar_deferred_loads();
         }
         {
-            int want = throttled ? 4 : ahc_display_fps_cap();
+            int want = throttled ? AHC_HIDDEN_FPS : ahc_display_fps_cap(&state);
             if (want != last_fps_target) {
                 SetTargetFPS(want);
                 last_fps_target = want;
             }
         }
         if (throttled) {
-            WaitTime(0.15f);
+            PollInputEvents();
+            WaitTime(0.20f);
         }
 
         if (IsWindowHidden() || IsWindowMinimized()) {

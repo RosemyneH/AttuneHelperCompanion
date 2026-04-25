@@ -12,22 +12,11 @@
 #define AHC_TRAY_CLASS "AttuneHelperCompanionTray"
 
 static WNDPROC s_old_wnd;
-static HWND s_raylib_hwnd;
 static HWND s_tray_hwnd;
 static NOTIFYICONDATAA s_nid;
 static int s_tray_added;
 static int s_class_registered;
 static volatile LONG s_pending;
-
-static void ahc_tray_restore_window(HWND hwnd)
-{
-    if (!hwnd) {
-        return;
-    }
-    ShowWindow(hwnd, SW_SHOW);
-    ShowWindow(hwnd, SW_RESTORE);
-    SetForegroundWindow(hwnd);
-}
 
 static void ahc_tray_or_pending(LONG bits)
 {
@@ -55,7 +44,6 @@ static void ahc_tray_show_menu(HWND owner)
     DestroyMenu(menu);
     PostMessageA(owner, WM_NULL, 0, 0);
     if (cmd == 1) {
-        ahc_tray_restore_window(s_raylib_hwnd);
         ahc_tray_or_pending((LONG)AHC_TRAYA_SHOW);
     } else if (cmd == 2) {
         ahc_tray_or_pending((LONG)AHC_TRAYA_BACKGROUND);
@@ -69,7 +57,6 @@ static LRESULT CALLBACK ahc_tray_owner_wndproc(HWND hwnd, UINT msg, WPARAM wpara
     (void)wparam;
     if (msg == AHC_TRAYMSG) {
         if (lparam == WM_LBUTTONUP || lparam == WM_LBUTTONDBLCLK) {
-            ahc_tray_restore_window(s_raylib_hwnd);
             ahc_tray_or_pending((LONG)AHC_TRAYA_SHOW);
         } else if (lparam == WM_RBUTTONUP) {
             ahc_tray_show_menu(hwnd);
@@ -136,7 +123,6 @@ void ahc_tray_install(void *raylib_hwnd)
     if (!w) {
         return;
     }
-    s_raylib_hwnd = w;
     if (!s_old_wnd) {
         s_old_wnd = (WNDPROC)SetWindowLongPtrA(w, GWLP_WNDPROC, (LONG_PTR)ahc_raylib_wndproc);
     }
@@ -183,12 +169,18 @@ void ahc_tray_shutdown(void *raylib_hwnd)
         UnregisterClassA(AHC_TRAY_CLASS, GetModuleHandleA(NULL));
         s_class_registered = 0;
     }
-    s_raylib_hwnd = NULL;
     ZeroMemory(&s_nid, sizeof(s_nid));
 }
 
 uint32_t ahc_tray_consume_actions(void)
 {
+    if (s_tray_hwnd) {
+        MSG msg;
+        while (PeekMessageA(&msg, s_tray_hwnd, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageA(&msg);
+        }
+    }
     return (uint32_t)InterlockedExchange(&s_pending, 0);
 }
 
