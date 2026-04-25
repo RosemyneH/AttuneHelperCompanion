@@ -1,0 +1,16 @@
+build/
+out/
+.vs/
+.vscode/
+CMakeUserPresets.json
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.lib
+*.dll

@@ -1,0 +1,5 @@
+# ninja log v7
+28	113	7988176901931663	CMakeFiles/attune_snapshot_test.dir/tests/attune_snapshot_test.c.obj	fefdcb540da7cbfe
+22	117	7988176901883669	CMakeFiles/ahc_core.dir/src/attune/attune_snapshot.c.obj	ec0b8b8fa947e5
+117	167	7988176902829145	ahc_core.lib	2ace00d495bd2d2
+167	416	7988176903321161	attune_snapshot_test.exe	e13fc902cbd8c313
