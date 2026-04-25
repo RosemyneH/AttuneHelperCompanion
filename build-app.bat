@@ -41,7 +41,8 @@ echo Closing any running Attune Helper Companion before rebuilding.
 taskkill /f /im attune_helper_companion.exe >nul 2>nul
 
 echo Configuring app build. The first run downloads raylib and raygui.
-cmake -S "%ROOT%" -B "%BUILD_DIR%" --fresh -G Ninja -DAHC_BUILD_APP=ON -DAHC_BUILD_TESTS=ON
+:: Release + AHC_OPT_PROFILE=lto: CMAKE_BUILD_TYPE=Release; MSVC /O2 + /GL (LTO) on ahc_core (see AHC_OPT_PROFILE in CMakeLists.txt).
+cmake -S "%ROOT%" -B "%BUILD_DIR%" --fresh -G Ninja -DCMAKE_BUILD_TYPE=Release -DAHC_OPT_PROFILE=lto -DAHC_BUILD_APP=ON -DAHC_BUILD_TESTS=ON
 if errorlevel 1 exit /b 1
 
 echo Building app and tests.

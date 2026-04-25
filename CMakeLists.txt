@@ -8,11 +8,38 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 option(AHC_BUILD_APP "Build the native companion application" ON)
 option(AHC_BUILD_TESTS "Build tests" ON)
+option(AHC_BUILD_BENCH "Build parse benchmark tool" ON)
+option(AHC_ENABLE_MASM "Use MASM ahc_memchr on MSVC x64 (else C memchr)" OFF)
+set(AHC_OPT_PROFILE "default" CACHE STRING "Optimization profile: default, release, lto, pgo_instrument, sanitize")
+set_property(CACHE AHC_OPT_PROFILE PROPERTY STRINGS default release lto pgo_instrument sanitize)
+
+if(AHC_ENABLE_MASM AND MSVC)
+    if(NOT (CMAKE_SIZEOF_VOID_P EQUAL 8))
+        set(AHC_ENABLE_MASM OFF CACHE BOOL "" FORCE)
+    else()
+        enable_language(ASM_MASM)
+    endif()
+endif()
+
+if(AHC_ENABLE_MASM AND MSVC AND (CMAKE_SIZEOF_VOID_P EQUAL 8))
+    set(AHC_MEMCHR_SRC src/ahc/ahc_memchr_masm64.asm)
+    set_source_files_properties(
+        src/ahc/ahc_memchr_masm64.asm
+        PROPERTIES
+        LANGUAGE ASM_MASM
+    )
+else()
+    set(AHC_MEMCHR_SRC src/ahc/ahc_memchr_dispatch.c)
+endif()
 
 add_library(ahc_core
     src/addons/addon_catalog.c
     src/addons/addon_manifest.c
     src/attune/attune_snapshot.c
+    src/ahc/ahc_arena.c
+    src/ahc/ahc_mem_telemetry.c
+    src/ahc/ahc_find_literal.c
+    ${AHC_MEMCHR_SRC}
 )
 
 target_include_directories(ahc_core
@@ -20,10 +47,45 @@ target_include_directories(ahc_core
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+if(WIN32)
+    target_link_libraries(ahc_core PRIVATE psapi)
+endif()
+
 if(MSVC)
     target_compile_options(ahc_core PRIVATE /W4)
+    if(AHC_OPT_PROFILE STREQUAL "release" OR AHC_OPT_PROFILE STREQUAL "lto" OR AHC_OPT_PROFILE STREQUAL "pgo_instrument")
+        target_compile_options(ahc_core PRIVATE /O2)
+    endif()
+    if(AHC_OPT_PROFILE STREQUAL "lto" OR AHC_OPT_PROFILE STREQUAL "pgo_instrument")
+        target_compile_options(ahc_core PRIVATE /GL)
+        set_target_properties(ahc_core PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
+    endif()
 else()
     target_compile_options(ahc_core PRIVATE -Wall -Wextra -Wpedantic)
+    if(AHC_OPT_PROFILE STREQUAL "release" OR AHC_OPT_PROFILE STREQUAL "lto" OR AHC_OPT_PROFILE STREQUAL "pgo_instrument")
+        target_compile_options(ahc_core PRIVATE -O2)
+    endif()
+    if(AHC_OPT_PROFILE STREQUAL "lto" OR AHC_OPT_PROFILE STREQUAL "pgo_instrument")
+        target_compile_options(ahc_core PRIVATE -flto)
+        set_target_properties(ahc_core PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
+    endif()
+    if(AHC_OPT_PROFILE STREQUAL "sanitize")
+        target_compile_options(ahc_core PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(ahc_core PRIVATE -fsanitize=address,undefined)
+    endif()
+endif()
+
+if(AHC_BUILD_BENCH)
+    add_executable(ahc_parse_bench apps/parse_bench.c)
+    target_link_libraries(ahc_parse_bench PRIVATE ahc_core)
+    if(WIN32)
+        target_link_libraries(ahc_parse_bench PRIVATE psapi)
+    endif()
+    if(MSVC)
+        target_compile_options(ahc_parse_bench PRIVATE /W4)
+    else()
+        target_compile_options(ahc_parse_bench PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
 endif()
 
 if(AHC_BUILD_APP)
@@ -55,6 +117,7 @@ if(AHC_BUILD_APP)
 
     add_executable(attune_helper_companion
         apps/companion/main.c
+        apps/companion/ahc_tray.c
     )
 
     target_include_directories(attune_helper_companion
@@ -71,6 +134,9 @@ if(AHC_BUILD_APP)
             ahc_core
             raylib
     )
+    if(WIN32)
+        target_link_libraries(attune_helper_companion PRIVATE shell32 user32)
+    endif()
 
     add_custom_command(TARGET attune_helper_companion POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -119,6 +185,13 @@ if(AHC_BUILD_TESTS)
     else()
         target_compile_options(attune_snapshot_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(addon_manifest_test PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    if(AHC_OPT_PROFILE STREQUAL "sanitize" AND NOT MSVC)
+        target_compile_options(attune_snapshot_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(attune_snapshot_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(addon_manifest_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(addon_manifest_test PRIVATE -fsanitize=address,undefined)
     endif()
 
     add_test(NAME attune_snapshot_test COMMAND attune_snapshot_test)

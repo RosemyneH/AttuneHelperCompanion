@@ -5,6 +5,7 @@
 #include "addons/addon_catalog.h"
 #include "addons/addon_manifest.h"
 #include "attune/attune_snapshot.h"
+#include "ahc_tray.h"
 
 #include "raylib.h"
 #if defined(_MSC_VER)
@@ -39,13 +40,17 @@
 
 #define AHC_PATH_CAPACITY 768
 #define AHC_STATUS_CAPACITY 256
-#define AHC_SCAN_MAX_DIRECTORIES 6000
-#define AHC_HISTORY_CAPACITY 512
-#define AHC_DISPLAY_HISTORY_CAPACITY 1024
+#define AHC_SCAN_MAX_DIRECTORIES 2000
+#define AHC_HISTORY_CAPACITY 256
+#define AHC_DISPLAY_HISTORY_CAPACITY 400
 #define AHC_CATEGORY_CAPACITY 64
-#define AHC_AVATAR_CACHE_CAPACITY 128
+#define AHC_AVATAR_CACHE_CAPACITY 24
+#define AHC_AVATAR_TEXTURE_MAX 32
+#define AHC_AVATAR_KEY 256
+#define AHC_FONT_GLYPHS 95
 #define AHC_SNAPSHOT_POLL_SECONDS 5.0
 #define AHC_PROCESS_ACTIVE_SECONDS 4.0
+#define AHC_CHROME_H 36
 
 #if !defined(_WIN32)
 #include <strings.h>
@@ -145,7 +150,7 @@ static const Color AHC_LF = { 255, 226, 115, 255 };
 static Font g_ui_font;
 static bool g_has_ui_font;
 typedef struct AvatarCacheEntry {
-    char key[AHC_PATH_CAPACITY];
+    char key[AHC_AVATAR_KEY];
     Texture2D texture;
     bool loaded;
     bool failed;
@@ -153,11 +158,29 @@ typedef struct AvatarCacheEntry {
 static AvatarCacheEntry g_avatar_cache[AHC_AVATAR_CACHE_CAPACITY];
 static size_t g_avatar_cache_count;
 
+static int g_font_codepoints[AHC_FONT_GLYPHS];
+static bool g_chrome_drag;
+static Vector2 g_chrome_grab;
+static bool g_quit;
+
+static void init_latin_font_codepoints(void)
+{
+    static bool done;
+    if (done) {
+        return;
+    }
+    for (int i = 0; i < AHC_FONT_GLYPHS; i++) {
+        g_font_codepoints[i] = 32 + i;
+    }
+    done = true;
+}
+
 static void set_status(CompanionState *state, const char *message);
 static void set_action_status(CompanionState *state, const char *status, const char *action);
 static void path_join(char *out, size_t out_capacity, const char *left, const char *right);
 static bool validate_synastria_path(const char *path);
 static void apply_monitor_defaults(CompanionState *state);
+static void draw_window_chrome(CompanionState *state);
 
 static void draw_text(const char *text, int x, int y, int size, Color color)
 {
@@ -222,7 +245,7 @@ static int content_right(void)
 
 static int content_top(void)
 {
-    return 204;
+    return 204 + AHC_CHROME_H;
 }
 
 static int content_bottom(void)
@@ -299,12 +322,18 @@ static void load_ui_font(void)
         NULL
     };
 
+    init_latin_font_codepoints();
     for (int i = 0; font_paths[i]; i++) {
         if (!FileExists(font_paths[i])) {
             continue;
         }
 
-        g_ui_font = LoadFontEx(font_paths[i], 34, NULL, 0);
+        g_ui_font = LoadFontEx(
+            font_paths[i], 20, g_font_codepoints, AHC_FONT_GLYPHS
+        );
+        if (g_ui_font.texture.id == 0) {
+            g_ui_font = LoadFontEx(font_paths[i], 20, NULL, 0);
+        }
         if (g_ui_font.texture.id != 0) {
             SetTextureFilter(g_ui_font.texture, TEXTURE_FILTER_BILINEAR);
             GuiSetFont(g_ui_font);
@@ -398,14 +427,33 @@ static AvatarCacheEntry *avatar_cache_lookup(const char *key)
     return NULL;
 }
 
+static void avatar_cache_evict_oldest(void)
+{
+    if (g_avatar_cache_count == 0) {
+        return;
+    }
+    if (g_avatar_cache[0].loaded) {
+        UnloadTexture(g_avatar_cache[0].texture);
+    }
+    g_avatar_cache_count--;
+    if (g_avatar_cache_count > 0) {
+        memmove(
+            g_avatar_cache,
+            g_avatar_cache + 1,
+            g_avatar_cache_count * sizeof(g_avatar_cache[0])
+        );
+    }
+    memset(&g_avatar_cache[g_avatar_cache_count], 0, sizeof(g_avatar_cache[0]));
+}
+
 static AvatarCacheEntry *avatar_cache_get_or_create(const char *key)
 {
     AvatarCacheEntry *existing = avatar_cache_lookup(key);
     if (existing) {
         return existing;
     }
-    if (g_avatar_cache_count >= AHC_AVATAR_CACHE_CAPACITY) {
-        return NULL;
+    while (g_avatar_cache_count >= AHC_AVATAR_CACHE_CAPACITY) {
+        avatar_cache_evict_oldest();
     }
 
     AvatarCacheEntry *entry = &g_avatar_cache[g_avatar_cache_count++];
@@ -466,7 +514,32 @@ static Texture2D *get_addon_avatar_texture(const AhcAddon *addon)
         return NULL;
     }
 
-    Texture2D texture = LoadTexture(cache_path);
+    Image avatar_image = LoadImage(cache_path);
+    if (avatar_image.data == NULL || avatar_image.width == 0 || avatar_image.height == 0) {
+        entry->failed = true;
+        return NULL;
+    }
+    if (avatar_image.width > AHC_AVATAR_TEXTURE_MAX || avatar_image.height > AHC_AVATAR_TEXTURE_MAX) {
+        const int max_side = AHC_AVATAR_TEXTURE_MAX;
+        int w = avatar_image.width;
+        int h = avatar_image.height;
+        if (w > h) {
+            h = (h * max_side) / w;
+            w = max_side;
+        } else {
+            w = (w * max_side) / h;
+            h = max_side;
+        }
+        if (w < 1) {
+            w = 1;
+        }
+        if (h < 1) {
+            h = 1;
+        }
+        ImageResize(&avatar_image, w, h);
+    }
+    Texture2D texture = LoadTextureFromImage(avatar_image);
+    UnloadImage(avatar_image);
     if (texture.id == 0) {
         entry->failed = true;
         return NULL;
@@ -1939,25 +2012,65 @@ static bool draw_tab_button(const char *label, Rectangle bounds, bool active)
     return draw_wow_button(label, bounds, active, 18);
 }
 
+static void draw_window_chrome(CompanionState *state)
+{
+    (void)state;
+    int sw = GetScreenWidth();
+    int h = AHC_CHROME_H;
+    Vector2 mouse = GetMousePosition();
+    DrawRectangle(0, 0, sw, h, (Color){ 12, 18, 32, 255 });
+    DrawRectangle(0, h - 1, sw, 1, AHC_BORDER);
+    draw_text("Attune Helper", 12, 8, 16, AHC_MUTED);
+
+    Rectangle rmin = { (float)sw - 100.0f, 4.0f, 40.0f, 28.0f };
+    Rectangle rclose = { (float)sw - 50.0f, 4.0f, 40.0f, 28.0f };
+    bool press_min = draw_wow_button("_", rmin, false, 16);
+    bool press_close = draw_wow_button("X", rclose, false, 16);
+    if (press_min) {
+        MinimizeWindow();
+    } else if (press_close) {
+        ahc_tray_request_background();
+    } else {
+        Rectangle rdrag = { 0, 0, (float)(sw - 108), (float)h };
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, rdrag)
+            && !CheckCollisionPointRec(mouse, rmin) && !CheckCollisionPointRec(mouse, rclose)) {
+            g_chrome_drag = true;
+            g_chrome_grab = mouse;
+        }
+    }
+    if (g_chrome_drag) {
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+            Vector2 w = GetWindowPosition();
+            Vector2 m = GetMousePosition();
+            float sx = w.x + m.x;
+            float sy = w.y + m.y;
+            SetWindowPosition((int)(sx - g_chrome_grab.x), (int)(sy - g_chrome_grab.y));
+        } else {
+            g_chrome_drag = false;
+        }
+    }
+}
+
 static void draw_header(CompanionState *state)
 {
-    DrawRectangleGradientH(0, 0, GetScreenWidth(), 126, (Color){ 20, 35, 58, 255 }, (Color){ 8, 16, 31, 255 });
-    DrawCircle(GetScreenWidth() - 128, 34, 98, (Color){ 56, 118, 184, 44 });
-    DrawCircle(GetScreenWidth() - 42, 82, 58, (Color){ 164, 197, 235, 26 });
-    DrawRectangle(0, 124, GetScreenWidth(), 2, (Color){ 88, 124, 166, 210 });
+    int c = AHC_CHROME_H;
+    DrawRectangleGradientH(0, c, GetScreenWidth(), 126, (Color){ 20, 35, 58, 255 }, (Color){ 8, 16, 31, 255 });
+    DrawCircle(GetScreenWidth() - 128, 34 + c, 98, (Color){ 56, 118, 184, 44 });
+    DrawCircle(GetScreenWidth() - 42, 82 + c, 58, (Color){ 164, 197, 235, 26 });
+    DrawRectangle(0, 124 + c, GetScreenWidth(), 2, (Color){ 88, 124, 166, 210 });
 
-    draw_text("Attune Helper Companion", 26, 20, 42, AHC_TEXT);
-    draw_text("Synastria addon installs, updates, and daily attune history.", 28, 72, 20, (Color){ 210, 221, 238, 255 });
+    draw_text("Attune Helper Companion", 26, 20 + c, 42, AHC_TEXT);
+    draw_text("Synastria addon installs, updates, and daily attune history.", 28, 72 + c, 20, (Color){ 210, 221, 238, 255 });
 
     if (state->synastria_path[0]) {
         char path_line[AHC_PATH_CAPACITY + 32];
         snprintf(path_line, sizeof(path_line), "Synastria: %s", state->synastria_path);
-        draw_text(path_line, 28, 100, 16, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : AHC_STATUS_WARNING);
+        draw_text(path_line, 28, 100 + c, 16, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : AHC_STATUS_WARNING);
     } else {
-        draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 100, 16, AHC_STATUS_WARNING);
+        draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 100 + c, 16, AHC_STATUS_WARNING);
     }
 
-    Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 40.0f, 158.0f, 44.0f };
+    Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 40.0f + (float)c, 158.0f, 44.0f };
     bool can_launch = validate_synastria_path(state->synastria_path);
     if (draw_wow_button("Play Game", launch_button, can_launch, 20)) {
         launch_game(state);
@@ -1966,7 +2079,7 @@ static void draw_header(CompanionState *state)
 
 static void draw_tabs(CompanionState *state)
 {
-    const float y = 142.0f;
+    const float y = 142.0f + (float)AHC_CHROME_H;
     if (draw_tab_button("Attunes", (Rectangle){ (float)content_left(), y, 164.0f, 44.0f }, state->tab == COMPANION_TAB_ATTUNES)) {
         state->tab = COMPANION_TAB_ATTUNES;
     }
@@ -2824,12 +2937,18 @@ int main(void)
     CompanionState state;
     init_state(&state);
 
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_ALWAYS_RUN);
     InitWindow(1280, 760, "Attune Helper Companion");
+    SetExitKey(0);
     apply_monitor_defaults(&state);
     load_ui_font();
     load_ui_images();
-    SetTargetFPS(60);
+    {
+        void *wh = GetWindowHandle();
+        if (wh) {
+            ahc_tray_install(wh);
+        }
+    }
     GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
     GuiSetStyle(DEFAULT, BASE_COLOR_NORMAL, color_to_gui_hex(AHC_PANEL_DARK));
     GuiSetStyle(DEFAULT, BORDER_COLOR_NORMAL, color_to_gui_hex(AHC_BORDER));
@@ -2846,15 +2965,54 @@ int main(void)
     GuiSetStyle(BUTTON, BORDER_COLOR_PRESSED, color_to_gui_hex(AHC_ACCENT));
     GuiSetStyle(BUTTON, TEXT_COLOR_PRESSED, color_to_gui_hex(AHC_TEXT));
 
-    while (!WindowShouldClose()) {
+    {
+        int last_fps_target = -1;
+        while (!g_quit) {
+        uint32_t acts = ahc_tray_consume_actions();
+        if (acts & AHC_TRAYA_EXIT) {
+            g_quit = true;
+        }
+        if (acts & AHC_TRAYA_BACKGROUND) {
+            SetWindowState(FLAG_WINDOW_HIDDEN);
+        }
+        if (acts & AHC_TRAYA_SHOW) {
+            ClearWindowState(FLAG_WINDOW_HIDDEN);
+        }
+        if (g_quit) {
+            break;
+        }
+
         poll_attunehelper_snapshot(&state);
+
+        bool throttled = IsWindowHidden() || IsWindowMinimized();
+        {
+            int want = throttled ? 4 : 60;
+            if (want != last_fps_target) {
+                SetTargetFPS(want);
+                last_fps_target = want;
+            }
+        }
+        if (throttled) {
+            WaitTime(0.15f);
+        }
+
+        if (IsWindowHidden() || IsWindowMinimized()) {
+            continue;
+        }
 
         BeginDrawing();
         ClearBackground(AHC_BACKGROUND);
-        DrawRectangleGradientV(0, 126, GetScreenWidth(), GetScreenHeight() - 126, AHC_BACKGROUND_TOP, AHC_BACKGROUND_BOTTOM);
-        DrawCircle(GetScreenWidth() - 120, 184, 220, (Color){ 55, 112, 175, 42 });
+        DrawRectangleGradientV(
+            0,
+            126 + AHC_CHROME_H,
+            GetScreenWidth(),
+            GetScreenHeight() - (126 + AHC_CHROME_H),
+            AHC_BACKGROUND_TOP,
+            AHC_BACKGROUND_BOTTOM);
+        DrawCircle(GetScreenWidth() - 120, 184 + AHC_CHROME_H, 220, (Color){ 55, 112, 175, 42 });
         DrawCircle(120, GetScreenHeight() - 86, 180, (Color){ 25, 56, 93, 38 });
 
+        draw_window_chrome(&state);
         draw_header(&state);
         draw_tabs(&state);
 
@@ -2873,8 +3031,15 @@ int main(void)
         draw_process_footer(&state);
 
         EndDrawing();
+        }
     }
 
+    {
+        void *wh = GetWindowHandle();
+        if (wh) {
+            ahc_tray_shutdown(wh);
+        }
+    }
     CloseWindow();
     ahc_addon_manifest_free(&state.addon_manifest);
     if (g_has_ui_font) {

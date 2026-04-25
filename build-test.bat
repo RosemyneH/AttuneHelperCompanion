@@ -36,7 +36,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-cmake -S "%ROOT%" -B "%BUILD_DIR%" -G Ninja -DAHC_BUILD_APP=OFF -DAHC_BUILD_TESTS=ON
+:: Release + AHC_OPT_PROFILE=lto: CMAKE_BUILD_TYPE=Release; MSVC /O2 + /GL (LTO) on ahc_core (see AHC_OPT_PROFILE in CMakeLists.txt).
+cmake -S "%ROOT%" -B "%BUILD_DIR%" -G Ninja -DCMAKE_BUILD_TYPE=Release -DAHC_OPT_PROFILE=lto -DAHC_BUILD_APP=OFF -DAHC_BUILD_TESTS=ON
 if errorlevel 1 exit /b 1
 
 cmake --build "%BUILD_DIR%"
