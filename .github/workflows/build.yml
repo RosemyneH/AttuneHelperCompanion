@@ -1,0 +1,50 @@
+# One workflow, one matrix job, one shared script (scripts/ci-build.sh) for Linux + Windows.
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows (MSVC)
+            os: windows-2022
+            label: windows
+            artifact: build/attune_helper_companion.exe
+          - name: Linux (GCC)
+            os: ubuntu-22.04
+            label: linux
+            artifact: build/attune_helper_companion
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: MSVC environment (Windows)
+        if: matrix.os == 'windows-2022'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build and test
+        shell: bash
+        env:
+          CI_BUILD_DIR: ${{ github.workspace }}/build
+        # RUNNER_OS is provided by GitHub (Linux, Windows) for ci-build.sh
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-build.sh"
+
+      - name: Upload attune helper companion
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: attune_helper_companion_${{ matrix.label }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
