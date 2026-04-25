@@ -38,7 +38,7 @@ LRESULT CALLBACK ahc_tray_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
     }
 
     if (msg == AHC_TRAYMSG) {
-        if (lparam == WM_LBUTTONDBLCLK) {
+        if (lparam == WM_LBUTTONUP || lparam == WM_LBUTTONDBLCLK) {
             ahc_tray_or_pending((LONG)AHC_TRAYA_SHOW);
         } else if (lparam == WM_RBUTTONUP) {
             HMENU menu = CreatePopupMenu();

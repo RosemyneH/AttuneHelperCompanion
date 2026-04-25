@@ -51,6 +51,9 @@
 #define AHC_SNAPSHOT_POLL_SECONDS 5.0
 #define AHC_PROCESS_ACTIVE_SECONDS 4.0
 #define AHC_CHROME_H 36
+#if !defined(_WIN32)
+#define AHC_SH_CMD_BYTES 4096
+#endif
 
 #if !defined(_WIN32)
 #include <strings.h>
@@ -179,6 +182,9 @@ static void set_status(CompanionState *state, const char *message);
 static void set_action_status(CompanionState *state, const char *status, const char *action);
 static void path_join(char *out, size_t out_capacity, const char *left, const char *right);
 static bool validate_synastria_path(const char *path);
+#if !defined(_WIN32)
+static bool ahc_posix_wine_or_proton_ready(void);
+#endif
 static void apply_monitor_defaults(CompanionState *state);
 static void draw_window_chrome(CompanionState *state);
 
@@ -1253,12 +1259,46 @@ static bool try_load_addon_manifest(CompanionState *state, const char *path)
     return true;
 }
 
+#if defined(__linux__)
+static bool ahc_linux_exe_directory(char *out, size_t out_size)
+{
+    char linkpath[AHC_PATH_CAPACITY];
+    ssize_t n = readlink("/proc/self/exe", linkpath, sizeof(linkpath) - 1);
+    if (n < 0) {
+        return false;
+    }
+    linkpath[n] = '\0';
+    const char *slash = strrchr(linkpath, '/');
+    if (!slash) {
+        return false;
+    }
+    size_t len = (size_t)(slash - linkpath);
+    if (len + 1 > out_size) {
+        return false;
+    }
+    memcpy(out, linkpath, len);
+    out[len] = '\0';
+    return true;
+}
+#endif
+
 static void load_addon_catalog(CompanionState *state)
 {
     state->addons = ahc_addon_catalog_items();
     state->addon_count = ahc_addon_catalog_count();
     state->addon_manifest_loaded = false;
     snprintf(state->addon_catalog_source, sizeof(state->addon_catalog_source), "built-in fallback");
+
+#if defined(__linux__)
+    char exe_dir[AHC_PATH_CAPACITY];
+    char exe_manifest[AHC_PATH_CAPACITY];
+    if (ahc_linux_exe_directory(exe_dir, sizeof(exe_dir))) {
+        path_join(exe_manifest, sizeof(exe_manifest), exe_dir, "manifest/addons.json");
+        if (try_load_addon_manifest(state, exe_manifest)) {
+            return;
+        }
+    }
+#endif
 
     const char *manifest_paths[] = {
         "manifest/addons.json",
@@ -1408,6 +1448,224 @@ static bool validate_synastria_path(const char *path)
     return FileExists(wowext_path);
 }
 
+#if !defined(_WIN32)
+#define AHC_PATH_ENV_STRLEN 8192
+
+static bool ahc_posix_is_executable(const char *p)
+{
+    return p && p[0] && FileExists(p) && access(p, X_OK) == 0;
+}
+
+static bool ahc_posix_find_in_path(const char *name, char *out, size_t out_size)
+{
+    if (!name || !name[0] || out_size < 1) {
+        return false;
+    }
+    out[0] = '\0';
+    const char *path_env = getenv("PATH");
+    if (!path_env) {
+        return false;
+    }
+    size_t len = strlen(path_env);
+    if (len >= AHC_PATH_ENV_STRLEN) {
+        return false;
+    }
+    char path_buf[AHC_PATH_ENV_STRLEN];
+    memcpy(path_buf, path_env, len + 1);
+    for (char *at = path_buf; at && *at; ) {
+        char *next = strchr(at, ':');
+        if (next) {
+            *next = '\0';
+        }
+        if (at[0]) {
+            path_join(out, out_size, at, name);
+            if (ahc_posix_is_executable(out)) {
+                return true;
+            }
+        }
+        at = next ? next + 1 : NULL;
+    }
+    out[0] = '\0';
+    return false;
+}
+
+static bool ahc_posix_find_proton_under_steam_common(const char *common_root, char *out, size_t out_size)
+{
+    if (!common_root[0] || !DirectoryExists(common_root)) {
+        return false;
+    }
+    const char *priority[] = { "Proton - Experimental", "Proton Hotfix", NULL };
+    for (int i = 0; priority[i]; i++) {
+        char sub[AHC_PATH_CAPACITY];
+        path_join(sub, sizeof(sub), common_root, priority[i]);
+        if (!DirectoryExists(sub)) {
+            continue;
+        }
+        path_join(out, out_size, sub, "proton");
+        if (ahc_posix_is_executable(out)) {
+            return true;
+        }
+    }
+
+    FilePathList entries = LoadDirectoryFiles(common_root);
+    bool found = false;
+    for (unsigned int i = 0; i < entries.count && !found; i++) {
+        const char *sub = entries.paths[i];
+        if (!DirectoryExists(sub)) {
+            continue;
+        }
+        const char *folder = GetFileName(sub);
+        if (strncmp(folder, "Proton", 6) != 0) {
+            continue;
+        }
+        path_join(out, out_size, sub, "proton");
+        if (ahc_posix_is_executable(out)) {
+            found = true;
+        }
+    }
+    UnloadDirectoryFiles(entries);
+    if (!found) {
+        out[0] = '\0';
+    }
+    return found;
+}
+
+static bool ahc_posix_find_steam_proton(char *out, size_t out_size)
+{
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) {
+        return false;
+    }
+    const char *suffixes[] = {
+        ".local/share/Steam/steamapps/common",
+        ".steam/steam/steamapps/common",
+        ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common",
+        NULL
+    };
+    for (int i = 0; suffixes[i]; i++) {
+        char base[AHC_PATH_CAPACITY];
+        path_join(base, sizeof(base), home, suffixes[i]);
+        if (ahc_posix_find_proton_under_steam_common(base, out, out_size)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool ahc_posix_env_executable_path(const char *e, char *out, size_t out_size)
+{
+    if (!e || !e[0]) {
+        return false;
+    }
+    if (e[0] == '/' || (e[0] == '.' && e[1] == '/')) {
+        if (ahc_posix_is_executable(e)) {
+            snprintf(out, out_size, "%s", e);
+            return true;
+        }
+        return false;
+    }
+    return ahc_posix_find_in_path(e, out, out_size);
+}
+
+static bool ahc_posix_resolve_wine_proton(char *runner, size_t runner_size, int *use_proton_run)
+{
+    char buffer[AHC_PATH_CAPACITY];
+    const char *proton_a = getenv("AHC_PROTON");
+    const char *proton_b = getenv("PROTON_PATH");
+    if (proton_a && ahc_posix_env_executable_path(proton_a, buffer, sizeof(buffer))) {
+        snprintf(runner, runner_size, "%s", buffer);
+        *use_proton_run = 1;
+        return true;
+    }
+    if (proton_b && ahc_posix_env_executable_path(proton_b, buffer, sizeof(buffer))) {
+        snprintf(runner, runner_size, "%s", buffer);
+        *use_proton_run = 1;
+        return true;
+    }
+    const char *w = getenv("WINE");
+    if (w && w[0] && ahc_posix_env_executable_path(w, buffer, sizeof(buffer))) {
+        snprintf(runner, runner_size, "%s", buffer);
+        *use_proton_run = 0;
+        return true;
+    }
+    if (ahc_posix_find_in_path("wine", buffer, sizeof(buffer))) {
+        snprintf(runner, runner_size, "%s", buffer);
+        *use_proton_run = 0;
+        return true;
+    }
+    if (ahc_posix_find_steam_proton(buffer, sizeof(buffer))) {
+        snprintf(runner, runner_size, "%s", buffer);
+        *use_proton_run = 1;
+        return true;
+    }
+    if (ahc_posix_find_in_path("proton", buffer, sizeof(buffer))) {
+        snprintf(runner, runner_size, "%s", buffer);
+        *use_proton_run = 1;
+        return true;
+    }
+    *use_proton_run = 0;
+    runner[0] = '\0';
+    return false;
+}
+
+static bool ahc_posix_wine_or_proton_ready(void)
+{
+    char runner[AHC_PATH_CAPACITY];
+    int proton;
+    return ahc_posix_resolve_wine_proton(runner, sizeof(runner), &proton);
+}
+
+static bool ahc_posix_build_game_launch(
+    const char *workdir,
+    const char *exe_path,
+    const char *args,
+    char *cmd,
+    size_t cmd_size
+)
+{
+    int proton_mode = 0;
+    char runner[AHC_PATH_CAPACITY];
+    if (!ahc_posix_resolve_wine_proton(runner, sizeof(runner), &proton_mode)) {
+        return false;
+    }
+    if (proton_mode) {
+        if (args[0]) {
+            return (size_t)snprintf(
+                       cmd,
+                       cmd_size,
+                       "cd \"%s\" && nohup \"%s\" run \"%s\" %s >/dev/null 2>&1 &",
+                       workdir,
+                       runner,
+                       exe_path,
+                       args) < cmd_size;
+        }
+        return (size_t)snprintf(
+                   cmd,
+                   cmd_size,
+                   "cd \"%s\" && nohup \"%s\" run \"%s\" >/dev/null 2>&1 &",
+                   workdir,
+                   runner,
+                   exe_path) < cmd_size;
+    }
+    if (args[0]) {
+        return (size_t)snprintf(
+                   cmd,
+                   cmd_size,
+                   "cd \"%s\" && nohup \"%s\" \"%s\" %s >/dev/null 2>&1 &",
+                   workdir,
+                   runner,
+                   exe_path,
+                   args) < cmd_size;
+    }
+    return (size_t)snprintf(
+               cmd,
+               cmd_size,
+               "cd \"%s\" && nohup \"%s\" \"%s\" >/dev/null 2>&1 &",
+               workdir,
+               runner,
+               exe_path) < cmd_size;
+}
+#endif
 
 static bool should_skip_directory(const char *path)
 {
@@ -1968,10 +2226,16 @@ static bool launch_game(CompanionState *state)
         return false;
     }
 #else
-    char command[AHC_PATH_CAPACITY * 3];
-    snprintf(command, sizeof(command), "cd \"%s\" && nohup \"%s\" %s >/dev/null 2>&1 &", state->synastria_path, wowext_path, state->launch_parameters);
+    char command[AHC_SH_CMD_BYTES];
+    if (!ahc_posix_build_game_launch(state->synastria_path, wowext_path, state->launch_parameters, command, sizeof(command))) {
+        set_action_status(
+            state,
+            "Install Wine, set WINE, or set AHC_PROTON or PROTON_PATH to a Proton script from Steam.",
+            "Launch failed");
+        return false;
+    }
     if (system(command) != 0) {
-        set_action_status(state, "Could not launch WoWExt.exe.", "Launch failed");
+        set_action_status(state, "Could not launch WoWExt.exe via Wine/Proton.", "Launch failed");
         return false;
     }
 #endif
@@ -2072,6 +2336,9 @@ static void draw_header(CompanionState *state)
 
     Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 40.0f + (float)c, 158.0f, 44.0f };
     bool can_launch = validate_synastria_path(state->synastria_path);
+#if !defined(_WIN32)
+    can_launch = can_launch && ahc_posix_wine_or_proton_ready();
+#endif
     if (draw_wow_button("Play Game", launch_button, can_launch, 20)) {
         launch_game(state);
     }
@@ -2783,7 +3050,19 @@ static void draw_settings_tab(CompanionState *state)
             load_wow_config(state);
         }
     }
-    draw_text(validate_synastria_path(state->synastria_path) ? "Ready: WoWExt.exe found." : "Choose the folder with WoWExt.exe.", (int)setup_card.x + 352, (int)setup_card.y + 171, 15, validate_synastria_path(state->synastria_path) ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
+    {
+        bool path_ok = validate_synastria_path(state->synastria_path);
+#if !defined(_WIN32)
+        bool run_ok = path_ok && ahc_posix_wine_or_proton_ready();
+        const char *ready_msg = !path_ok    ? "Choose the folder with WoWExt.exe."
+            : !run_ok ? "WoWExt found: install Wine or set AHC_PROTON / PROTON_PATH for Proton."
+                      : "Ready: WoWExt.exe found; Wine/Proton available.";
+#else
+        bool run_ok = path_ok;
+        const char *ready_msg = path_ok ? "Ready: WoWExt.exe found." : "Choose the folder with WoWExt.exe.";
+#endif
+        draw_text(ready_msg, (int)setup_card.x + 352, (int)setup_card.y + 171, 15, run_ok ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
+    }
 
     draw_text("Launch parameters", (int)setup_card.x + 20, (int)setup_card.y + 216, 16, AHC_MUTED);
     Rectangle launch_box = { setup_card.x + 20.0f, setup_card.y + 238.0f, setup_card.width - 166.0f, 34.0f };
@@ -2984,6 +3263,7 @@ int main(void)
         }
         if (acts & AHC_TRAYA_SHOW) {
             ClearWindowState(FLAG_WINDOW_HIDDEN);
+            RestoreWindow();
         }
         if (g_quit) {
             break;

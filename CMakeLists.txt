@@ -13,6 +13,8 @@ option(AHC_ENABLE_MASM "Use MASM ahc_memchr on MSVC x64 (else C memchr)" OFF)
 set(AHC_OPT_PROFILE "default" CACHE STRING "Optimization profile: default, release, lto, pgo_instrument, sanitize")
 set_property(CACHE AHC_OPT_PROFILE PROPERTY STRINGS default release lto pgo_instrument sanitize)
 
+include(GNUInstallDirs)
+
 if(AHC_ENABLE_MASM AND MSVC)
     if(NOT (CMAKE_SIZEOF_VOID_P EQUAL 8))
         set(AHC_ENABLE_MASM OFF CACHE BOOL "" FORCE)
@@ -149,6 +151,17 @@ if(AHC_BUILD_APP)
     else()
         target_compile_options(attune_helper_companion PRIVATE -Wall -Wextra -Wpedantic)
     endif()
+
+    install(
+        TARGETS attune_helper_companion
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    )
+    install(
+        DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/manifest/"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/manifest"
+        FILES_MATCHING
+            PATTERN "*"
+    )
 endif()
 
 if(AHC_BUILD_TESTS)

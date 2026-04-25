@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Attune Helper Companion
+Comment=Synastria addon installs, updates, and attune history
+TryExec=attune_helper_companion
+Exec=attune_helper_companion
+Icon=attune-helper-companion
+Terminal=false
+Categories=Game;Utility;
