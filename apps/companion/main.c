@@ -3373,6 +3373,9 @@ int main(void)
         poll_attunehelper_snapshot(&state);
 
         bool throttled = IsWindowHidden() || IsWindowMinimized();
+        if (!throttled) {
+            ahc_process_avatar_deferred_loads();
+        }
         {
             int want = throttled ? 4 : ahc_display_fps_cap();
             if (want != last_fps_target) {
