@@ -366,6 +366,16 @@ static void load_ui_images(void)
 {
     g_avatar_cache_count = 0;
     memset(g_avatar_cache, 0, sizeof(g_avatar_cache));
+    g_avatar_placeholder_valid = false;
+    {
+        Image ph = GenImageColor(32, 32, (Color){ 40, 58, 86, 255 });
+        g_avatar_placeholder = LoadTextureFromImage(ph);
+        UnloadImage(ph);
+    }
+    if (g_avatar_placeholder.id != 0) {
+        SetTextureFilter(g_avatar_placeholder, TEXTURE_FILTER_BILINEAR);
+        g_avatar_placeholder_valid = true;
+    }
 }
 
 static bool github_owner_from_repo(const char *repo, char *out, size_t out_capacity)
@@ -3393,6 +3403,10 @@ int main(void)
         if (g_avatar_cache[i].loaded) {
             UnloadTexture(g_avatar_cache[i].texture);
         }
+    }
+    if (g_avatar_placeholder_valid) {
+        UnloadTexture(g_avatar_placeholder);
+        g_avatar_placeholder_valid = false;
     }
     return 0;
 }
