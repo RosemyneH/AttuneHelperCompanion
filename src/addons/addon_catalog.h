@@ -6,6 +6,7 @@
 typedef struct AhcAddon {
     const char *name;
     const char *author;
+    const char *category;
     const char *folder;
     const char *repo;
     const char *description;

@@ -16,14 +16,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(_WIN32)
 #include <direct.h>
 #define AHC_MKDIR(path) _mkdir(path)
+#define AHC_RMDIR(path) _rmdir(path)
 #define AHC_STRICMP _stricmp
 #else
 #include <sys/stat.h>
+#include <unistd.h>
 #define AHC_MKDIR(path) mkdir(path, 0755)
+#define AHC_RMDIR(path) rmdir(path)
 #define AHC_STRICMP strcasecmp
 #endif
 
@@ -66,13 +70,16 @@ typedef struct CompanionState {
 } CompanionState;
 
 static const Color AHC_BACKGROUND = { 16, 18, 24, 255 };
-static const Color AHC_PANEL = { 27, 31, 40, 255 };
-static const Color AHC_PANEL_DARK = { 21, 24, 31, 255 };
-static const Color AHC_BORDER = { 75, 91, 110, 255 };
-static const Color AHC_TEXT = { 232, 237, 243, 255 };
-static const Color AHC_MUTED = { 151, 164, 179, 255 };
-static const Color AHC_ACCENT = { 91, 192, 222, 255 };
-static const Color AHC_ACCENT_DARK = { 31, 117, 145, 255 };
+static const Color AHC_PANEL = { 30, 36, 50, 255 };
+static const Color AHC_PANEL_DARK = { 18, 22, 32, 255 };
+static const Color AHC_BORDER = { 91, 111, 135, 255 };
+static const Color AHC_TEXT = { 244, 248, 252, 255 };
+static const Color AHC_MUTED = { 176, 188, 203, 255 };
+static const Color AHC_ACCENT = { 98, 208, 255, 255 };
+static const Color AHC_ACCENT_DARK = { 32, 126, 169, 255 };
+static const Color AHC_TF = { 128, 128, 255, 255 };
+static const Color AHC_WF = { 255, 166, 128, 255 };
+static const Color AHC_LF = { 255, 255, 166, 255 };
 
 static Font g_ui_font;
 static bool g_has_ui_font;
@@ -120,7 +127,7 @@ static void load_ui_font(void)
             continue;
         }
 
-        g_ui_font = LoadFontEx(font_paths[i], 24, NULL, 0);
+        g_ui_font = LoadFontEx(font_paths[i], 34, NULL, 0);
         if (g_ui_font.texture.id != 0) {
             SetTextureFilter(g_ui_font.texture, TEXTURE_FILTER_BILINEAR);
             GuiSetFont(g_ui_font);
@@ -182,10 +189,110 @@ static bool addon_is_git_checkout(const CompanionState *state, const AhcAddon *a
     return DirectoryExists(git_path);
 }
 
+static bool remove_directory_tree(const char *path)
+{
+    if (!DirectoryExists(path)) {
+        return true;
+    }
+
+    FilePathList entries = LoadDirectoryFiles(path);
+    bool removed = true;
+
+    for (unsigned int i = 0; i < entries.count; i++) {
+        const char *entry = entries.paths[i];
+        const char *name = GetFileName(entry);
+        if (AHC_STRICMP(name, ".") == 0 || AHC_STRICMP(name, "..") == 0) {
+            continue;
+        }
+
+        if (DirectoryExists(entry)) {
+            if (!remove_directory_tree(entry)) {
+                removed = false;
+            }
+        } else if (remove(entry) != 0) {
+            removed = false;
+        }
+    }
+
+    UnloadDirectoryFiles(entries);
+
+    if (AHC_RMDIR(path) != 0) {
+        removed = false;
+    }
+
+    return removed;
+}
+
+static bool addon_backup_root(const CompanionState *state, char *out, size_t out_capacity)
+{
+    char addons_path[AHC_PATH_CAPACITY];
+    if (!resolve_addons_path(state, addons_path, sizeof(addons_path))) {
+        return false;
+    }
+
+    path_join(out, out_capacity, addons_path, "_AttuneHelperCompanionBackups");
+    if (!DirectoryExists(out)) {
+        AHC_MKDIR(out);
+    }
+
+    return DirectoryExists(out);
+}
+
+static bool addon_staging_root(const CompanionState *state, char *out, size_t out_capacity)
+{
+    char addons_path[AHC_PATH_CAPACITY];
+    if (!resolve_addons_path(state, addons_path, sizeof(addons_path))) {
+        return false;
+    }
+
+    path_join(out, out_capacity, addons_path, "_AttuneHelperCompanionStaging");
+    if (!DirectoryExists(out)) {
+        AHC_MKDIR(out);
+    }
+
+    return DirectoryExists(out);
+}
+
+static void make_backup_path(const CompanionState *state, const AhcAddon *addon, const char *reason, char *out, size_t out_capacity)
+{
+    char root[AHC_PATH_CAPACITY];
+    if (!addon_backup_root(state, root, sizeof(root))) {
+        out[0] = '\0';
+        return;
+    }
+
+    char name[256];
+    snprintf(name, sizeof(name), "%s-%s-%lld", addon->folder, reason, (long long)time(NULL));
+    path_join(out, out_capacity, root, name);
+}
+
+static bool move_installed_addon_to_backup(CompanionState *state, const AhcAddon *addon, const char *path, const char *reason, char *backup_path, size_t backup_path_capacity)
+{
+    make_backup_path(state, addon, reason, backup_path, backup_path_capacity);
+    if (!backup_path[0]) {
+        set_status(state, "Could not create addon backup folder.");
+        return false;
+    }
+
+    if (rename(path, backup_path) != 0) {
+        set_status(state, "Could not move addon to backup folder.");
+        return false;
+    }
+
+    return true;
+}
+
+static bool git_clone_to_path(const AhcAddon *addon, const char *path)
+{
+    char command[AHC_PATH_CAPACITY * 3];
+    snprintf(command, sizeof(command), "git clone --depth 1 \"%s\" \"%s\"", addon->repo, path);
+    return system(command) == 0;
+}
+
 static void install_or_update_addon(CompanionState *state, const AhcAddon *addon)
 {
     char path[AHC_PATH_CAPACITY];
-    char command[AHC_PATH_CAPACITY * 2];
+    char command[AHC_PATH_CAPACITY * 3];
 
     if (!addon_install_path(state, addon, path, sizeof(path))) {
         set_status(state, "Set a valid Synastria folder before managing addons.");
@@ -195,8 +302,37 @@ static void install_or_update_addon(CompanionState *state, const AhcAddon *addon
     bool was_installed = DirectoryExists(path);
     if (was_installed) {
         if (!addon_is_git_checkout(state, addon)) {
+            char staging_root[AHC_PATH_CAPACITY];
+            char staging_path[AHC_PATH_CAPACITY];
+            char backup_path[AHC_PATH_CAPACITY];
+
+            if (!addon_staging_root(state, staging_root, sizeof(staging_root))) {
+                set_status(state, "Could not create addon staging folder.");
+                return;
+            }
+
+            path_join(staging_path, sizeof(staging_path), staging_root, addon->folder);
+            remove_directory_tree(staging_path);
+
+            if (!git_clone_to_path(addon, staging_path)) {
+                remove_directory_tree(staging_path);
+                set_status(state, "Could not download addon update from GitHub.");
+                return;
+            }
+
+            if (!move_installed_addon_to_backup(state, addon, path, "manual-backup", backup_path, sizeof(backup_path))) {
+                remove_directory_tree(staging_path);
+                return;
+            }
+
+            if (rename(staging_path, path) != 0) {
+                rename(backup_path, path);
+                remove_directory_tree(staging_path);
+                set_status(state, "Could not promote downloaded addon. Manual install was restored.");
+                return;
+            }
             char message[AHC_STATUS_CAPACITY];
-            snprintf(message, sizeof(message), "%s is installed but is not a git checkout.", addon->name);
+            snprintf(message, sizeof(message), "Updated manual %s. Backup saved.", addon->name);
             set_status(state, message);
             return;
         }
@@ -213,6 +349,25 @@ static void install_or_update_addon(CompanionState *state, const AhcAddon *addon
     } else {
         snprintf(message, sizeof(message), "Git command failed for %s.", addon->name);
     }
+    set_status(state, message);
+}
+
+static void uninstall_addon(CompanionState *state, const AhcAddon *addon)
+{
+    char path[AHC_PATH_CAPACITY];
+    char backup_path[AHC_PATH_CAPACITY];
+
+    if (!addon_install_path(state, addon, path, sizeof(path)) || !DirectoryExists(path)) {
+        set_status(state, "Addon is not installed.");
+        return;
+    }
+
+    if (!move_installed_addon_to_backup(state, addon, path, "uninstalled", backup_path, sizeof(backup_path))) {
+        return;
+    }
+
+    char message[AHC_STATUS_CAPACITY];
+    snprintf(message, sizeof(message), "Uninstalled %s. Backup saved.", addon->name);
     set_status(state, message);
 }
 
@@ -397,6 +552,28 @@ static void upsert_history_snapshot(CompanionState *state, const AhcDailyAttuneS
     state->history[state->history_count++] = *snapshot;
     sort_history(state);
     save_history(state);
+}
+
+static void seed_test_history(CompanionState *state)
+{
+    const AhcDailyAttuneSnapshot samples[] = {
+        { true, "2026-04-20", 10126, 900, 180, 3920 },
+        { true, "2026-04-21", 10126, 1034, 205, 4210 },
+        { true, "2026-04-22", 10126, 1190, 236, 4635 },
+        { true, "2026-04-23", 10126, 1340, 272, 5105 },
+        { true, "2026-04-24", 10126, 1410, 301, 5480 },
+        { true, "2026-04-25", 10126, 80, 20, 310 },
+        { true, "2026-04-26", 10126, 190, 54, 690 },
+        { true, "2026-04-27", 10126, 320, 88, 1110 },
+        { true, "2026-04-28", 10126, 470, 126, 1580 }
+    };
+
+    for (size_t i = 0; i < sizeof(samples) / sizeof(samples[0]); i++) {
+        upsert_history_snapshot(state, &samples[i]);
+    }
+
+    state->snapshot = samples[(sizeof(samples) / sizeof(samples[0])) - 1];
+    set_status(state, "Loaded test history with a prestige reset.");
 }
 
 static bool validate_synastria_path(const char *path)
@@ -604,9 +781,11 @@ static bool scan_attunehelper_snapshot(CompanionState *state)
 
 static void draw_card(Rectangle bounds, const char *title)
 {
+    DrawRectangleRounded((Rectangle){ bounds.x + 4.0f, bounds.y + 6.0f, bounds.width, bounds.height }, 0.06f, 10, (Color){ 4, 7, 14, 115 });
     DrawRectangleRounded(bounds, 0.04f, 8, AHC_PANEL);
+    DrawRectangleRounded((Rectangle){ bounds.x + 1.0f, bounds.y + 1.0f, bounds.width - 2.0f, 42.0f }, 0.04f, 8, (Color){ 38, 48, 66, 255 });
     DrawRectangleRoundedLines(bounds, 0.04f, 8, AHC_BORDER);
-    draw_text(title, (int)bounds.x + 18, (int)bounds.y + 14, 18, AHC_ACCENT);
+    draw_text(title, (int)bounds.x + 18, (int)bounds.y + 13, 20, AHC_ACCENT);
 }
 
 static bool draw_tab_button(const char *label, Rectangle bounds, bool active)
@@ -616,38 +795,40 @@ static bool draw_tab_button(const char *label, Rectangle bounds, bool active)
     DrawRectangleRounded(bounds, 0.18f, 8, fill);
     DrawRectangleRoundedLines(bounds, 0.18f, 8, border);
 
-    int text_width = measure_text_width(label, 16);
-    draw_text(label, (int)(bounds.x + (bounds.width - (float)text_width) * 0.5f), (int)bounds.y + 10, 16, active ? RAYWHITE : AHC_MUTED);
+    int text_width = measure_text_width(label, 18);
+    draw_text(label, (int)(bounds.x + (bounds.width - (float)text_width) * 0.5f), (int)bounds.y + 10, 18, active ? RAYWHITE : AHC_MUTED);
     return CheckCollisionPointRec(GetMousePosition(), bounds) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 }
 
 static void draw_header(const CompanionState *state)
 {
-    DrawRectangleGradientH(0, 0, GetScreenWidth(), 118, (Color){ 22, 84, 112, 255 }, (Color){ 18, 20, 30, 255 });
-    DrawRectangle(0, 116, GetScreenWidth(), 2, AHC_ACCENT_DARK);
+    DrawRectangleGradientH(0, 0, GetScreenWidth(), 126, (Color){ 18, 95, 126, 255 }, (Color){ 20, 23, 35, 255 });
+    DrawCircle(GetScreenWidth() - 120, 34, 90, (Color){ 98, 208, 255, 26 });
+    DrawCircle(GetScreenWidth() - 42, 82, 54, (Color){ 128, 128, 255, 28 });
+    DrawRectangle(0, 124, GetScreenWidth(), 2, AHC_ACCENT_DARK);
 
-    draw_text("Attune Helper Companion", 26, 22, 36, RAYWHITE);
-    draw_text("Synastria addon installs, updates, and daily attune history.", 28, 66, 18, (Color){ 202, 219, 232, 255 });
+    draw_text("Attune Helper Companion", 26, 20, 42, RAYWHITE);
+    draw_text("Synastria addon installs, updates, and daily attune history.", 28, 72, 20, (Color){ 218, 232, 244, 255 });
 
     if (state->synastria_path[0]) {
         char path_line[AHC_PATH_CAPACITY + 32];
         snprintf(path_line, sizeof(path_line), "Synastria: %s", state->synastria_path);
-        draw_text(path_line, 28, 92, 14, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : GOLD);
+        draw_text(path_line, 28, 100, 16, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : GOLD);
     } else {
-        draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 92, 14, GOLD);
+        draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 100, 16, GOLD);
     }
 }
 
 static void draw_tabs(CompanionState *state)
 {
-    const float y = 134.0f;
-    if (draw_tab_button("Attunes", (Rectangle){ 26.0f, y, 142.0f, 40.0f }, state->tab == COMPANION_TAB_ATTUNES)) {
+    const float y = 142.0f;
+    if (draw_tab_button("Attunes", (Rectangle){ 26.0f, y, 152.0f, 44.0f }, state->tab == COMPANION_TAB_ATTUNES)) {
         state->tab = COMPANION_TAB_ATTUNES;
     }
-    if (draw_tab_button("Addons", (Rectangle){ 180.0f, y, 142.0f, 40.0f }, state->tab == COMPANION_TAB_ADDONS)) {
+    if (draw_tab_button("Addons", (Rectangle){ 190.0f, y, 152.0f, 44.0f }, state->tab == COMPANION_TAB_ADDONS)) {
         state->tab = COMPANION_TAB_ADDONS;
     }
-    if (draw_tab_button("Settings", (Rectangle){ 334.0f, y, 142.0f, 40.0f }, state->tab == COMPANION_TAB_SETTINGS)) {
+    if (draw_tab_button("Settings", (Rectangle){ 354.0f, y, 152.0f, 44.0f }, state->tab == COMPANION_TAB_SETTINGS)) {
         state->tab = COMPANION_TAB_SETTINGS;
     }
 }
@@ -655,30 +836,30 @@ static void draw_tabs(CompanionState *state)
 static void draw_snapshot_card(const CompanionState *state)
 {
     char line[160];
-    draw_card((Rectangle){ 26.0f, 178.0f, 360.0f, 250.0f }, "Latest snapshot");
+    draw_card((Rectangle){ 26.0f, 204.0f, 388.0f, 260.0f }, "Latest snapshot");
 
     if (!state->snapshot.found) {
-        draw_text("No daily snapshot loaded.", 46, 224, 22, AHC_TEXT);
-        draw_text("Set your Synastria folder once, then scan.", 46, 258, 16, AHC_MUTED);
-        draw_text("Expected file:", 46, 302, 14, AHC_MUTED);
-        draw_text("WTF/Account/*/SavedVariables/AttuneHelper.lua", 46, 324, 14, AHC_ACCENT);
+        draw_text("No daily snapshot loaded.", 46, 256, 24, AHC_TEXT);
+        draw_text("Set your Synastria folder once, then scan.", 46, 292, 18, AHC_MUTED);
+        draw_text("Expected file:", 46, 340, 16, AHC_MUTED);
+        draw_text("WTF/Account/*/SavedVariables/AttuneHelper.lua", 46, 364, 16, AHC_ACCENT);
         return;
     }
 
     snprintf(line, sizeof(line), "%s", state->snapshot.date[0] ? state->snapshot.date : "Unknown date");
-    draw_text(line, 46, 224, 28, AHC_TEXT);
+    draw_text(line, 46, 252, 32, AHC_TEXT);
 
     snprintf(line, sizeof(line), "Account %d", state->snapshot.account);
-    draw_text(line, 46, 260, 16, AHC_MUTED);
+    draw_text(line, 46, 292, 18, AHC_MUTED);
 
-    snprintf(line, sizeof(line), "Warforged   %d", state->snapshot.warforged);
-    draw_text(line, 46, 310, 20, SKYBLUE);
+    snprintf(line, sizeof(line), "TF  %d", state->snapshot.titanforged);
+    draw_text(line, 46, 340, 24, AHC_TF);
 
-    snprintf(line, sizeof(line), "Lightforged %d", state->snapshot.lightforged);
-    draw_text(line, 46, 342, 20, GOLD);
+    snprintf(line, sizeof(line), "WF  %d", state->snapshot.warforged);
+    draw_text(line, 46, 374, 24, AHC_WF);
 
-    snprintf(line, sizeof(line), "Titanforged %d", state->snapshot.titanforged);
-    draw_text(line, 46, 374, 20, GREEN);
+    snprintf(line, sizeof(line), "LF  %d", state->snapshot.lightforged);
+    draw_text(line, 46, 408, 24, AHC_LF);
 }
 
 static int snapshot_metric_value(const AhcDailyAttuneSnapshot *snapshot, GraphMetric metric)
@@ -700,11 +881,11 @@ static const char *graph_metric_label(GraphMetric metric)
 {
     switch (metric) {
         case GRAPH_METRIC_WARFORGED:
-            return "Warforged / day";
+            return "WF / day";
         case GRAPH_METRIC_LIGHTFORGED:
-            return "Lightforged / day";
+            return "LF / day";
         case GRAPH_METRIC_TITANFORGED:
-            return "Titanforged / day";
+            return "TF / day";
         case GRAPH_METRIC_TOTAL:
         default:
             return "Account attunes / day";
@@ -715,55 +896,77 @@ static Color graph_metric_color(GraphMetric metric)
 {
     switch (metric) {
         case GRAPH_METRIC_WARFORGED:
-            return SKYBLUE;
+            return AHC_WF;
         case GRAPH_METRIC_LIGHTFORGED:
-            return GOLD;
+            return AHC_LF;
         case GRAPH_METRIC_TITANFORGED:
-            return GREEN;
+            return AHC_TF;
         case GRAPH_METRIC_TOTAL:
         default:
             return AHC_ACCENT;
     }
 }
 
+static size_t active_history_start_index(const CompanionState *state)
+{
+    if (state->history_count == 0) {
+        return 0;
+    }
+
+    size_t start = 0;
+    int previous = snapshot_metric_value(&state->history[0], state->graph_metric);
+    for (size_t i = 1; i < state->history_count; i++) {
+        int current = snapshot_metric_value(&state->history[i], state->graph_metric);
+        if (current < previous) {
+            start = i;
+        }
+        previous = current;
+    }
+
+    return start;
+}
+
 static bool draw_metric_chip(const char *label, Rectangle bounds, bool active)
 {
     DrawRectangleRounded(bounds, 0.28f, 10, active ? AHC_ACCENT_DARK : AHC_PANEL_DARK);
     DrawRectangleRoundedLines(bounds, 0.28f, 10, active ? AHC_ACCENT : AHC_BORDER);
-    int text_width = measure_text_width(label, 13);
-    draw_text(label, (int)(bounds.x + (bounds.width - (float)text_width) * 0.5f), (int)bounds.y + 7, 13, active ? RAYWHITE : AHC_MUTED);
+    int text_width = measure_text_width(label, 15);
+    draw_text(label, (int)(bounds.x + (bounds.width - (float)text_width) * 0.5f), (int)bounds.y + 7, 15, active ? RAYWHITE : AHC_MUTED);
     return CheckCollisionPointRec(GetMousePosition(), bounds) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 }
 
 static void draw_graph_card(CompanionState *state)
 {
-    draw_card((Rectangle){ 410.0f, 178.0f, 464.0f, 250.0f }, "Daily attune history");
+    draw_card((Rectangle){ 438.0f, 204.0f, 474.0f, 260.0f }, "Daily attune history");
 
-    if (draw_metric_chip("Total", (Rectangle){ 574.0f, 192.0f, 60.0f, 28.0f }, state->graph_metric == GRAPH_METRIC_TOTAL)) {
+    if (draw_metric_chip("Total", (Rectangle){ 594.0f, 218.0f, 70.0f, 32.0f }, state->graph_metric == GRAPH_METRIC_TOTAL)) {
         state->graph_metric = GRAPH_METRIC_TOTAL;
     }
-    if (draw_metric_chip("WF", (Rectangle){ 642.0f, 192.0f, 48.0f, 28.0f }, state->graph_metric == GRAPH_METRIC_WARFORGED)) {
-        state->graph_metric = GRAPH_METRIC_WARFORGED;
-    }
-    if (draw_metric_chip("LF", (Rectangle){ 698.0f, 192.0f, 48.0f, 28.0f }, state->graph_metric == GRAPH_METRIC_LIGHTFORGED)) {
-        state->graph_metric = GRAPH_METRIC_LIGHTFORGED;
-    }
-    if (draw_metric_chip("TF", (Rectangle){ 754.0f, 192.0f, 48.0f, 28.0f }, state->graph_metric == GRAPH_METRIC_TITANFORGED)) {
+    if (draw_metric_chip("TF", (Rectangle){ 672.0f, 218.0f, 52.0f, 32.0f }, state->graph_metric == GRAPH_METRIC_TITANFORGED)) {
         state->graph_metric = GRAPH_METRIC_TITANFORGED;
     }
+    if (draw_metric_chip("WF", (Rectangle){ 732.0f, 218.0f, 52.0f, 32.0f }, state->graph_metric == GRAPH_METRIC_WARFORGED)) {
+        state->graph_metric = GRAPH_METRIC_WARFORGED;
+    }
+    if (draw_metric_chip("LF", (Rectangle){ 792.0f, 218.0f, 52.0f, 32.0f }, state->graph_metric == GRAPH_METRIC_LIGHTFORGED)) {
+        state->graph_metric = GRAPH_METRIC_LIGHTFORGED;
+    }
 
-    const int base_y = 382;
-    const int axis_x = 468;
-    DrawLine(axis_x, 232, axis_x, base_y, AHC_BORDER);
-    DrawLine(axis_x, base_y, 832, base_y, AHC_BORDER);
+    const int base_y = 410;
+    const int axis_x = 500;
+    DrawLine(axis_x, 268, axis_x, base_y, AHC_BORDER);
+    DrawLine(axis_x, base_y, 868, base_y, AHC_BORDER);
 
     if (state->history_count == 0) {
-        draw_text("Scan AttuneHelper to save daily points here.", 470, 286, 16, AHC_MUTED);
-        draw_text("Hover a dot to see WF / LF / TF for that date.", 470, 314, 14, AHC_MUTED);
+        draw_text("Scan AttuneHelper to save daily points here.", 500, 314, 18, AHC_MUTED);
+        draw_text("Hover a dot to see TF / WF / LF for that date.", 500, 344, 16, AHC_MUTED);
         return;
     }
-    int max_value = 1;
-    for (size_t i = 0; i < state->history_count; i++) {
+    size_t start_index = active_history_start_index(state);
+    size_t point_count = state->history_count - start_index;
+    int baseline_value = snapshot_metric_value(&state->history[start_index], state->graph_metric);
+    int max_value = baseline_value + 1;
+    for (size_t i = start_index; i < state->history_count; i++) {
         int value = snapshot_metric_value(&state->history[i], state->graph_metric);
         if (value > max_value) {
             max_value = value;
@@ -771,21 +974,33 @@ static void draw_graph_card(CompanionState *state)
     }
 
     const int plot_left = axis_x;
-    const int plot_right = 832;
-    const int plot_top = 238;
+    const int plot_right = 868;
+    const int plot_top = 270;
     const int plot_height = base_y - plot_top;
     const Color metric_color = graph_metric_color(state->graph_metric);
     Vector2 previous = { 0.0f, 0.0f };
     bool has_previous = false;
     int hovered_index = -1;
     Vector2 mouse = GetMousePosition();
+    int range = max_value - baseline_value;
+    if (range <= 0) {
+        range = 1;
+    }
 
-    for (size_t i = 0; i < state->history_count; i++) {
-        float x = state->history_count == 1
-            ? (float)(plot_left + (plot_right - plot_left) / 2)
-            : (float)plot_left + ((float)i / (float)(state->history_count - 1)) * (float)(plot_right - plot_left);
+    char axis_label[128];
+    snprintf(axis_label, sizeof(axis_label), "Baseline %d  |  %s to %s",
+        baseline_value,
+        state->history[start_index].date,
+        state->history[state->history_count - 1].date);
+    draw_text(axis_label, plot_left, 252, 14, AHC_MUTED);
+
+    for (size_t i = start_index; i < state->history_count; i++) {
+        size_t local_index = i - start_index;
+        float x = point_count == 1
+            ? (float)plot_left
+            : (float)plot_left + ((float)local_index / (float)(point_count - 1)) * (float)(plot_right - plot_left);
         int value = snapshot_metric_value(&state->history[i], state->graph_metric);
-        float y = (float)base_y - ((float)value / (float)max_value) * (float)(plot_height - 8);
+        float y = (float)base_y - ((float)(value - baseline_value) / (float)range) * (float)(plot_height - 8);
         Vector2 point = { x, y };
 
         if (has_previous) {
@@ -803,21 +1018,14 @@ static void draw_graph_card(CompanionState *state)
         has_previous = true;
     }
 
-    draw_text(graph_metric_label(state->graph_metric), plot_left, 402, 14, AHC_MUTED);
+    draw_text(graph_metric_label(state->graph_metric), plot_left, 428, 16, AHC_MUTED);
 
     if (hovered_index >= 0) {
         const AhcDailyAttuneSnapshot *hovered = &state->history[hovered_index];
-        char tooltip[256];
-        snprintf(tooltip, sizeof(tooltip), "%s | Account %d | WF %d  LF %d  TF %d",
-            hovered->date,
-            hovered->account,
-            hovered->warforged,
-            hovered->lightforged,
-            hovered->titanforged);
-
-        int width = measure_text_width(tooltip, 14) + 24;
+        char line[128];
+        int width = 238;
         int x = (int)mouse.x + 14;
-        int y = (int)mouse.y - 38;
+        int y = (int)mouse.y - 164;
         if (x + width > GetScreenWidth() - 16) {
             x = GetScreenWidth() - width - 16;
         }
@@ -825,9 +1033,19 @@ static void draw_graph_card(CompanionState *state)
             y = 16;
         }
 
-        DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)width, 30.0f }, 0.18f, 8, (Color){ 8, 11, 18, 245 });
-        DrawRectangleRoundedLines((Rectangle){ (float)x, (float)y, (float)width, 30.0f }, 0.18f, 8, AHC_ACCENT);
-        draw_text(tooltip, x + 12, y + 7, 14, AHC_TEXT);
+        DrawRectangleRounded((Rectangle){ (float)x + 4.0f, (float)y + 5.0f, (float)width, 150.0f }, 0.10f, 8, (Color){ 0, 0, 0, 110 });
+        DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)width, 150.0f }, 0.10f, 8, (Color){ 8, 11, 18, 248 });
+        DrawRectangleRoundedLines((Rectangle){ (float)x, (float)y, (float)width, 150.0f }, 0.10f, 8, AHC_ACCENT);
+        snprintf(line, sizeof(line), "%s  |  Account %d", hovered->date, hovered->account);
+        draw_text(line, x + 14, y + 12, 17, AHC_TEXT);
+        snprintf(line, sizeof(line), "Total: %d", hovered->titanforged + hovered->warforged + hovered->lightforged);
+        draw_text(line, x + 14, y + 42, 16, AHC_MUTED);
+        snprintf(line, sizeof(line), "TF: %d", hovered->titanforged);
+        draw_text(line, x + 14, y + 70, 17, AHC_TF);
+        snprintf(line, sizeof(line), "WF: %d", hovered->warforged);
+        draw_text(line, x + 14, y + 96, 17, AHC_WF);
+        snprintf(line, sizeof(line), "LF: %d", hovered->lightforged);
+        draw_text(line, x + 14, y + 122, 17, AHC_LF);
     }
 }
 
@@ -836,8 +1054,11 @@ static void draw_attunes_tab(CompanionState *state)
     draw_snapshot_card(state);
     draw_graph_card(state);
 
-    if (GuiButton((Rectangle){ 26.0f, 448.0f, 160.0f, 36.0f }, "Scan now")) {
+    if (GuiButton((Rectangle){ 26.0f, 486.0f, 166.0f, 42.0f }, "Scan now")) {
         scan_attunehelper_snapshot(state);
+    }
+    if (GuiButton((Rectangle){ 206.0f, 486.0f, 166.0f, 42.0f }, "Seed test data")) {
+        seed_test_history(state);
     }
 }
 
@@ -850,14 +1071,20 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addon, Rectan
     draw_text(addon->name, (int)bounds.x + 16, (int)bounds.y + 12, 20, AHC_TEXT);
 
     char meta[256];
-    snprintf(meta, sizeof(meta), "By %s  |  Folder: %s", addon->author, addon->folder);
+    snprintf(meta, sizeof(meta), "%s  |  By %s  |  Folder: %s", addon->category, addon->author, addon->folder);
     draw_text(meta, (int)bounds.x + 16, (int)bounds.y + 40, 14, AHC_MUTED);
 
     draw_text(addon->description, (int)bounds.x + 16, (int)bounds.y + 64, 15, AHC_MUTED);
-    draw_text(installed ? (git_checkout ? "Installed" : "Installed manually") : "Not installed", (int)bounds.x + (int)bounds.width - 250, (int)bounds.y + 18, 14, installed ? GREEN : GOLD);
+    draw_text(installed ? (git_checkout ? "Managed" : "Manual") : "Not installed", (int)bounds.x + (int)bounds.width - 330, (int)bounds.y + 18, 14, installed ? GREEN : GOLD);
 
-    if (GuiButton((Rectangle){ bounds.x + bounds.width - 116.0f, bounds.y + 22.0f, 94.0f, 32.0f }, installed ? "Update" : "Install")) {
+    const char *primary_label = installed ? (git_checkout ? "Update" : "Replace") : "Install";
+    float primary_x = installed ? bounds.x + bounds.width - 204.0f : bounds.x + bounds.width - 102.0f;
+    if (GuiButton((Rectangle){ primary_x, bounds.y + 22.0f, 86.0f, 32.0f }, primary_label)) {
         install_or_update_addon(state, addon);
+    }
+
+    if (installed && GuiButton((Rectangle){ bounds.x + bounds.width - 104.0f, bounds.y + 22.0f, 86.0f, 32.0f }, "Uninstall")) {
+        uninstall_addon(state, addon);
     }
 }
 
@@ -868,11 +1095,11 @@ static void draw_addons_tab(CompanionState *state)
 
     char title[128];
     snprintf(title, sizeof(title), "Addon catalog (%zu)", count);
-    draw_card((Rectangle){ 26.0f, 178.0f, 848.0f, 304.0f }, title);
-    draw_text("Install clones the GitHub repo. Update pulls latest changes for managed addons.", 46, 216, 16, AHC_MUTED);
+    draw_card((Rectangle){ 26.0f, 204.0f, 888.0f, 360.0f }, title);
+    draw_text("Direct GitHub mode: install clones repos; manual addons can be replaced with a backed-up managed copy.", 46, 246, 17, AHC_MUTED);
 
     int wheel = (int)GetMouseWheelMove();
-    if (wheel != 0 && CheckCollisionPointRec(GetMousePosition(), (Rectangle){ 42.0f, 248.0f, 812.0f, 212.0f })) {
+    if (wheel != 0 && CheckCollisionPointRec(GetMousePosition(), (Rectangle){ 42.0f, 282.0f, 852.0f, 250.0f })) {
         state->addon_scroll -= wheel;
     }
 
@@ -884,25 +1111,25 @@ static void draw_addons_tab(CompanionState *state)
         state->addon_scroll = max_scroll;
     }
 
-    BeginScissorMode(42, 248, 812, 212);
+    BeginScissorMode(42, 282, 852, 250);
     for (int row = 0; row < 3; row++) {
         int index = state->addon_scroll + row;
         if (index >= (int)count) {
             break;
         }
-        draw_addon_card(state, &addons[index], (Rectangle){ 46.0f, 252.0f + (float)(row * 92), 792.0f, 78.0f });
+        draw_addon_card(state, &addons[index], (Rectangle){ 46.0f, 286.0f + (float)(row * 104), 832.0f, 90.0f });
     }
     EndScissorMode();
 
-    draw_text("Mouse wheel scrolls the catalog. Install/update actions are the next feature pass.", 46, 466, 14, AHC_MUTED);
+    draw_text("For larger catalogs, this should move to release ZIPs or a cached manifest to avoid GitHub friction.", 46, 540, 15, AHC_MUTED);
 }
 
 static void draw_settings_tab(CompanionState *state)
 {
-    draw_card((Rectangle){ 26.0f, 178.0f, 848.0f, 280.0f }, "Setup");
+    draw_card((Rectangle){ 26.0f, 204.0f, 888.0f, 322.0f }, "Setup");
 
-    draw_text("Synastria folder", 46, 224, 18, AHC_TEXT);
-    draw_text("Paste the folder that contains WoWExt.exe, or let the app detect it.", 46, 250, 15, AHC_MUTED);
+    draw_text("Synastria folder", 46, 254, 22, AHC_TEXT);
+    draw_text("Paste the folder that contains WoWExt.exe, or let the app detect it.", 46, 286, 17, AHC_MUTED);
 
     bool paste_requested = state->synastria_path_editing
         && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) || IsKeyDown(KEY_LEFT_SUPER) || IsKeyDown(KEY_RIGHT_SUPER))
@@ -917,11 +1144,11 @@ static void draw_settings_tab(CompanionState *state)
         }
     }
 
-    if (GuiTextBox((Rectangle){ 46.0f, 282.0f, 690.0f, 34.0f }, state->synastria_path, (int)sizeof(state->synastria_path), state->synastria_path_editing)) {
+    if (GuiTextBox((Rectangle){ 46.0f, 326.0f, 708.0f, 40.0f }, state->synastria_path, (int)sizeof(state->synastria_path), state->synastria_path_editing)) {
         state->synastria_path_editing = !state->synastria_path_editing;
     }
 
-    if (GuiButton((Rectangle){ 752.0f, 282.0f, 92.0f, 34.0f }, "Save")) {
+    if (GuiButton((Rectangle){ 772.0f, 326.0f, 108.0f, 40.0f }, "Save")) {
         if (validate_synastria_path(state->synastria_path)) {
             save_settings(state);
             scan_attunehelper_snapshot(state);
@@ -930,17 +1157,17 @@ static void draw_settings_tab(CompanionState *state)
         }
     }
 
-    if (GuiButton((Rectangle){ 46.0f, 338.0f, 160.0f, 34.0f }, "Scan snapshots")) {
+    if (GuiButton((Rectangle){ 46.0f, 392.0f, 172.0f, 42.0f }, "Scan snapshots")) {
         scan_attunehelper_snapshot(state);
     }
-    if (GuiButton((Rectangle){ 218.0f, 338.0f, 160.0f, 34.0f }, "Auto-detect")) {
+    if (GuiButton((Rectangle){ 232.0f, 392.0f, 172.0f, 42.0f }, "Auto-detect")) {
         if (try_auto_detect_synastria(state, true)) {
             scan_attunehelper_snapshot(state);
         }
     }
 
-    draw_text(validate_synastria_path(state->synastria_path) ? "Destination ready: WoWExt.exe found." : "Destination not set: choose the folder with WoWExt.exe.", 46, 404, 15, validate_synastria_path(state->synastria_path) ? GREEN : GOLD);
-    draw_text("Daily history is stored locally for graphing. No WTF backup or account sync is used.", 46, 430, 14, AHC_MUTED);
+    draw_text(validate_synastria_path(state->synastria_path) ? "Destination ready: WoWExt.exe found." : "Destination not set: choose the folder with WoWExt.exe.", 46, 468, 17, validate_synastria_path(state->synastria_path) ? GREEN : GOLD);
+    draw_text("Daily history is stored locally for graphing. No WTF backup or account sync is used.", 46, 496, 15, AHC_MUTED);
 }
 
 static void init_state(CompanionState *state)
@@ -968,10 +1195,10 @@ int main(void)
     init_state(&state);
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(940, 590, "Attune Helper Companion");
+    InitWindow(980, 680, "Attune Helper Companion");
     load_ui_font();
     SetTargetFPS(60);
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 15);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
     GuiSetStyle(DEFAULT, BASE_COLOR_NORMAL, 0x2a303cff);
     GuiSetStyle(DEFAULT, BORDER_COLOR_NORMAL, 0x53667cff);
     GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, 0xe8edf3ff);
@@ -981,6 +1208,7 @@ int main(void)
     while (!WindowShouldClose()) {
         BeginDrawing();
         ClearBackground(AHC_BACKGROUND);
+        DrawRectangleGradientV(0, 126, GetScreenWidth(), GetScreenHeight() - 126, (Color){ 15, 19, 29, 255 }, (Color){ 7, 10, 17, 255 });
 
         draw_header(&state);
         draw_tabs(&state);
@@ -997,7 +1225,9 @@ int main(void)
                 break;
         }
 
-        draw_text(state.status, 26, GetScreenHeight() - 34, 15, AHC_MUTED);
+        DrawRectangle(0, GetScreenHeight() - 46, GetScreenWidth(), 46, (Color){ 10, 14, 22, 230 });
+        DrawRectangle(0, GetScreenHeight() - 46, GetScreenWidth(), 1, AHC_BORDER);
+        draw_text(state.status, 26, GetScreenHeight() - 32, 17, AHC_MUTED);
 
         EndDrawing();
     }
