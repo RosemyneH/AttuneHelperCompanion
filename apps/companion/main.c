@@ -2932,6 +2932,13 @@ static void init_state(CompanionState *state)
     }
 }
 
+static int ahc_display_fps_cap(void)
+{
+    int m = GetCurrentMonitor();
+    int rr = GetMonitorRefreshRate(m);
+    return (rr > 0) ? rr : 60;
+}
+
 int main(void)
 {
     CompanionState state;
@@ -2986,7 +2993,7 @@ int main(void)
 
         bool throttled = IsWindowHidden() || IsWindowMinimized();
         {
-            int want = throttled ? 4 : 60;
+            int want = throttled ? 4 : ahc_display_fps_cap();
             if (want != last_fps_target) {
                 SetTargetFPS(want);
                 last_fps_target = want;
