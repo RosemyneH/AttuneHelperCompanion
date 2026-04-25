@@ -79,6 +79,32 @@ static void replace_owned_string(char **target, char *value)
     *target = value;
 }
 
+static bool parse_json_string_grow(char **decoded, size_t *capacity, size_t length, size_t need)
+{
+    if (length + need < *capacity) {
+        return true;
+    }
+    size_t new_cap = *capacity;
+    while (length + need >= new_cap) {
+        if (new_cap < 64u) {
+            new_cap = 64u;
+            continue;
+        }
+        size_t doubled = new_cap * 2u;
+        if (doubled < new_cap) {
+            return false;
+        }
+        new_cap = doubled;
+    }
+    char *next = (char *)realloc(*decoded, new_cap);
+    if (!next) {
+        return false;
+    }
+    *decoded = next;
+    *capacity = new_cap;
+    return true;
+}
+
 static bool parse_json_string(const char **cursor, char **out)
 {
     const char *current = json_skip_ws(*cursor);
@@ -87,7 +113,7 @@ static bool parse_json_string(const char **cursor, char **out)
     }
     current++;
 
-    size_t capacity = strlen(current) + 1;
+    size_t capacity = 64;
     char *decoded = (char *)malloc(capacity);
     if (!decoded) {
         return false;
@@ -97,6 +123,10 @@ static bool parse_json_string(const char **cursor, char **out)
     while (*current) {
         unsigned char ch = (unsigned char)*current++;
         if (ch == '"') {
+            if (!parse_json_string_grow(&decoded, &capacity, length, 1)) {
+                free(decoded);
+                return false;
+            }
             decoded[length] = '\0';
             *cursor = current;
             *out = decoded;
@@ -109,21 +139,45 @@ static bool parse_json_string(const char **cursor, char **out)
                 case '"':
                 case '\\':
                 case '/':
+                    if (!parse_json_string_grow(&decoded, &capacity, length, 1)) {
+                        free(decoded);
+                        return false;
+                    }
                     decoded[length++] = (char)ch;
                     break;
                 case 'b':
+                    if (!parse_json_string_grow(&decoded, &capacity, length, 1)) {
+                        free(decoded);
+                        return false;
+                    }
                     decoded[length++] = '\b';
                     break;
                 case 'f':
+                    if (!parse_json_string_grow(&decoded, &capacity, length, 1)) {
+                        free(decoded);
+                        return false;
+                    }
                     decoded[length++] = '\f';
                     break;
                 case 'n':
+                    if (!parse_json_string_grow(&decoded, &capacity, length, 1)) {
+                        free(decoded);
+                        return false;
+                    }
                     decoded[length++] = '\n';
                     break;
                 case 'r':
+                    if (!parse_json_string_grow(&decoded, &capacity, length, 1)) {
+                        free(decoded);
+                        return false;
+                    }
                     decoded[length++] = '\r';
                     break;
                 case 't':
+                    if (!parse_json_string_grow(&decoded, &capacity, length, 1)) {
+                        free(decoded);
+                        return false;
+                    }
                     decoded[length++] = '\t';
                     break;
                 case 'u':
@@ -132,6 +186,10 @@ static bool parse_json_string(const char **cursor, char **out)
                         return false;
                     }
                     current += 4;
+                    if (!parse_json_string_grow(&decoded, &capacity, length, 1)) {
+                        free(decoded);
+                        return false;
+                    }
                     decoded[length++] = '?';
                     break;
                 default:
@@ -139,12 +197,49 @@ static bool parse_json_string(const char **cursor, char **out)
                     return false;
             }
         } else {
+            if (!parse_json_string_grow(&decoded, &capacity, length, 1)) {
+                free(decoded);
+                return false;
+            }
             decoded[length++] = (char)ch;
         }
     }
 
     free(decoded);
     return false;
+}
+
+static const char *json_skip_quoted_string(const char *cursor)
+{
+    if (!cursor || *cursor != '"') {
+        return NULL;
+    }
+    cursor++;
+    while (*cursor) {
+        if (*cursor == '"') {
+            return cursor + 1;
+        }
+        if (*cursor == '\\') {
+            cursor++;
+            if (!*cursor) {
+                return NULL;
+            }
+            if (*cursor == 'u') {
+                cursor++;
+                for (int i = 0; i < 4; i++) {
+                    if (!*cursor) {
+                        return NULL;
+                    }
+                    cursor++;
+                }
+            } else {
+                cursor++;
+            }
+            continue;
+        }
+        cursor++;
+    }
+    return NULL;
 }
 
 static const char *json_skip_value(const char *cursor);
@@ -235,12 +330,7 @@ static const char *json_skip_value(const char *cursor)
 {
     cursor = json_skip_ws(cursor);
     if (*cursor == '"') {
-        char *ignored = NULL;
-        if (!parse_json_string(&cursor, &ignored)) {
-            return NULL;
-        }
-        free(ignored);
-        return cursor;
+        return json_skip_quoted_string(cursor);
     }
     if (*cursor == '{') {
         return json_skip_object(cursor);
