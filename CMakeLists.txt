@@ -10,6 +10,7 @@ option(AHC_BUILD_APP "Build the native companion application" ON)
 option(AHC_BUILD_TESTS "Build tests" ON)
 
 add_library(ahc_core
+    src/addons/addon_catalog.c
     src/attune/attune_snapshot.c
 )
 
