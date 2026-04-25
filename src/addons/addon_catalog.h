@@ -14,6 +14,8 @@ typedef struct AhcAddon {
     const char *avatar_url;
     const char *version;
     const char *source;
+    const char **categories;
+    size_t category_count;
 } AhcAddon;
 
 const AhcAddon *ahc_addon_catalog_items(void);

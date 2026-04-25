@@ -8,12 +8,26 @@
 #include <windows.h>
 #include <shellapi.h>
 
-#define AHC_TRAYMSG (WM_USER + 100)
+#define AHC_TRAYMSG (WM_APP + 100)
+#define AHC_TRAY_CLASS "AttuneHelperCompanionTray"
 
 static WNDPROC s_old_wnd;
+static HWND s_raylib_hwnd;
+static HWND s_tray_hwnd;
 static NOTIFYICONDATAA s_nid;
 static int s_tray_added;
+static int s_class_registered;
 static volatile LONG s_pending;
+
+static void ahc_tray_restore_window(HWND hwnd)
+{
+    if (!hwnd) {
+        return;
+    }
+    ShowWindow(hwnd, SW_SHOW);
+    ShowWindow(hwnd, SW_RESTORE);
+    SetForegroundWindow(hwnd);
+}
 
 static void ahc_tray_or_pending(LONG bits)
 {
@@ -23,7 +37,50 @@ static void ahc_tray_or_pending(LONG bits)
     } while (InterlockedCompareExchange(&s_pending, old | bits, old) != old);
 }
 
-LRESULT CALLBACK ahc_tray_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+static void ahc_tray_show_menu(HWND owner)
+{
+    HMENU menu = CreatePopupMenu();
+    if (!menu) {
+        return;
+    }
+
+    AppendMenuA(menu, MF_STRING, 1, "Open");
+    AppendMenuA(menu, MF_STRING, 2, "Hide to tray");
+    AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
+    AppendMenuA(menu, MF_STRING, 3, "Close");
+    POINT pt;
+    GetCursorPos(&pt);
+    SetForegroundWindow(owner);
+    int cmd = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, pt.x, pt.y, owner, 0);
+    DestroyMenu(menu);
+    PostMessageA(owner, WM_NULL, 0, 0);
+    if (cmd == 1) {
+        ahc_tray_restore_window(s_raylib_hwnd);
+        ahc_tray_or_pending((LONG)AHC_TRAYA_SHOW);
+    } else if (cmd == 2) {
+        ahc_tray_or_pending((LONG)AHC_TRAYA_BACKGROUND);
+    } else if (cmd == 3) {
+        ahc_tray_or_pending((LONG)AHC_TRAYA_EXIT);
+    }
+}
+
+static LRESULT CALLBACK ahc_tray_owner_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    (void)wparam;
+    if (msg == AHC_TRAYMSG) {
+        if (lparam == WM_LBUTTONUP || lparam == WM_LBUTTONDBLCLK) {
+            ahc_tray_restore_window(s_raylib_hwnd);
+            ahc_tray_or_pending((LONG)AHC_TRAYA_SHOW);
+        } else if (lparam == WM_RBUTTONUP) {
+            ahc_tray_show_menu(hwnd);
+        }
+        return 0;
+    }
+
+    return DefWindowProcA(hwnd, msg, wparam, lparam);
+}
+
+static LRESULT CALLBACK ahc_raylib_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     if (msg == WM_SYSCOMMAND) {
         if ((wparam & 0xfff0) == SC_CLOSE) {
@@ -37,34 +94,40 @@ LRESULT CALLBACK ahc_tray_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         return 0;
     }
 
-    if (msg == AHC_TRAYMSG) {
-        if (lparam == WM_LBUTTONUP || lparam == WM_LBUTTONDBLCLK) {
-            ahc_tray_or_pending((LONG)AHC_TRAYA_SHOW);
-        } else if (lparam == WM_RBUTTONUP) {
-            HMENU menu = CreatePopupMenu();
-            if (menu) {
-                AppendMenuA(menu, MF_STRING, 1, "Open");
-                AppendMenuA(menu, MF_STRING, 2, "Exit");
-                POINT pt;
-                GetCursorPos(&pt);
-                SetForegroundWindow(hwnd);
-                int cmd = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, pt.x, pt.y, hwnd, 0);
-                DestroyMenu(menu);
-                PostMessageA(hwnd, WM_NULL, 0, 0);
-                if (cmd == 1) {
-                    ahc_tray_or_pending((LONG)AHC_TRAYA_SHOW);
-                } else if (cmd == 2) {
-                    ahc_tray_or_pending((LONG)AHC_TRAYA_EXIT);
-                }
-            }
-        }
-        return 0;
-    }
-
     if (s_old_wnd) {
         return CallWindowProcA(s_old_wnd, hwnd, msg, wparam, lparam);
     }
     return DefWindowProcA(hwnd, msg, wparam, lparam);
+}
+
+static HWND ahc_tray_create_owner_window(void)
+{
+    HINSTANCE instance = GetModuleHandleA(NULL);
+    if (!s_class_registered) {
+        WNDCLASSA wc;
+        ZeroMemory(&wc, sizeof(wc));
+        wc.lpfnWndProc = ahc_tray_owner_wndproc;
+        wc.hInstance = instance;
+        wc.lpszClassName = AHC_TRAY_CLASS;
+        if (!RegisterClassA(&wc)) {
+            return NULL;
+        }
+        s_class_registered = 1;
+    }
+
+    return CreateWindowExA(
+        0,
+        AHC_TRAY_CLASS,
+        "Attune Helper Companion Tray",
+        0,
+        0,
+        0,
+        0,
+        0,
+        HWND_MESSAGE,
+        NULL,
+        instance,
+        NULL);
 }
 
 void ahc_tray_install(void *raylib_hwnd)
@@ -73,11 +136,17 @@ void ahc_tray_install(void *raylib_hwnd)
     if (!w) {
         return;
     }
-    s_old_wnd = (WNDPROC)SetWindowLongPtrA(w, GWLP_WNDPROC, (LONG_PTR)ahc_tray_wndproc);
+    s_raylib_hwnd = w;
+    if (!s_old_wnd) {
+        s_old_wnd = (WNDPROC)SetWindowLongPtrA(w, GWLP_WNDPROC, (LONG_PTR)ahc_raylib_wndproc);
+    }
+    if (!s_tray_hwnd) {
+        s_tray_hwnd = ahc_tray_create_owner_window();
+    }
 
     ZeroMemory(&s_nid, sizeof(s_nid));
     s_nid.cbSize = sizeof(s_nid);
-    s_nid.hWnd = w;
+    s_nid.hWnd = s_tray_hwnd ? s_tray_hwnd : w;
     s_nid.uID = 1;
     s_nid.uFlags = (UINT)(NIF_MESSAGE | NIF_TIP);
     s_nid.uCallbackMessage = AHC_TRAYMSG;
@@ -106,6 +175,15 @@ void ahc_tray_shutdown(void *raylib_hwnd)
         SetWindowLongPtrA(w, GWLP_WNDPROC, (LONG_PTR)s_old_wnd);
     }
     s_old_wnd = 0;
+    if (s_tray_hwnd) {
+        DestroyWindow(s_tray_hwnd);
+        s_tray_hwnd = NULL;
+    }
+    if (s_class_registered) {
+        UnregisterClassA(AHC_TRAY_CLASS, GetModuleHandleA(NULL));
+        s_class_registered = 0;
+    }
+    s_raylib_hwnd = NULL;
     ZeroMemory(&s_nid, sizeof(s_nid));
 }
 

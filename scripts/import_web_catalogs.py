@@ -45,6 +45,11 @@ CATEGORY_LABELS = [
     "Utility",
 ]
 
+LOOT_KEYWORDS = ("loot", "roll", "atlasloot", "atlas-loot", "atlas", "auction", "drop", "itemrack")
+INVENTORY_KEYWORDS = ("bag", "bags", "inventory", "arkinventory", "bagnon", "bank", "bagspace")
+MAP_KEYWORDS = ("mapster", "map", "minimap", "cartographer", "coordinates", "coords", "tomtom")
+ATTUNEMENT_KEYWORDS = ("attune",)
+
 
 def log(message: str) -> None:
     print(message, flush=True)
@@ -80,6 +85,39 @@ def infer_category_from_context(context: str) -> str | None:
         if label.lower() in lowered:
             return label
     return None
+
+
+def unique_categories(categories: list[str]) -> list[str]:
+    result: list[str] = []
+    for category in categories:
+        if category and category not in result:
+            result.append(category)
+    return result
+
+
+def assign_categories(entry: dict, categories: list[str]) -> None:
+    categories = unique_categories(categories) or ["Quality of Life"]
+    entry["category"] = categories[0]
+    if len(categories) > 1:
+        entry["categories"] = categories
+    else:
+        entry.pop("categories", None)
+
+
+def curated_felbite_categories(slug: str, name: str, scraped_category: str | None) -> list[str]:
+    text = f"{slug} {name} {scraped_category or ''}".lower()
+    categories: list[str] = []
+    if any(keyword in text for keyword in LOOT_KEYWORDS):
+        categories.append("Loot")
+    if any(keyword in text for keyword in INVENTORY_KEYWORDS):
+        categories.append("Inventory")
+    if any(keyword in text for keyword in ATTUNEMENT_KEYWORDS):
+        categories.append("Attunement")
+    if any(keyword in text for keyword in MAP_KEYWORDS):
+        categories.append("Map")
+    if not categories:
+        categories.append("Quality of Life")
+    return unique_categories(categories)
 
 
 def collect_felbite_urls(max_pages: int = 40) -> tuple[list[str], dict[str, str]]:
@@ -148,12 +186,12 @@ def build_felbite_entry(url: str, zip_url: str | None, category: str | None) -> 
     install_type = "direct_zip" if zip_url else "external_page"
     install_url = zip_url if zip_url else url
     repo_url = zip_url if zip_url else url
-    return {
+    entry = {
         "id": f"felbite-{slug}",
         "name": name,
         "author": "Felbite",
         "source": "Felbite",
-        "category": category or "Website Catalog",
+        "category": "Quality of Life",
         "folder": f"felbite-{slug}",
         "description": "Community addon listing from Felbite (3.3.5 catalog page).",
         "repo": repo_url,
@@ -170,6 +208,8 @@ def build_felbite_entry(url: str, zip_url: str | None, category: str | None) -> 
         "avatar_url": "",
         "version": "website"
     }
+    assign_categories(entry, curated_felbite_categories(slug, name, category))
+    return entry
 
 
 def build_warperia_entry(url: str, zip_url: str | None, category: str | None) -> dict:
@@ -292,6 +332,10 @@ def main() -> None:
                 current["direct_zip"] = entry["direct_zip"]
                 current["source"] = entry["source"]
                 current["category"] = entry["category"]
+                if "categories" in entry:
+                    current["categories"] = entry["categories"]
+                else:
+                    current.pop("categories", None)
                 updated += 1
             continue
         addons.append(entry)

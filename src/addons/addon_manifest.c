@@ -17,6 +17,8 @@ typedef struct AddonFields {
     char *author;
     char *source;
     char *category;
+    const char **categories;
+    size_t category_count;
     char *folder;
     char *repo;
     char *description;
@@ -81,6 +83,23 @@ static void rebase_string_ptr(
     *field = (const char *)(new_base + (size_t)(p - old_base));
 }
 
+static void rebase_ptr(
+    const void **field,
+    const uint8_t *old_base,
+    uint8_t *new_base,
+    size_t region_len
+)
+{
+    if (!field || !*field) {
+        return;
+    }
+    const uint8_t *p = (const uint8_t *)*field;
+    if (p < old_base || p >= old_base + region_len) {
+        return;
+    }
+    *field = (const void *)(new_base + (size_t)(p - old_base));
+}
+
 static void ahc_compact_manifest_string_arena(
     AhcManifestStorage *st, AhcAddon *items, size_t n
 )
@@ -116,6 +135,10 @@ static void ahc_compact_manifest_string_arena(
         rebase_string_ptr(&x->avatar_url, ob, new_block, u);
         rebase_string_ptr(&x->version, ob, new_block, u);
         rebase_string_ptr(&x->source, ob, new_block, u);
+        rebase_ptr((const void **)&x->categories, ob, new_block, u);
+        for (size_t j = 0; j < x->category_count; j++) {
+            rebase_string_ptr(&x->categories[j], ob, new_block, u);
+        }
     }
 
     free(a->data);
@@ -263,6 +286,84 @@ static bool parse_json_string(const char **cursor, char **out)
 
     free(decoded);
     return false;
+}
+
+static const char *parse_json_string_array(
+    AhcArena *arena, const char *cursor, const char ***out_items, size_t *out_count
+)
+{
+    cursor = json_skip_ws(cursor);
+    if (*cursor != '[') {
+        return NULL;
+    }
+    cursor++;
+
+    const char **items = NULL;
+    size_t count = 0;
+    size_t capacity = 0;
+
+    for (;;) {
+        cursor = json_skip_ws(cursor);
+        if (*cursor == ']') {
+            cursor++;
+            break;
+        }
+
+        char *value = NULL;
+        if (!parse_json_string(&cursor, &value)) {
+            free(items);
+            return NULL;
+        }
+
+        char *stored = ahc_arena_strcpy(arena, value);
+        free(value);
+        if (!stored) {
+            free(items);
+            return NULL;
+        }
+
+        if (count == capacity) {
+            size_t new_capacity = capacity ? capacity * 2u : 4u;
+            const char **next = (const char **)realloc(items, new_capacity * sizeof(items[0]));
+            if (!next) {
+                free(items);
+                return NULL;
+            }
+            items = next;
+            capacity = new_capacity;
+        }
+        items[count++] = stored;
+
+        cursor = json_skip_ws(cursor);
+        if (*cursor == ',') {
+            cursor++;
+            continue;
+        }
+        if (*cursor == ']') {
+            cursor++;
+            break;
+        }
+
+        free(items);
+        return NULL;
+    }
+
+    if (count == 0) {
+        free(items);
+        return NULL;
+    }
+
+    const char **stored_items = (const char **)ahc_arena_alloc(arena, count * sizeof(stored_items[0]), sizeof(void *));
+    if (!stored_items) {
+        free(items);
+        return NULL;
+    }
+    memcpy(stored_items, items, count * sizeof(stored_items[0]));
+    free(items);
+
+    *out_items = stored_items;
+    *out_count = count;
+    return cursor;
 }
 
 static const char *json_skip_quoted_string(const char *cursor)
@@ -542,6 +643,13 @@ static const char *parse_addon_object(
                 return NULL;
             }
             set_field_arena(arena, &fields.category, value);
+        } else if (strcmp(key, "categories") == 0) {
+            cursor = parse_json_string_array(arena, cursor, &fields.categories, &fields.category_count);
+            if (!cursor) {
+                free(key);
+                clear_addon_fields(&fields);
+                return NULL;
+            }
         } else if (strcmp(key, "folder") == 0) {
             char *value = NULL;
             if (!parse_json_string(&cursor, &value)) {
@@ -626,6 +734,19 @@ static const char *parse_addon_object(
         fields.install_url = NULL;
     }
 
+    if (!fields.categories && fields.category) {
+        const char **categories = (const char **)ahc_arena_alloc(arena, sizeof(categories[0]), sizeof(void *));
+        if (!categories) {
+            clear_addon_fields(&fields);
+            return NULL;
+        }
+        categories[0] = fields.category;
+        fields.categories = categories;
+        fields.category_count = 1u;
+    } else if (!fields.category && fields.categories && fields.category_count > 0u) {
+        fields.category = (char *)fields.categories[0];
+    }
+
     if (!fields.name || !fields.author || !fields.category || !fields.folder || !fields.repo || !fields.description) {
         clear_addon_fields(&fields);
         return NULL;
@@ -651,6 +772,8 @@ static const char *parse_addon_object(
     addon.source_subdir = fields.source_subdir;
     addon.avatar_url = fields.avatar_url;
     addon.version = fields.version;
+    addon.categories = fields.categories;
+    addon.category_count = fields.category_count;
     fields.source = NULL;
     memset(&fields, 0, sizeof(fields));
 

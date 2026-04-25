@@ -11,13 +11,6 @@
 #include "ahc_tray.h"
 
 #include "raylib.h"
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#if defined(DrawText)
-#undef DrawText
-#endif
-#endif
 #if defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable: 4100 4244 4267 4456 4996)
@@ -36,6 +29,7 @@
 #include <time.h>
 
 #if defined(_WIN32)
+__declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void *hModule, char *lpFilename, unsigned long nSize);
 #include <direct.h>
 #define AHC_MKDIR(path) _mkdir(path)
 #define AHC_RMDIR(path) _rmdir(path)
@@ -225,6 +219,58 @@ static int measure_text_width(const char *text, int size)
     return MeasureText(text, size);
 }
 
+static int draw_wrapped_text(const char *text, int x, int y, int size, int max_width, int max_lines, Color color)
+{
+    if (!text || !text[0] || max_width <= 0 || max_lines <= 0) {
+        return 0;
+    }
+
+    char line[256];
+    size_t line_len = 0u;
+    int lines = 0;
+    int cursor_y = y;
+    const char *word = text;
+    while (*word && lines < max_lines) {
+        while (*word == ' ') {
+            word++;
+        }
+        const char *word_end = word;
+        while (*word_end && *word_end != ' ') {
+            word_end++;
+        }
+        size_t word_len = (size_t)(word_end - word);
+        if (word_len == 0u) {
+            break;
+        }
+
+        char candidate[256];
+        int written = snprintf(candidate, sizeof(candidate), "%s%s%.*s", line_len ? line : "", line_len ? " " : "", (int)word_len, word);
+        if (written < 0) {
+            break;
+        }
+
+        if (line_len && measure_text_width(candidate, size) > max_width) {
+            draw_text(line, x, cursor_y, size, color);
+            lines++;
+            cursor_y += size + 5;
+            line_len = 0u;
+            line[0] = '\0';
+            continue;
+        }
+
+        snprintf(line, sizeof(line), "%s", candidate);
+        line_len = strlen(line);
+        word = word_end;
+    }
+
+    if (line_len && lines < max_lines) {
+        draw_text(line, x, cursor_y, size, color);
+        lines++;
+    }
+
+    return lines;
+}
+
 static int color_to_gui_hex(Color color)
 {
     return ((int)color.r << 24) | ((int)color.g << 16) | ((int)color.b << 8) | color.a;
@@ -268,7 +314,7 @@ static int content_right(void)
 
 static int content_top(void)
 {
-    return 204 + AHC_CHROME_H;
+    return AHC_CHROME_H + 128;
 }
 
 static int content_bottom(void)
@@ -1352,8 +1398,8 @@ static bool ahc_linux_exe_directory(char *out, size_t out_size)
 static bool ahc_windows_exe_directory(char *out, size_t out_size)
 {
     char path[AHC_PATH_CAPACITY];
-    DWORD n = GetModuleFileNameA(NULL, path, (DWORD)sizeof(path));
-    if (n == 0u || n >= (DWORD)sizeof(path)) {
+    unsigned long n = GetModuleFileNameA(NULL, path, (unsigned long)sizeof(path));
+    if (n == 0u || n >= (unsigned long)sizeof(path)) {
         return false;
     }
     const char *slash = strrchr(path, '\\');
@@ -2389,26 +2435,30 @@ static void draw_window_chrome(CompanionState *state)
     Vector2 mouse = GetMousePosition();
     DrawRectangle(0, 0, sw, h, (Color){ 12, 18, 32, 255 });
     DrawRectangle(0, h - 1, sw, 1, AHC_BORDER);
-    draw_text("Attune Helper", 12, 8, 16, AHC_MUTED);
+    draw_text("Attune Helper Companion", 12, 8, 16, AHC_MUTED);
 
-    Rectangle rmin = { (float)sw - 100.0f, 4.0f, 40.0f, 28.0f };
-    Rectangle rclose = { (float)sw - 50.0f, 4.0f, 40.0f, 28.0f };
+    Rectangle rmin = { (float)sw - 148.0f, 4.0f, 40.0f, 28.0f };
+    Rectangle rfull = { (float)sw - 100.0f, 4.0f, 40.0f, 28.0f };
+    Rectangle rclose = { (float)sw - 52.0f, 4.0f, 40.0f, 28.0f };
     bool press_min = draw_wow_button("_", rmin, false, 16);
+    bool press_full = draw_wow_button(IsWindowFullscreen() ? "[]-" : "[]", rfull, IsWindowFullscreen(), 15);
     bool press_close = draw_wow_button("X", rclose, false, 16);
     if (press_min) {
         MinimizeWindow();
+    } else if (press_full) {
+        ToggleFullscreen();
     } else if (press_close) {
         ahc_tray_request_background();
     } else {
-        Rectangle rdrag = { 0, 0, (float)(sw - 108), (float)h };
+        Rectangle rdrag = { 0, 0, (float)(sw - 156), (float)h };
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, rdrag)
-            && !CheckCollisionPointRec(mouse, rmin) && !CheckCollisionPointRec(mouse, rclose)) {
+            && !CheckCollisionPointRec(mouse, rmin) && !CheckCollisionPointRec(mouse, rfull) && !CheckCollisionPointRec(mouse, rclose)) {
             g_chrome_drag = true;
             g_chrome_grab = mouse;
         }
     }
     if (g_chrome_drag) {
-        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !IsWindowFullscreen()) {
             Vector2 w = GetWindowPosition();
             Vector2 m = GetMousePosition();
             float sx = w.x + m.x;
@@ -2423,23 +2473,21 @@ static void draw_window_chrome(CompanionState *state)
 static void draw_header(CompanionState *state)
 {
     int c = AHC_CHROME_H;
-    DrawRectangleGradientH(0, c, GetScreenWidth(), 126, (Color){ 20, 35, 58, 255 }, (Color){ 8, 16, 31, 255 });
-    DrawCircle(GetScreenWidth() - 128, 34 + c, 98, (Color){ 56, 118, 184, 44 });
-    DrawCircle(GetScreenWidth() - 42, 82 + c, 58, (Color){ 164, 197, 235, 26 });
-    DrawRectangle(0, 124 + c, GetScreenWidth(), 2, (Color){ 88, 124, 166, 210 });
+    DrawRectangleGradientH(0, c, GetScreenWidth(), 72, (Color){ 18, 31, 51, 255 }, (Color){ 8, 16, 31, 255 });
+    DrawCircle(GetScreenWidth() - 124, 28 + c, 72, (Color){ 56, 118, 184, 36 });
+    DrawRectangle(0, 70 + c, GetScreenWidth(), 2, (Color){ 88, 124, 166, 190 });
 
-    draw_text("Attune Helper Companion", 26, 20 + c, 42, AHC_TEXT);
-    draw_text("Synastria addon installs, updates, and daily attune history.", 28, 72 + c, 20, (Color){ 210, 221, 238, 255 });
+    draw_text("Addon installs, updates, and attune history", 26, 12 + c, 22, AHC_TEXT);
 
     if (state->synastria_path[0]) {
         char path_line[AHC_PATH_CAPACITY + 32];
         snprintf(path_line, sizeof(path_line), "Synastria: %s", state->synastria_path);
-        draw_text(path_line, 28, 100 + c, 16, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : AHC_STATUS_WARNING);
+        draw_text(path_line, 28, 42 + c, 15, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : AHC_STATUS_WARNING);
     } else {
-        draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 100 + c, 16, AHC_STATUS_WARNING);
+        draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 42 + c, 15, AHC_STATUS_WARNING);
     }
 
-    Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 40.0f + (float)c, 158.0f, 44.0f };
+    Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 14.0f + (float)c, 158.0f, 42.0f };
     bool can_launch = validate_synastria_path(state->synastria_path);
 #if !defined(_WIN32)
     can_launch = can_launch && ahc_posix_wine_or_proton_ready();
@@ -2451,7 +2499,7 @@ static void draw_header(CompanionState *state)
 
 static void draw_tabs(CompanionState *state)
 {
-    const float y = 142.0f + (float)AHC_CHROME_H;
+    const float y = 84.0f + (float)AHC_CHROME_H;
     if (draw_tab_button("Attunes", (Rectangle){ (float)content_left(), y, 164.0f, 44.0f }, state->tab == COMPANION_TAB_ATTUNES)) {
         state->tab = COMPANION_TAB_ATTUNES;
     }
@@ -2874,7 +2922,18 @@ static void draw_attunes_tab(CompanionState *state)
 
 static bool addon_matches_selected_category(const CompanionState *state, const AhcAddon *addon)
 {
-    return !state->selected_addon_category[0] || strcmp(addon->category, state->selected_addon_category) == 0;
+    if (!state->selected_addon_category[0]) {
+        return true;
+    }
+    if (addon->categories && addon->category_count > 0u) {
+        for (size_t i = 0; i < addon->category_count; i++) {
+            if (addon->categories[i] && strcmp(addon->categories[i], state->selected_addon_category) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+    return addon->category && strcmp(addon->category, state->selected_addon_category) == 0;
 }
 
 static size_t addon_filtered_count(const CompanionState *state, const AhcAddon *addons, size_t count)
@@ -2898,13 +2957,63 @@ static bool category_seen(const char *const *categories, size_t count, const cha
     return false;
 }
 
+static size_t addon_category_count(const AhcAddon *addon)
+{
+    if (addon->categories && addon->category_count > 0u) {
+        return addon->category_count;
+    }
+    return addon->category && addon->category[0] ? 1u : 0u;
+}
+
+static const char *addon_category_at(const AhcAddon *addon, size_t index)
+{
+    if (addon->categories && addon->category_count > 0u) {
+        return index < addon->category_count ? addon->categories[index] : NULL;
+    }
+    return index == 0u ? addon->category : NULL;
+}
+
+static void addon_category_line(const AhcAddon *addon, char *out, size_t out_capacity)
+{
+    size_t written = 0u;
+    if (!out_capacity) {
+        return;
+    }
+    out[0] = '\0';
+
+    size_t count = addon_category_count(addon);
+    for (size_t i = 0; i < count; i++) {
+        const char *category = addon_category_at(addon, i);
+        if (!category || !category[0]) {
+            continue;
+        }
+        int n = snprintf(out + written, out_capacity - written, "%s%s", written ? ", " : "", category);
+        if (n < 0) {
+            break;
+        }
+        if ((size_t)n >= out_capacity - written) {
+            out[out_capacity - 1u] = '\0';
+            break;
+        }
+        written += (size_t)n;
+    }
+
+    if (!out[0]) {
+        snprintf(out, out_capacity, "Uncategorized");
+    }
+}
+
 static int draw_category_filters(CompanionState *state, const AhcAddon *addons, size_t count, float x, float y, float right)
 {
     const char *categories[AHC_CATEGORY_CAPACITY];
     size_t category_count = 0;
     for (size_t i = 0; i < count && category_count < AHC_CATEGORY_CAPACITY; i++) {
-        if (addons[i].category && addons[i].category[0] && !category_seen(categories, category_count, addons[i].category)) {
-            categories[category_count++] = addons[i].category;
+        size_t addon_categories = addon_category_count(&addons[i]);
+        for (size_t j = 0; j < addon_categories && category_count < AHC_CATEGORY_CAPACITY; j++) {
+            const char *category = addon_category_at(&addons[i], j);
+            if (category && category[0] && !category_seen(categories, category_count, category)) {
+                categories[category_count++] = category;
+            }
         }
     }
 
@@ -2962,8 +3071,10 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addon, Rectan
     draw_source_badge(badge, addon);
     draw_text(addon->name, (int)bounds.x + 16, (int)bounds.y + 10, 21, AHC_TEXT);
 
-    char meta[256];
-    snprintf(meta, sizeof(meta), "%s  |  %s  |  By %s  |  Folder: %s", addon->category, addon_source_label(addon), addon->author, addon->folder);
+    char category_line[128];
+    addon_category_line(addon, category_line, sizeof(category_line));
+    char meta[320];
+    snprintf(meta, sizeof(meta), "%s  |  %s  |  By %s  |  Folder: %s", category_line, addon_source_label(addon), addon->author, addon->folder);
     draw_text(meta, (int)bounds.x + 16, (int)bounds.y + 39, 15, AHC_MUTED);
 
     char description_line[220];
@@ -3004,6 +3115,86 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addon, Rectan
     }
 }
 
+static const char *community_favorite_description(const AhcAddon *addon)
+{
+    if (!addon || !addon->folder) {
+        return NULL;
+    }
+    if (strcmp(addon->folder, "AttuneHelper") == 0) {
+        return "Automate your Attunement swaps and manage your gear quickly with this powerful addon.";
+    }
+    if (strcmp(addon->folder, "ScootsStats") == 0) {
+        return "Adds a stat panel beside your character panel with extra stats.";
+    }
+    if (strcmp(addon->folder, "ScootsConfirmationSkip") == 0) {
+        return "Skips confirmation dialogs for bind-on-equip gear and bind-on-pickup chest loot.";
+    }
+    if (strcmp(addon->folder, "ScootsCraft") == 0) {
+        return "Overhauls professions and includes a modified Acki's Recipe List.";
+    }
+    if (strcmp(addon->folder, "ScootsRares") == 0) {
+        return "Creates a chat link to run .findnpc when you are near a rare.";
+    }
+    return NULL;
+}
+
+static void draw_community_favorite_card(const AhcAddon *addon, const char *description, Rectangle bounds)
+{
+    DrawRectangleRounded(bounds, 0.08f, 8, AHC_PANEL);
+    DrawRectangleRoundedLines(bounds, 0.08f, 8, AHC_BORDER);
+    draw_wrapped_text(addon->name, (int)bounds.x + 12, (int)bounds.y + 10, 17, (int)bounds.width - 24, 1, AHC_TEXT);
+    char byline[96];
+    snprintf(byline, sizeof(byline), "By %s", addon->author);
+    draw_text(byline, (int)bounds.x + 12, (int)bounds.y + 34, 13, AHC_MUTED);
+    draw_wrapped_text(description, (int)bounds.x + 12, (int)bounds.y + 56, 13, (int)bounds.width - 24, 3, AHC_ACCENT);
+}
+
+static float draw_community_favorites_section(const AhcAddon *addons, size_t count, float x, float y, float right)
+{
+    const AhcAddon *favorites[5] = { 0 };
+    const char *descriptions[5] = { 0 };
+    size_t favorite_count = 0u;
+    for (size_t i = 0; i < count && favorite_count < 5u; i++) {
+        const char *description = community_favorite_description(&addons[i]);
+        if (description) {
+            favorites[favorite_count] = &addons[i];
+            descriptions[favorite_count] = description;
+            favorite_count++;
+        }
+    }
+
+    if (favorite_count == 0u) {
+        return 0.0f;
+    }
+
+    draw_text("Community Favorites", (int)x, (int)y, 18, AHC_TEXT);
+    draw_text("Highly recommended addons for new players.", (int)x, (int)y + 24, 14, AHC_MUTED);
+
+    const float gap = 12.0f;
+    float available = right - x;
+    int columns = available >= 1180.0f ? 5 : (available >= 920.0f ? 4 : (available >= 680.0f ? 3 : 2));
+    if (columns < 1) {
+        columns = 1;
+    }
+    const float card_width = (available - (float)(columns - 1) * gap) / (float)columns;
+    const float card_height = 116.0f;
+    float cursor_x = x;
+    float cursor_y = y + 48.0f;
+    float bottom = cursor_y + card_height;
+
+    for (size_t i = 0; i < favorite_count; i++) {
+        if (cursor_x + card_width > right && cursor_x > x) {
+            cursor_x = x;
+            cursor_y += card_height + gap;
+            bottom = cursor_y + card_height;
+        }
+        draw_community_favorite_card(favorites[i], descriptions[i], (Rectangle){ cursor_x, cursor_y, card_width, card_height });
+        cursor_x += card_width + gap;
+    }
+
+    return bottom - y + 18.0f;
+}
+
 static void draw_addons_tab(CompanionState *state)
 {
     const AhcAddon *addons = state->addons ? state->addons : ahc_addon_catalog_items();
@@ -3022,12 +3213,14 @@ static void draw_addons_tab(CompanionState *state)
 
     char source_line[AHC_PATH_CAPACITY + 96];
     snprintf(source_line, sizeof(source_line), "%s catalog: %s", state->addon_manifest_loaded ? "Local manifest" : "Fallback", state->addon_catalog_source);
-    draw_text(source_line, (int)content.x + 20, (int)content.y + 42, 15, AHC_MUTED);
-    draw_text("Direct GitHub mode: installs clone repos; manual addons are backed up before replacement.", (int)content.x + 20, (int)content.y + 64, 15, AHC_MUTED);
+    draw_text(source_line, (int)content.x + 20, (int)content.y + 40, 14, AHC_MUTED);
+    draw_text("GitHub installs clone repos; manual addons are backed up before replacement.", (int)content.x + 20, (int)content.y + 60, 14, AHC_MUTED);
 
 
-    int category_rows = draw_category_filters(state, addons, count, content.x + 20.0f, content.y + 94.0f, content.x + content.width - 20.0f);
-    float list_y = content.y + 94.0f + (float)(category_rows * 34) + 8.0f;
+    float controls_y = content.y + 84.0f;
+    controls_y += draw_community_favorites_section(addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
+    int category_rows = draw_category_filters(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
+    float list_y = controls_y + (float)(category_rows * 34) + 8.0f;
     float list_height = content.y + content.height - list_y - 38.0f;
     if (list_height < 88.0f) {
         list_height = 88.0f;
@@ -3323,14 +3516,54 @@ static int ahc_display_fps_cap(void)
     return (rr > 0) ? rr : 60;
 }
 
+static void apply_window_defaults(void)
+{
+    int monitor = GetCurrentMonitor();
+    int monitor_width = GetMonitorWidth(monitor);
+    int monitor_height = GetMonitorHeight(monitor);
+    int target_width = 1500;
+    int target_height = 900;
+
+    if (monitor_width > 0 && monitor_height > 0) {
+        target_width = (int)((float)monitor_width * 0.84f);
+        target_height = (int)((float)monitor_height * 0.84f);
+        if (target_width < 1280) {
+            target_width = 1280;
+        }
+        if (target_height < 820) {
+            target_height = 820;
+        }
+        if (target_width > monitor_width - 80) {
+            target_width = monitor_width - 80;
+        }
+        if (target_height > monitor_height - 90) {
+            target_height = monitor_height - 90;
+        }
+    }
+
+    if (target_width < 1120) {
+        target_width = 1120;
+    }
+    if (target_height < 720) {
+        target_height = 720;
+    }
+
+    SetWindowMinSize(1120, 720);
+    SetWindowSize(target_width, target_height);
+    if (monitor_width > target_width && monitor_height > target_height) {
+        SetWindowPosition((monitor_width - target_width) / 2, (monitor_height - target_height) / 2);
+    }
+}
+
 int main(void)
 {
     CompanionState state;
     init_state(&state);
 
     SetConfigFlags(FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_ALWAYS_RUN);
-    InitWindow(1280, 760, "Attune Helper Companion");
+    InitWindow(1500, 900, "Attune Helper Companion");
     SetExitKey(0);
+    apply_window_defaults();
     apply_monitor_defaults(&state);
     load_ui_font();
     load_ui_images();
@@ -3374,6 +3607,10 @@ int main(void)
             break;
         }
 
+        if (IsKeyPressed(KEY_F11) || ((IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT)) && IsKeyPressed(KEY_ENTER))) {
+            ToggleFullscreen();
+        }
+
         poll_attunehelper_snapshot(&state);
 
         bool throttled = IsWindowHidden() || IsWindowMinimized();
@@ -3399,12 +3636,12 @@ int main(void)
         ClearBackground(AHC_BACKGROUND);
         DrawRectangleGradientV(
             0,
-            126 + AHC_CHROME_H,
+            72 + AHC_CHROME_H,
             GetScreenWidth(),
-            GetScreenHeight() - (126 + AHC_CHROME_H),
+            GetScreenHeight() - (72 + AHC_CHROME_H),
             AHC_BACKGROUND_TOP,
             AHC_BACKGROUND_BOTTOM);
-        DrawCircle(GetScreenWidth() - 120, 184 + AHC_CHROME_H, 220, (Color){ 55, 112, 175, 42 });
+        DrawCircle(GetScreenWidth() - 120, 132 + AHC_CHROME_H, 220, (Color){ 55, 112, 175, 42 });
         DrawCircle(120, GetScreenHeight() - 86, 180, (Color){ 25, 56, 93, 38 });
 
         draw_window_chrome(&state);

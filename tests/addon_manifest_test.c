@@ -13,6 +13,19 @@ static const AhcAddon *find_addon(const AhcAddonManifest *manifest, const char *
     return NULL;
 }
 
+static int addon_has_category(const AhcAddon *addon, const char *category)
+{
+    if (addon->categories && addon->category_count > 0u) {
+        for (size_t i = 0; i < addon->category_count; i++) {
+            if (strcmp(addon->categories[i], category) == 0) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+    return addon->category && strcmp(addon->category, category) == 0;
+}
+
 int main(void)
 {
     AhcAddonManifest manifest = { 0 };
@@ -37,6 +50,23 @@ int main(void)
     const AhcAddon *lizard = find_addon(&manifest, "LizardDMP");
     if (!lizard || strcmp(lizard->repo, "https://github.com/Versicoloris/LizardDMP.git") != 0) {
         fprintf(stderr, "LizardDMP repo was not parsed correctly.\n");
+        ahc_addon_manifest_free(&manifest);
+        return 1;
+    }
+
+    const AhcAddon *scoots_stats = find_addon(&manifest, "Scoots' Stats");
+    if (!scoots_stats
+        || scoots_stats->category_count != 3u
+        || !addon_has_category(scoots_stats, "Attunement")
+        || !addon_has_category(scoots_stats, "Quality of Life")
+        || !addon_has_category(scoots_stats, "Community Favorites")) {
+        fprintf(stderr, "Scoots' Stats categories were not parsed correctly.\n");
+        ahc_addon_manifest_free(&manifest);
+        return 1;
+    }
+
+    if (!questie->categories || questie->category_count != 1u || !addon_has_category(questie, "Questing")) {
+        fprintf(stderr, "Legacy Questie category was not synthesized correctly.\n");
         ahc_addon_manifest_free(&manifest);
         return 1;
     }
