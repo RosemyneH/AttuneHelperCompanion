@@ -11,6 +11,9 @@ typedef struct AhcAddon {
     const char *repo;
     const char *description;
     const char *source_subdir;
+    const char *avatar_url;
+    const char *version;
+    const char *source;
 } AhcAddon;
 
 const AhcAddon *ahc_addon_catalog_items(void);

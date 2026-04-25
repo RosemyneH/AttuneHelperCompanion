@@ -4,6 +4,7 @@ setlocal
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
 set "BUILD_DIR=%ROOT%\build"
+set "APP_EXE=%BUILD_DIR%\attune_helper_companion.exe"
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 
 if not exist "%VSWHERE%" (
@@ -36,6 +37,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Closing any running Attune Helper Companion before rebuilding.
+taskkill /f /im attune_helper_companion.exe >nul 2>nul
+
 echo Configuring app build. The first run downloads raylib and raygui.
 cmake -S "%ROOT%" -B "%BUILD_DIR%" --fresh -G Ninja -DAHC_BUILD_APP=ON -DAHC_BUILD_TESTS=ON
 if errorlevel 1 exit /b 1
@@ -45,3 +49,10 @@ cmake --build "%BUILD_DIR%"
 if errorlevel 1 exit /b 1
 
 echo App build completed successfully.
+if not exist "%APP_EXE%" (
+    echo Expected app executable was not found: %APP_EXE%
+    exit /b 1
+)
+
+echo Launching Attune Helper Companion.
+start "" "%APP_EXE%"

@@ -8,11 +8,14 @@
 typedef struct AddonFields {
     char *name;
     char *author;
+    char *source;
     char *category;
     char *folder;
     char *repo;
     char *description;
     char *source_subdir;
+    char *avatar_url;
+    char *version;
     char *install_url;
 } AddonFields;
 
@@ -53,6 +56,20 @@ static char *read_text_file(const char *path)
     fclose(file);
     text[read_count] = '\0';
     return text;
+}
+
+static char *copy_owned_string(const char *value)
+{
+    if (!value) {
+        return NULL;
+    }
+    size_t length = strlen(value);
+    char *copy = (char *)malloc(length + 1);
+    if (!copy) {
+        return NULL;
+    }
+    memcpy(copy, value, length + 1);
+    return copy;
 }
 
 
@@ -241,11 +258,14 @@ static void free_addon_fields(AddonFields *fields)
 {
     free(fields->name);
     free(fields->author);
+    free(fields->source);
     free(fields->category);
     free(fields->folder);
     free(fields->repo);
     free(fields->description);
     free(fields->source_subdir);
+    free(fields->avatar_url);
+    free(fields->version);
     free(fields->install_url);
     memset(fields, 0, sizeof(*fields));
 }
@@ -365,6 +385,14 @@ static const char *parse_addon_object(const char *cursor, AhcAddonManifest *mani
                 return NULL;
             }
             replace_owned_string(&fields.author, value);
+        } else if (strcmp(key, "source") == 0) {
+            char *value = NULL;
+            if (!parse_json_string(&cursor, &value)) {
+                free(key);
+                free_addon_fields(&fields);
+                return NULL;
+            }
+            replace_owned_string(&fields.source, value);
         } else if (strcmp(key, "category") == 0) {
             char *value = NULL;
             if (!parse_json_string(&cursor, &value)) {
@@ -405,6 +433,22 @@ static const char *parse_addon_object(const char *cursor, AhcAddonManifest *mani
                 return NULL;
             }
             replace_owned_string(&fields.source_subdir, value);
+        } else if (strcmp(key, "avatar_url") == 0) {
+            char *value = NULL;
+            if (!parse_json_string(&cursor, &value)) {
+                free(key);
+                free_addon_fields(&fields);
+                return NULL;
+            }
+            replace_owned_string(&fields.avatar_url, value);
+        } else if (strcmp(key, "version") == 0) {
+            char *value = NULL;
+            if (!parse_json_string(&cursor, &value)) {
+                free(key);
+                free_addon_fields(&fields);
+                return NULL;
+            }
+            replace_owned_string(&fields.version, value);
         } else if (strcmp(key, "install") == 0) {
             cursor = parse_install_object(cursor, &fields);
             if (!cursor) {
@@ -449,21 +493,32 @@ static const char *parse_addon_object(const char *cursor, AhcAddonManifest *mani
     AhcAddon addon;
     addon.name = fields.name;
     addon.author = fields.author;
+    addon.source = fields.source ? fields.source : copy_owned_string("GitHub");
+    if (!addon.source) {
+        free_addon_fields(&fields);
+        return NULL;
+    }
     addon.category = fields.category;
     addon.folder = fields.folder;
     addon.repo = fields.repo;
     addon.description = fields.description;
     addon.source_subdir = fields.source_subdir;
+    addon.avatar_url = fields.avatar_url;
+    addon.version = fields.version;
+    fields.source = NULL;
     memset(&fields, 0, sizeof(fields));
 
     if (!append_addon(manifest, &addon)) {
         free((char *)addon.name);
         free((char *)addon.author);
+        free((char *)addon.source);
         free((char *)addon.category);
         free((char *)addon.folder);
         free((char *)addon.repo);
         free((char *)addon.description);
         free((char *)addon.source_subdir);
+        free((char *)addon.avatar_url);
+        free((char *)addon.version);
         return NULL;
     }
 
@@ -534,11 +589,14 @@ void ahc_addon_manifest_free(AhcAddonManifest *manifest)
     for (size_t i = 0; i < manifest->count; i++) {
         free((char *)manifest->items[i].name);
         free((char *)manifest->items[i].author);
+        free((char *)manifest->items[i].source);
         free((char *)manifest->items[i].category);
         free((char *)manifest->items[i].folder);
         free((char *)manifest->items[i].repo);
         free((char *)manifest->items[i].description);
         free((char *)manifest->items[i].source_subdir);
+        free((char *)manifest->items[i].avatar_url);
+        free((char *)manifest->items[i].version);
     }
 
     free(manifest->items);

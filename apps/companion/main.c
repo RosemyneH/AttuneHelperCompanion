@@ -1,3 +1,7 @@
+#if defined(_MSC_VER)
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "addons/addon_catalog.h"
 #include "addons/addon_manifest.h"
 #include "attune/attune_snapshot.h"
@@ -14,6 +18,7 @@
 #endif
 
 #include <stdbool.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,7 +41,11 @@
 #define AHC_STATUS_CAPACITY 256
 #define AHC_SCAN_MAX_DIRECTORIES 6000
 #define AHC_HISTORY_CAPACITY 512
+#define AHC_DISPLAY_HISTORY_CAPACITY 1024
 #define AHC_CATEGORY_CAPACITY 64
+#define AHC_AVATAR_CACHE_CAPACITY 128
+#define AHC_SNAPSHOT_POLL_SECONDS 5.0
+#define AHC_PROCESS_ACTIVE_SECONDS 4.0
 
 #if !defined(_WIN32)
 #include <strings.h>
@@ -49,16 +58,21 @@ typedef enum CompanionTab {
 } CompanionTab;
 
 typedef enum GraphMetric {
-    GRAPH_METRIC_TOTAL = 0,
-    GRAPH_METRIC_WARFORGED = 1,
-    GRAPH_METRIC_LIGHTFORGED = 2,
-    GRAPH_METRIC_TITANFORGED = 3
+    GRAPH_METRIC_ACCOUNT = 0,
+    GRAPH_METRIC_TITANFORGED = 1,
+    GRAPH_METRIC_WARFORGED = 2,
+    GRAPH_METRIC_LIGHTFORGED = 3
 } GraphMetric;
 
 typedef enum GraphDisplay {
     GRAPH_DISPLAY_BARS = 0,
     GRAPH_DISPLAY_PLOT = 1
 } GraphDisplay;
+
+typedef struct DisplaySnapshot {
+    AhcDailyAttuneSnapshot snapshot;
+    bool synthetic;
+} DisplaySnapshot;
 
 typedef struct CompanionState {
     CompanionTab tab;
@@ -76,30 +90,74 @@ typedef struct CompanionState {
     size_t addon_count;
     bool addon_manifest_loaded;
     bool synastria_path_editing;
+    bool launch_parameters_editing;
+    bool clear_data_confirming;
     int addon_scroll;
     GraphMetric graph_metric;
     GraphDisplay graph_display;
     char selected_addon_category[64];
     char addon_catalog_source[AHC_PATH_CAPACITY];
+    char launch_parameters[256];
+    char monitor_name[128];
+    long snapshot_mod_time;
+    double next_snapshot_poll_time;
+    char process_action[AHC_STATUS_CAPACITY];
+    double process_started_at;
+    double process_until;
+    bool wow_config_loaded;
+    bool wow_width_editing;
+    bool wow_height_editing;
+    bool wow_refresh_editing;
+    bool wow_vsync_editing;
+    bool wow_multisampling_editing;
+    bool wow_texture_resolution_editing;
+    bool wow_environment_detail_editing;
+    bool wow_ground_effect_density_editing;
+    char wow_width[16];
+    char wow_height[16];
+    char wow_refresh[16];
+    char wow_vsync[16];
+    char wow_multisampling[16];
+    char wow_texture_resolution[16];
+    char wow_environment_detail[16];
+    char wow_ground_effect_density[16];
+    bool wow_windowed;
+    bool wow_borderless;
 } CompanionState;
 
-static const Color AHC_BACKGROUND = { 10, 8, 7, 255 };
-static const Color AHC_PANEL = { 31, 27, 22, 255 };
-static const Color AHC_PANEL_HOVER = { 45, 38, 29, 255 };
-static const Color AHC_PANEL_DARK = { 16, 14, 13, 255 };
-static const Color AHC_BORDER = { 132, 98, 45, 255 };
-static const Color AHC_BORDER_BRIGHT = { 214, 169, 80, 255 };
-static const Color AHC_TEXT = { 248, 232, 190, 255 };
-static const Color AHC_MUTED = { 188, 170, 132, 255 };
-static const Color AHC_ACCENT = { 89, 196, 255, 255 };
-static const Color AHC_ACCENT_DARK = { 20, 91, 135, 255 };
-static const Color AHC_PARCHMENT = { 68, 51, 31, 255 };
+static const Color AHC_BACKGROUND = { 7, 12, 20, 255 };
+static const Color AHC_BACKGROUND_TOP = { 19, 31, 48, 255 };
+static const Color AHC_BACKGROUND_BOTTOM = { 3, 7, 13, 255 };
+static const Color AHC_PANEL = { 22, 32, 46, 245 };
+static const Color AHC_PANEL_HOVER = { 31, 46, 65, 250 };
+static const Color AHC_PANEL_DARK = { 14, 23, 35, 250 };
+static const Color AHC_BORDER = { 80, 108, 140, 255 };
+static const Color AHC_BORDER_BRIGHT = { 146, 182, 224, 255 };
+static const Color AHC_TEXT = { 233, 239, 251, 255 };
+static const Color AHC_MUTED = { 167, 182, 206, 255 };
+static const Color AHC_ACCENT = { 83, 167, 239, 255 };
+static const Color AHC_ACCENT_DARK = { 39, 93, 151, 255 };
+static const Color AHC_STATUS_WARNING = { 141, 184, 232, 255 };
 static const Color AHC_TF = { 143, 139, 255, 255 };
 static const Color AHC_WF = { 255, 150, 86, 255 };
 static const Color AHC_LF = { 255, 226, 115, 255 };
 
 static Font g_ui_font;
 static bool g_has_ui_font;
+typedef struct AvatarCacheEntry {
+    char key[AHC_PATH_CAPACITY];
+    Texture2D texture;
+    bool loaded;
+    bool failed;
+} AvatarCacheEntry;
+static AvatarCacheEntry g_avatar_cache[AHC_AVATAR_CACHE_CAPACITY];
+static size_t g_avatar_cache_count;
+
+static void set_status(CompanionState *state, const char *message);
+static void set_action_status(CompanionState *state, const char *status, const char *action);
+static void path_join(char *out, size_t out_capacity, const char *left, const char *right);
+static bool validate_synastria_path(const char *path);
+static void apply_monitor_defaults(CompanionState *state);
 
 static void draw_text(const char *text, int x, int y, int size, Color color)
 {
@@ -119,6 +177,36 @@ static int measure_text_width(const char *text, int size)
     }
 
     return MeasureText(text, size);
+}
+
+static int color_to_gui_hex(Color color)
+{
+    return ((int)color.r << 24) | ((int)color.g << 16) | ((int)color.b << 8) | color.a;
+}
+
+static void format_int_with_commas(int value, char *out, size_t out_capacity)
+{
+    char digits[32];
+    snprintf(digits, sizeof(digits), "%d", value);
+    size_t len = strlen(digits);
+    size_t start = 0;
+    if (digits[0] == '-') {
+        if (out_capacity > 1) {
+            out[0] = '-';
+            out[1] = '\0';
+        }
+        start = 1;
+    }
+
+    size_t written = start;
+    for (size_t i = start; i < len && written + 1 < out_capacity; i++) {
+        size_t remain = len - i;
+        if (i > start && remain % 3 == 0 && written + 1 < out_capacity) {
+            out[written++] = ',';
+        }
+        out[written++] = digits[i];
+    }
+    out[written] = '\0';
 }
 
 static int content_left(void)
@@ -166,23 +254,28 @@ static bool draw_wow_button(const char *label, Rectangle bounds, bool active, in
     Vector2 mouse = GetMousePosition();
     bool hovered = CheckCollisionPointRec(mouse, bounds);
     bool pressed = hovered && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-    Color fill = active ? AHC_ACCENT_DARK : AHC_PANEL_DARK;
+    Color fill = active ? (Color){ 44, 104, 164, 255 } : AHC_PANEL_DARK;
     Color border = active ? AHC_ACCENT : AHC_BORDER;
-    Color text = active ? RAYWHITE : AHC_TEXT;
+    Color text = AHC_TEXT;
+    Color top_glint = active ? (Color){ 170, 219, 255, 86 } : (Color){ 198, 218, 245, 52 };
+    float border_width = 1.0f;
 
     if (hovered) {
-        fill = active ? (Color){ 30, 117, 164, 255 } : AHC_PANEL_HOVER;
-        border = active ? (Color){ 142, 221, 255, 255 } : AHC_BORDER_BRIGHT;
-        text = RAYWHITE;
+        fill = active ? (Color){ 58, 123, 184, 255 } : AHC_PANEL_HOVER;
+        border = active ? (Color){ 163, 218, 255, 255 } : AHC_BORDER_BRIGHT;
+        top_glint.a = 104;
+        border_width = 2.0f;
     }
     if (pressed) {
-        fill = active ? (Color){ 12, 76, 116, 255 } : AHC_PARCHMENT;
+        fill = active ? (Color){ 28, 78, 131, 255 } : (Color){ 16, 27, 41, 255 };
+        border = active ? (Color){ 120, 184, 236, 255 } : AHC_BORDER;
+        top_glint.a = 36;
     }
 
-    DrawRectangleRounded((Rectangle){ bounds.x + 3.0f, bounds.y + 4.0f, bounds.width, bounds.height }, 0.16f, 8, (Color){ 0, 0, 0, 120 });
+    DrawRectangleRounded((Rectangle){ bounds.x + 2.0f, bounds.y + 3.0f, bounds.width, bounds.height }, 0.14f, 8, (Color){ 0, 0, 0, 115 });
     DrawRectangleRounded(bounds, 0.16f, 8, fill);
-    DrawRectangleRoundedLines(bounds, 0.16f, 8, border);
-    DrawRectangle((int)bounds.x + 4, (int)bounds.y + 3, (int)bounds.width - 8, 1, (Color){ 255, 238, 174, hovered ? 75 : 35 });
+    DrawRectangleRoundedLinesEx(bounds, 0.16f, 8, border_width, border);
+    DrawRectangle((int)bounds.x + 4, (int)bounds.y + 3, (int)bounds.width - 8, 1, top_glint);
     draw_centered_text(label, bounds, text_size, text);
 
     return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
@@ -221,9 +314,241 @@ static void load_ui_font(void)
     }
 }
 
-static void set_status(CompanionState *state, const char *message);
-static void path_join(char *out, size_t out_capacity, const char *left, const char *right);
-static bool validate_synastria_path(const char *path);
+static void load_ui_images(void)
+{
+    g_avatar_cache_count = 0;
+    memset(g_avatar_cache, 0, sizeof(g_avatar_cache));
+}
+
+static bool github_owner_from_repo(const char *repo, char *out, size_t out_capacity)
+{
+    if (!repo || !out || out_capacity == 0) {
+        return false;
+    }
+
+    const char *needle = strstr(repo, "github.com/");
+    if (!needle) {
+        return false;
+    }
+    needle += strlen("github.com/");
+
+    size_t i = 0;
+    while (needle[i] && needle[i] != '/' && i + 1 < out_capacity) {
+        out[i] = needle[i];
+        i++;
+    }
+    out[i] = '\0';
+    return i > 0;
+}
+
+static bool addon_avatar_url(const AhcAddon *addon, char *out, size_t out_capacity)
+{
+    if (!addon || !out || out_capacity == 0) {
+        return false;
+    }
+    if (addon->avatar_url && addon->avatar_url[0]) {
+        snprintf(out, out_capacity, "%s", addon->avatar_url);
+        return true;
+    }
+
+    char owner[128];
+    if (!github_owner_from_repo(addon->repo, owner, sizeof(owner))) {
+        return false;
+    }
+
+    snprintf(out, out_capacity, "https://github.com/%s.png?size=96", owner);
+    return true;
+}
+
+static void addon_avatar_cache_key(const AhcAddon *addon, const char *avatar_url, char *out, size_t out_capacity)
+{
+    if (addon && addon->author && addon->author[0]) {
+        size_t written = 0;
+        for (size_t i = 0; addon->author[i] && written + 1 < out_capacity; i++) {
+            unsigned char ch = (unsigned char)addon->author[i];
+            out[written++] = (char)tolower(ch);
+        }
+        out[written] = '\0';
+        return;
+    }
+    snprintf(out, out_capacity, "%s", avatar_url ? avatar_url : "");
+}
+
+static void sanitize_cache_key(const char *key, char *out, size_t out_capacity)
+{
+    size_t written = 0;
+    for (size_t i = 0; key[i] && written + 1 < out_capacity; i++) {
+        unsigned char ch = (unsigned char)key[i];
+        if (isalnum(ch)) {
+            out[written++] = (char)ch;
+        } else {
+            out[written++] = '_';
+        }
+    }
+    out[written] = '\0';
+}
+
+static AvatarCacheEntry *avatar_cache_lookup(const char *key)
+{
+    for (size_t i = 0; i < g_avatar_cache_count; i++) {
+        if (strcmp(g_avatar_cache[i].key, key) == 0) {
+            return &g_avatar_cache[i];
+        }
+    }
+    return NULL;
+}
+
+static AvatarCacheEntry *avatar_cache_get_or_create(const char *key)
+{
+    AvatarCacheEntry *existing = avatar_cache_lookup(key);
+    if (existing) {
+        return existing;
+    }
+    if (g_avatar_cache_count >= AHC_AVATAR_CACHE_CAPACITY) {
+        return NULL;
+    }
+
+    AvatarCacheEntry *entry = &g_avatar_cache[g_avatar_cache_count++];
+    memset(entry, 0, sizeof(*entry));
+    snprintf(entry->key, sizeof(entry->key), "%s", key);
+    return entry;
+}
+
+static void ensure_avatar_cache_dir(char *out, size_t out_capacity)
+{
+    char build_dir[AHC_PATH_CAPACITY];
+    snprintf(build_dir, sizeof(build_dir), "build");
+    if (!DirectoryExists(build_dir)) {
+        AHC_MKDIR(build_dir);
+    }
+    snprintf(out, out_capacity, "build/avatar-cache");
+    if (!DirectoryExists(out)) {
+        AHC_MKDIR(out);
+    }
+}
+
+static bool download_avatar_to_file(const char *url, const char *file_path)
+{
+    char command[AHC_PATH_CAPACITY * 3];
+    snprintf(command, sizeof(command), "curl -L --fail --silent --show-error \"%s\" --output \"%s\"", url, file_path);
+    return system(command) == 0 && FileExists(file_path);
+}
+
+static Texture2D *get_addon_avatar_texture(const AhcAddon *addon)
+{
+    char avatar_url[AHC_PATH_CAPACITY];
+    if (!addon_avatar_url(addon, avatar_url, sizeof(avatar_url))) {
+        return NULL;
+    }
+
+    char cache_key[AHC_PATH_CAPACITY];
+    addon_avatar_cache_key(addon, avatar_url, cache_key, sizeof(cache_key));
+    AvatarCacheEntry *entry = avatar_cache_get_or_create(cache_key);
+    if (!entry || entry->failed) {
+        return NULL;
+    }
+    if (entry->loaded) {
+        return &entry->texture;
+    }
+
+    char cache_dir[AHC_PATH_CAPACITY];
+    ensure_avatar_cache_dir(cache_dir, sizeof(cache_dir));
+
+    char cache_name[AHC_PATH_CAPACITY];
+    sanitize_cache_key(avatar_url, cache_name, sizeof(cache_name));
+
+    char cache_path[AHC_PATH_CAPACITY];
+    path_join(cache_path, sizeof(cache_path), cache_dir, cache_name);
+    strncat(cache_path, ".png", sizeof(cache_path) - strlen(cache_path) - 1);
+
+    if (!FileExists(cache_path) && !download_avatar_to_file(avatar_url, cache_path)) {
+        entry->failed = true;
+        return NULL;
+    }
+
+    Texture2D texture = LoadTexture(cache_path);
+    if (texture.id == 0) {
+        entry->failed = true;
+        return NULL;
+    }
+
+    SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+    entry->texture = texture;
+    entry->loaded = true;
+    return &entry->texture;
+}
+
+static const char *addon_source_label(const AhcAddon *addon)
+{
+    if (!addon || !addon->source || !addon->source[0]) {
+        return "GitHub";
+    }
+    return addon->source;
+}
+
+static bool addon_is_github_source(const AhcAddon *addon)
+{
+    return strcmp(addon_source_label(addon), "GitHub") == 0;
+}
+
+static bool addon_repo_is_git_checkout(const AhcAddon *addon)
+{
+    if (!addon || !addon->repo || !addon->repo[0]) {
+        return false;
+    }
+    return strstr(addon->repo, "github.com/") != NULL || strstr(addon->repo, ".git") != NULL;
+}
+
+static bool addon_repo_is_zip_url(const AhcAddon *addon)
+{
+    if (!addon || !addon->repo || !addon->repo[0]) {
+        return false;
+    }
+    return strstr(addon->repo, ".zip") != NULL;
+}
+
+static bool open_external_url(const char *url)
+{
+    if (!url || !url[0]) {
+        return false;
+    }
+#if defined(_WIN32)
+    char command[AHC_PATH_CAPACITY * 2];
+    snprintf(command, sizeof(command), "start \"\" \"%s\"", url);
+    return system(command) == 0;
+#elif defined(__APPLE__)
+    char command[AHC_PATH_CAPACITY * 2];
+    snprintf(command, sizeof(command), "open \"%s\"", url);
+    return system(command) == 0;
+#else
+    char command[AHC_PATH_CAPACITY * 2];
+    snprintf(command, sizeof(command), "xdg-open \"%s\" >/dev/null 2>&1", url);
+    return system(command) == 0;
+#endif
+}
+
+static void draw_source_badge(Rectangle bounds, const AhcAddon *addon)
+{
+    DrawRectangleRounded(bounds, 0.16f, 8, (Color){ 15, 25, 39, 255 });
+    DrawRectangleRoundedLines(bounds, 0.16f, 8, (Color){ 98, 128, 166, 255 });
+    DrawRectangleGradientV((int)bounds.x + 1, (int)bounds.y + 1, (int)bounds.width - 2, (int)bounds.height - 2, (Color){ 30, 50, 74, 255 }, (Color){ 12, 21, 34, 255 });
+
+    Texture2D *avatar = get_addon_avatar_texture(addon);
+    if (avatar) {
+        Rectangle source = { 0.0f, 0.0f, (float)avatar->width, (float)avatar->height };
+        float icon_size = bounds.height - 16.0f;
+        Rectangle dest = { bounds.x + 9.0f, bounds.y + 8.0f, icon_size, icon_size };
+        DrawTexturePro(*avatar, source, dest, (Vector2){ 0.0f, 0.0f }, 0.0f, RAYWHITE);
+        DrawRectangleRoundedLines(dest, 0.24f, 8, (Color){ 198, 220, 248, 120 });
+    } else {
+        DrawCircle((int)bounds.x + 26, (int)bounds.y + 22, 12.0f, (Color){ 236, 243, 255, 220 });
+        draw_text("GH", (int)bounds.x + 16, (int)bounds.y + 14, 14, (Color){ 22, 36, 54, 255 });
+    }
+
+    draw_text(addon->author, (int)bounds.x + 44, (int)bounds.y + 8, 14, AHC_TEXT);
+    draw_text(addon_source_label(addon), (int)bounds.x + 44, (int)bounds.y + 27, 12, AHC_MUTED);
+}
+
 static bool addon_has_source_subdir(const AhcAddon *addon)
 {
     return addon->source_subdir && addon->source_subdir[0];
@@ -246,6 +571,58 @@ static bool resolve_addons_path(const CompanionState *state, char *out, size_t o
     }
 
     return DirectoryExists(out);
+}
+
+static bool ensure_directory(const char *path)
+{
+    if (DirectoryExists(path)) {
+        return true;
+    }
+
+    AHC_MKDIR(path);
+    return DirectoryExists(path);
+}
+
+static bool backup_base_root(const CompanionState *state, char *out, size_t out_capacity)
+{
+    if (!validate_synastria_path(state->synastria_path)) {
+        return false;
+    }
+
+    path_join(out, out_capacity, state->synastria_path, "AttuneHelperBackup");
+    return ensure_directory(out);
+}
+
+static bool backup_child_root(const CompanionState *state, const char *child, char *out, size_t out_capacity)
+{
+    char base[AHC_PATH_CAPACITY];
+    if (!backup_base_root(state, base, sizeof(base))) {
+        return false;
+    }
+
+    path_join(out, out_capacity, base, child);
+    return ensure_directory(out);
+}
+
+static bool resolve_wtf_path(const CompanionState *state, char *out, size_t out_capacity)
+{
+    if (!validate_synastria_path(state->synastria_path)) {
+        return false;
+    }
+
+    path_join(out, out_capacity, state->synastria_path, "WTF");
+    return DirectoryExists(out);
+}
+
+static bool resolve_wow_config_path(const CompanionState *state, char *out, size_t out_capacity)
+{
+    char wtf_path[AHC_PATH_CAPACITY];
+    if (!resolve_wtf_path(state, wtf_path, sizeof(wtf_path))) {
+        return false;
+    }
+
+    path_join(out, out_capacity, wtf_path, "Config.wtf");
+    return true;
 }
 
 static bool addon_install_path(const CompanionState *state, const AhcAddon *addon, char *out, size_t out_capacity)
@@ -328,19 +705,105 @@ static bool remove_directory_tree(const char *path)
     return removed;
 }
 
-static bool addon_backup_root(const CompanionState *state, char *out, size_t out_capacity)
+static bool copy_file_contents(const char *source, const char *destination)
 {
-    char addons_path[AHC_PATH_CAPACITY];
-    if (!resolve_addons_path(state, addons_path, sizeof(addons_path))) {
+    FILE *input = fopen(source, "rb");
+    if (!input) {
         return false;
     }
 
-    path_join(out, out_capacity, addons_path, "_AttuneHelperCompanionBackups");
-    if (!DirectoryExists(out)) {
-        AHC_MKDIR(out);
+    FILE *output = fopen(destination, "wb");
+    if (!output) {
+        fclose(input);
+        return false;
     }
 
-    return DirectoryExists(out);
+    char buffer[16384];
+    bool copied = true;
+    size_t read_count = 0;
+    while ((read_count = fread(buffer, 1, sizeof(buffer), input)) > 0) {
+        if (fwrite(buffer, 1, read_count, output) != read_count) {
+            copied = false;
+            break;
+        }
+    }
+
+    if (ferror(input)) {
+        copied = false;
+    }
+
+    fclose(input);
+    if (fclose(output) != 0) {
+        copied = false;
+    }
+
+    return copied;
+}
+
+static bool copy_directory_tree(const char *source, const char *destination)
+{
+    if (!DirectoryExists(source) || !ensure_directory(destination)) {
+        return false;
+    }
+
+    FilePathList entries = LoadDirectoryFiles(source);
+    bool copied = true;
+
+    for (unsigned int i = 0; i < entries.count; i++) {
+        const char *entry = entries.paths[i];
+        const char *name = GetFileName(entry);
+        if (AHC_STRICMP(name, ".") == 0 || AHC_STRICMP(name, "..") == 0) {
+            continue;
+        }
+
+        char destination_entry[AHC_PATH_CAPACITY];
+        path_join(destination_entry, sizeof(destination_entry), destination, name);
+        if (DirectoryExists(entry)) {
+            if (!copy_directory_tree(entry, destination_entry)) {
+                copied = false;
+            }
+        } else if (!copy_file_contents(entry, destination_entry)) {
+            copied = false;
+        }
+    }
+
+    UnloadDirectoryFiles(entries);
+    return copied;
+}
+
+static void make_timestamped_folder_name(const char *label, char *out, size_t out_capacity)
+{
+    snprintf(out, out_capacity, "%s-%lld", label, (long long)time(NULL));
+}
+
+static bool backup_directory_snapshot(CompanionState *state, const char *source, const char *backup_child, const char *label)
+{
+    char root[AHC_PATH_CAPACITY];
+    char folder[128];
+    char destination[AHC_PATH_CAPACITY];
+
+    if (!backup_child_root(state, backup_child, root, sizeof(root))) {
+        set_action_status(state, "Could not create backup folder.", "Backup folder failed");
+        return false;
+    }
+
+    make_timestamped_folder_name(label, folder, sizeof(folder));
+    path_join(destination, sizeof(destination), root, folder);
+
+    if (!copy_directory_tree(source, destination)) {
+        set_action_status(state, "Backup did not complete. Check folder permissions.", "Backup failed");
+        return false;
+    }
+
+    char message[AHC_STATUS_CAPACITY];
+    snprintf(message, sizeof(message), "Backed up %s to AttuneHelperBackup/%s.", label, backup_child);
+    set_action_status(state, message, "Backup complete");
+    return true;
+}
+
+static bool addon_backup_root(const CompanionState *state, char *out, size_t out_capacity)
+{
+    return backup_child_root(state, "Addons", out, out_capacity);
 }
 
 static bool addon_staging_root(const CompanionState *state, char *out, size_t out_capacity)
@@ -534,6 +997,24 @@ static void set_status(CompanionState *state, const char *message)
     snprintf(state->status, sizeof(state->status), "%s", message);
 }
 
+static double app_time(void)
+{
+    return IsWindowReady() ? GetTime() : 0.0;
+}
+
+static void set_process_action(CompanionState *state, const char *message)
+{
+    snprintf(state->process_action, sizeof(state->process_action), "%s", message);
+    state->process_started_at = app_time();
+    state->process_until = state->process_started_at + AHC_PROCESS_ACTIVE_SECONDS;
+}
+
+static void set_action_status(CompanionState *state, const char *status, const char *action)
+{
+    set_status(state, status);
+    set_process_action(state, action);
+}
+
 static void path_join(char *out, size_t out_capacity, const char *left, const char *right)
 {
     size_t left_length = strlen(left);
@@ -548,6 +1029,74 @@ static void trim_line(char *text)
         text[length - 1] = '\0';
         length--;
     }
+}
+
+static bool parse_iso_date(const char *date, int *year, int *month, int *day)
+{
+    int parsed_year = 0;
+    int parsed_month = 0;
+    int parsed_day = 0;
+    if (!date || sscanf(date, "%d-%d-%d", &parsed_year, &parsed_month, &parsed_day) != 3) {
+        return false;
+    }
+    if (parsed_month < 1 || parsed_month > 12 || parsed_day < 1 || parsed_day > 31) {
+        return false;
+    }
+
+    *year = parsed_year;
+    *month = parsed_month;
+    *day = parsed_day;
+    return true;
+}
+
+static int days_from_civil(int year, int month, int day)
+{
+    year -= month <= 2;
+    const int era = (year >= 0 ? year : year - 399) / 400;
+    const unsigned yoe = (unsigned)(year - era * 400);
+    const unsigned doy = (153u * (unsigned)(month + (month > 2 ? -3 : 9)) + 2u) / 5u + (unsigned)day - 1u;
+    const unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+    return era * 146097 + (int)doe - 719468;
+}
+
+static void civil_from_days(int days, int *year, int *month, int *day)
+{
+    days += 719468;
+    const int era = (days >= 0 ? days : days - 146096) / 146097;
+    const unsigned doe = (unsigned)(days - era * 146097);
+    const unsigned yoe = (doe - doe / 1460u + doe / 36524u - doe / 146096u) / 365u;
+    int y = (int)yoe + era * 400;
+    const unsigned doy = doe - (365u * yoe + yoe / 4u - yoe / 100u);
+    const unsigned mp = (5u * doy + 2u) / 153u;
+    const unsigned d = doy - (153u * mp + 2u) / 5u + 1u;
+    const int m = (int)mp + ((int)mp < 10 ? 3 : -9);
+    y += m <= 2;
+
+    *year = y;
+    *month = m;
+    *day = (int)d;
+}
+
+static bool date_to_ordinal(const char *date, int *ordinal)
+{
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    if (!parse_iso_date(date, &year, &month, &day)) {
+        return false;
+    }
+
+    *ordinal = days_from_civil(year, month, day);
+    return true;
+}
+
+static void ordinal_to_date(int ordinal, char *out, size_t out_capacity)
+{
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    civil_from_days(ordinal, &year, &month, &day);
+    snprintf(out, out_capacity, "%04d-%02d-%02d", year, month, day);
 }
 
 static void resolve_config_paths(CompanionState *state)
@@ -588,6 +1137,8 @@ static void load_settings(CompanionState *state)
         trim_line(line);
         if (strncmp(line, "synastria_path=", 15) == 0) {
             snprintf(state->synastria_path, sizeof(state->synastria_path), "%s", line + 15);
+        } else if (strncmp(line, "launch_parameters=", 18) == 0) {
+            snprintf(state->launch_parameters, sizeof(state->launch_parameters), "%s", line + 18);
         }
     }
 
@@ -605,6 +1156,7 @@ static bool save_settings(CompanionState *state)
     }
 
     fprintf(file, "synastria_path=%s\n", state->synastria_path);
+    fprintf(file, "launch_parameters=%s\n", state->launch_parameters);
     fclose(file);
     set_status(state, "Settings saved.");
     return true;
@@ -655,12 +1207,7 @@ static int compare_snapshot_dates(const void *left, const void *right)
 {
     const AhcDailyAttuneSnapshot *a = (const AhcDailyAttuneSnapshot *)left;
     const AhcDailyAttuneSnapshot *b = (const AhcDailyAttuneSnapshot *)right;
-    int date_compare = strcmp(a->date, b->date);
-    if (date_compare != 0) {
-        return date_compare;
-    }
-
-    return a->account - b->account;
+    return strcmp(a->date, b->date);
 }
 
 static void sort_history(CompanionState *state)
@@ -735,7 +1282,7 @@ static void upsert_history_snapshot(CompanionState *state, const AhcDailyAttuneS
 
     for (size_t i = 0; i < state->history_count; i++) {
         AhcDailyAttuneSnapshot *existing = &state->history[i];
-        if (existing->account == snapshot->account && strcmp(existing->date, snapshot->date) == 0) {
+        if (strcmp(existing->date, snapshot->date) == 0) {
             *existing = *snapshot;
             sort_history(state);
             save_history(state);
@@ -756,15 +1303,17 @@ static void upsert_history_snapshot(CompanionState *state, const AhcDailyAttuneS
 static void seed_test_history(CompanionState *state)
 {
     const AhcDailyAttuneSnapshot samples[] = {
-        { true, "2026-04-20", 10126, 100, 20, 400 },
-        { true, "2026-04-21", 10126, 140, 30, 520 },
-        { true, "2026-04-22", 10126, 140, 30, 520 },
-        { true, "2026-04-23", 10126, 260, 65, 900 },
-        { true, "2026-04-24", 10126, 265, 65, 900 },
-        { true, "2026-04-25", 10126, 20, 5, 80 },
-        { true, "2026-04-26", 10126, 20, 5, 80 },
-        { true, "2026-04-27", 10126, 90, 15, 230 },
-        { true, "2026-04-28", 10126, 150, 40, 500 }
+        { true, "2026-03-29", 9860, 118, 44, 380 },
+        { true, "2026-03-30", 9888, 125, 46, 404 },
+        { true, "2026-03-31", 9916, 131, 48, 431 },
+        { true, "2026-04-01", 9963, 146, 52, 468 },
+        { true, "2026-04-03", 10127, 189, 61, 580 },
+        { true, "2026-04-04", 10127, 189, 61, 580 },
+        { true, "2026-04-06", 10184, 201, 64, 622 },
+        { true, "2026-04-07", 10220, 212, 67, 644 },
+        { true, "2026-04-10", 10310, 240, 72, 701 },
+        { true, "2026-04-11", 10310, 240, 72, 701 },
+        { true, "2026-04-12", 10372, 260, 77, 738 }
     };
 
     for (size_t i = 0; i < sizeof(samples) / sizeof(samples[0]); i++) {
@@ -772,7 +1321,7 @@ static void seed_test_history(CompanionState *state)
     }
 
     state->snapshot = samples[(sizeof(samples) / sizeof(samples[0])) - 1];
-    set_status(state, "Loaded test history with daily spikes and no-spike days.");
+    set_action_status(state, "Loaded old-days test history with gaps and account gains.", "Seeded attune history");
 }
 
 static bool validate_synastria_path(const char *path)
@@ -932,15 +1481,17 @@ static bool try_auto_detect_synastria(CompanionState *state, bool persist)
 static bool scan_attunehelper_snapshot(CompanionState *state)
 {
     if (!validate_synastria_path(state->synastria_path)) {
-        set_status(state, "Set a valid Synastria folder first.");
+        set_action_status(state, "Set a valid Synastria folder first.", "Snapshot scan blocked");
         return false;
     }
+
+    set_process_action(state, "Scanning AttuneHelper snapshot");
 
     char account_root[AHC_PATH_CAPACITY];
     path_join(account_root, sizeof(account_root), state->synastria_path, "WTF/Account");
 
     if (!DirectoryExists(account_root)) {
-        set_status(state, "No WTF/Account folder found.");
+        set_action_status(state, "No WTF/Account folder found.", "Snapshot scan failed");
         return false;
     }
 
@@ -968,25 +1519,419 @@ static bool scan_attunehelper_snapshot(CompanionState *state)
 
     if (loaded) {
         upsert_history_snapshot(state, &state->snapshot);
+        state->snapshot_mod_time = GetFileModTime(state->snapshot_path);
+        state->next_snapshot_poll_time = app_time() + AHC_SNAPSHOT_POLL_SECONDS;
         char message[AHC_STATUS_CAPACITY];
         snprintf(message, sizeof(message), "Loaded AttuneHelper snapshot for %s.", state->snapshot.date);
-        set_status(state, message);
+        set_action_status(state, message, "Snapshot loaded");
         return true;
     }
 
-    set_status(state, "AttuneHelper.lua was not found under WTF/Account.");
+    set_action_status(state, "AttuneHelper.lua was not found under WTF/Account.", "Snapshot scan failed");
     return false;
+}
+
+static void poll_attunehelper_snapshot(CompanionState *state)
+{
+    double now = app_time();
+    if (now < state->next_snapshot_poll_time) {
+        return;
+    }
+
+    state->next_snapshot_poll_time = now + AHC_SNAPSHOT_POLL_SECONDS;
+    if (!validate_synastria_path(state->synastria_path)) {
+        return;
+    }
+
+    if (!state->snapshot_path[0] || !FileExists(state->snapshot_path)) {
+        scan_attunehelper_snapshot(state);
+        return;
+    }
+
+    long mod_time = GetFileModTime(state->snapshot_path);
+    if (mod_time <= 0 || mod_time == state->snapshot_mod_time) {
+        return;
+    }
+
+    AhcDailyAttuneSnapshot snapshot;
+    if (!ahc_parse_daily_attune_snapshot_file(state->snapshot_path, &snapshot)) {
+        set_action_status(state, "AttuneHelper.lua changed but could not be parsed.", "Snapshot refresh failed");
+        state->snapshot_mod_time = mod_time;
+        return;
+    }
+
+    state->snapshot = snapshot;
+    state->snapshot_mod_time = mod_time;
+    upsert_history_snapshot(state, &state->snapshot);
+
+    char message[AHC_STATUS_CAPACITY];
+    snprintf(message, sizeof(message), "Updated chart from AttuneHelper snapshot for %s.", state->snapshot.date);
+    set_action_status(state, message, "Snapshot refreshed");
+}
+
+static void reset_wow_config_fields(CompanionState *state)
+{
+    snprintf(state->wow_width, sizeof(state->wow_width), "1920");
+    snprintf(state->wow_height, sizeof(state->wow_height), "1080");
+    snprintf(state->wow_refresh, sizeof(state->wow_refresh), "60");
+    snprintf(state->wow_vsync, sizeof(state->wow_vsync), "0");
+    snprintf(state->wow_multisampling, sizeof(state->wow_multisampling), "1");
+    snprintf(state->wow_texture_resolution, sizeof(state->wow_texture_resolution), "0");
+    snprintf(state->wow_environment_detail, sizeof(state->wow_environment_detail), "1");
+    snprintf(state->wow_ground_effect_density, sizeof(state->wow_ground_effect_density), "16");
+    state->wow_windowed = true;
+    state->wow_borderless = true;
+    state->wow_config_loaded = false;
+    apply_monitor_defaults(state);
+}
+
+static void apply_monitor_defaults(CompanionState *state)
+{
+    if (!IsWindowReady()) {
+        return;
+    }
+
+    int monitor = GetCurrentMonitor();
+    int monitor_count = GetMonitorCount();
+    if (monitor < 0 || monitor >= monitor_count) {
+        monitor = 0;
+    }
+    if (monitor < 0 || monitor_count <= 0) {
+        return;
+    }
+
+    int width = GetMonitorWidth(monitor);
+    int height = GetMonitorHeight(monitor);
+    int refresh = GetMonitorRefreshRate(monitor);
+    const char *name = GetMonitorName(monitor);
+
+    if (width > 0 && height > 0) {
+        snprintf(state->wow_width, sizeof(state->wow_width), "%d", width);
+        snprintf(state->wow_height, sizeof(state->wow_height), "%d", height);
+    }
+    if (refresh > 0) {
+        snprintf(state->wow_refresh, sizeof(state->wow_refresh), "%d", refresh);
+    }
+    snprintf(state->monitor_name, sizeof(state->monitor_name), "%s", name && name[0] ? name : "Current monitor");
+    state->wow_windowed = true;
+    state->wow_borderless = true;
+}
+
+static bool parse_wow_config_set(const char *line, char *key, size_t key_capacity, char *value, size_t value_capacity)
+{
+    char parsed_key[64] = { 0 };
+    char parsed_value[128] = { 0 };
+    if (sscanf(line, " SET %63s \"%127[^\"]\"", parsed_key, parsed_value) != 2) {
+        return false;
+    }
+
+    snprintf(key, key_capacity, "%s", parsed_key);
+    snprintf(value, value_capacity, "%s", parsed_value);
+    return true;
+}
+
+static void apply_wow_config_value(CompanionState *state, const char *key, const char *value)
+{
+    if (strcmp(key, "gxResolution") == 0) {
+        char width[16] = { 0 };
+        char height[16] = { 0 };
+        if (sscanf(value, "%15[^x]x%15s", width, height) == 2) {
+            snprintf(state->wow_width, sizeof(state->wow_width), "%s", width);
+            snprintf(state->wow_height, sizeof(state->wow_height), "%s", height);
+        }
+    } else if (strcmp(key, "gxRefresh") == 0) {
+        snprintf(state->wow_refresh, sizeof(state->wow_refresh), "%s", value);
+    } else if (strcmp(key, "gxWindow") == 0) {
+        state->wow_windowed = strcmp(value, "0") != 0;
+    } else if (strcmp(key, "gxMaximize") == 0) {
+        state->wow_borderless = strcmp(value, "0") != 0;
+    } else if (strcmp(key, "gxVSync") == 0) {
+        snprintf(state->wow_vsync, sizeof(state->wow_vsync), "%s", value);
+    } else if (strcmp(key, "gxMultisample") == 0) {
+        snprintf(state->wow_multisampling, sizeof(state->wow_multisampling), "%s", value);
+    } else if (strcmp(key, "terrainMipLevel") == 0) {
+        snprintf(state->wow_texture_resolution, sizeof(state->wow_texture_resolution), "%s", value);
+    } else if (strcmp(key, "environmentDetail") == 0) {
+        snprintf(state->wow_environment_detail, sizeof(state->wow_environment_detail), "%s", value);
+    } else if (strcmp(key, "groundEffectDensity") == 0) {
+        snprintf(state->wow_ground_effect_density, sizeof(state->wow_ground_effect_density), "%s", value);
+    }
+}
+
+static bool load_wow_config(CompanionState *state)
+{
+    char config_path[AHC_PATH_CAPACITY];
+    reset_wow_config_fields(state);
+
+    if (!resolve_wow_config_path(state, config_path, sizeof(config_path)) || !FileExists(config_path)) {
+        set_action_status(state, "Config.wtf was not found. Defaults are ready to save.", "Loaded config defaults");
+        return false;
+    }
+
+    FILE *file = fopen(config_path, "rb");
+    if (!file) {
+        set_action_status(state, "Could not open Config.wtf.", "Config load failed");
+        return false;
+    }
+
+    char line[512];
+    while (fgets(line, sizeof(line), file)) {
+        char key[64];
+        char value[128];
+        if (parse_wow_config_set(line, key, sizeof(key), value, sizeof(value))) {
+            apply_wow_config_value(state, key, value);
+        }
+    }
+
+    fclose(file);
+    state->wow_config_loaded = true;
+    set_action_status(state, "Loaded Config.wtf display settings.", "Config loaded");
+    return true;
+}
+
+static bool wow_config_key_index(const char *key, int *index)
+{
+    const char *keys[] = {
+        "gxResolution",
+        "gxRefresh",
+        "gxWindow",
+        "gxMaximize",
+        "gxVSync",
+        "gxMultisample",
+        "terrainMipLevel",
+        "environmentDetail",
+        "groundEffectDensity"
+    };
+
+    for (int i = 0; i < (int)(sizeof(keys) / sizeof(keys[0])); i++) {
+        if (strcmp(key, keys[i]) == 0) {
+            *index = i;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void wow_config_value_for_index(const CompanionState *state, int index, char *out, size_t out_capacity)
+{
+    switch (index) {
+        case 0:
+            snprintf(out, out_capacity, "%sx%s", state->wow_width, state->wow_height);
+            break;
+        case 1:
+            snprintf(out, out_capacity, "%s", state->wow_refresh);
+            break;
+        case 2:
+            snprintf(out, out_capacity, "%s", state->wow_windowed ? "1" : "0");
+            break;
+        case 3:
+            snprintf(out, out_capacity, "%s", state->wow_borderless ? "1" : "0");
+            break;
+        case 4:
+            snprintf(out, out_capacity, "%s", state->wow_vsync);
+            break;
+        case 5:
+            snprintf(out, out_capacity, "%s", state->wow_multisampling);
+            break;
+        case 6:
+            snprintf(out, out_capacity, "%s", state->wow_texture_resolution);
+            break;
+        case 7:
+            snprintf(out, out_capacity, "%s", state->wow_environment_detail);
+            break;
+        case 8:
+            snprintf(out, out_capacity, "%s", state->wow_ground_effect_density);
+            break;
+        default:
+            out[0] = '\0';
+            break;
+    }
+}
+
+static void write_wow_config_line(FILE *file, int index, const char *value)
+{
+    const char *keys[] = {
+        "gxResolution",
+        "gxRefresh",
+        "gxWindow",
+        "gxMaximize",
+        "gxVSync",
+        "gxMultisample",
+        "terrainMipLevel",
+        "environmentDetail",
+        "groundEffectDensity"
+    };
+
+    fprintf(file, "SET %s \"%s\"\n", keys[index], value);
+}
+
+static bool backup_wow_config_file(CompanionState *state, const char *config_path)
+{
+    if (!FileExists(config_path)) {
+        return true;
+    }
+
+    char root[AHC_PATH_CAPACITY];
+    if (!backup_child_root(state, "WTF", root, sizeof(root))) {
+        return false;
+    }
+
+    char name[128];
+    char destination[AHC_PATH_CAPACITY];
+    snprintf(name, sizeof(name), "Config-%lld.wtf", (long long)time(NULL));
+    path_join(destination, sizeof(destination), root, name);
+    return copy_file_contents(config_path, destination);
+}
+
+static bool save_wow_config(CompanionState *state)
+{
+    if (!validate_synastria_path(state->synastria_path)) {
+        set_action_status(state, "Set a valid Synastria folder before saving WoW settings.", "Config save blocked");
+        return false;
+    }
+
+    char wtf_path[AHC_PATH_CAPACITY];
+    char config_path[AHC_PATH_CAPACITY];
+    char temp_path[AHC_PATH_CAPACITY];
+    path_join(wtf_path, sizeof(wtf_path), state->synastria_path, "WTF");
+    if (!ensure_directory(wtf_path)) {
+        set_action_status(state, "Could not create WTF folder.", "Config save failed");
+        return false;
+    }
+    path_join(config_path, sizeof(config_path), wtf_path, "Config.wtf");
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", config_path);
+
+    if (!backup_wow_config_file(state, config_path)) {
+        set_action_status(state, "Could not back up Config.wtf before saving.", "Config backup failed");
+        return false;
+    }
+
+    FILE *input = fopen(config_path, "rb");
+    FILE *output = fopen(temp_path, "wb");
+    if (!output) {
+        if (input) {
+            fclose(input);
+        }
+        set_action_status(state, "Could not write Config.wtf.", "Config save failed");
+        return false;
+    }
+
+    bool written[9] = { false };
+    char line[512];
+    if (input) {
+        while (fgets(line, sizeof(line), input)) {
+            char key[64];
+            char value[128];
+            int index = 0;
+            if (parse_wow_config_set(line, key, sizeof(key), value, sizeof(value)) && wow_config_key_index(key, &index)) {
+                char replacement[128];
+                wow_config_value_for_index(state, index, replacement, sizeof(replacement));
+                write_wow_config_line(output, index, replacement);
+                written[index] = true;
+            } else {
+                fputs(line, output);
+            }
+        }
+        fclose(input);
+    }
+
+    for (int i = 0; i < 9; i++) {
+        if (!written[i]) {
+            char value[128];
+            wow_config_value_for_index(state, i, value, sizeof(value));
+            write_wow_config_line(output, i, value);
+        }
+    }
+
+    if (fclose(output) != 0) {
+        remove(temp_path);
+        set_action_status(state, "Could not finish writing Config.wtf.", "Config save failed");
+        return false;
+    }
+
+    remove(config_path);
+    if (rename(temp_path, config_path) != 0) {
+        remove(temp_path);
+        set_action_status(state, "Could not replace Config.wtf.", "Config save failed");
+        return false;
+    }
+
+    state->wow_config_loaded = true;
+    set_action_status(state, "Saved WoW display and quality settings.", "Config saved");
+    return true;
+}
+
+static bool resolve_wowext_path(const CompanionState *state, char *out, size_t out_capacity)
+{
+    if (!validate_synastria_path(state->synastria_path)) {
+        return false;
+    }
+
+    path_join(out, out_capacity, state->synastria_path, "WoWExt.exe");
+    return FileExists(out);
+}
+
+static bool launch_game(CompanionState *state)
+{
+    char wowext_path[AHC_PATH_CAPACITY];
+    if (!resolve_wowext_path(state, wowext_path, sizeof(wowext_path))) {
+        set_action_status(state, "Set a valid Synastria folder before launching.", "Launch blocked");
+        return false;
+    }
+
+    save_settings(state);
+    if (!save_wow_config(state)) {
+        return false;
+    }
+
+    set_process_action(state, "Launching Synastria");
+
+#if defined(_WIN32)
+    char command[AHC_PATH_CAPACITY * 3];
+    snprintf(command, sizeof(command), "start \"\" /D \"%s\" \"%s\" %s", state->synastria_path, wowext_path, state->launch_parameters);
+    if (system(command) != 0) {
+        set_action_status(state, "Could not launch WoWExt.exe.", "Launch failed");
+        return false;
+    }
+#else
+    char command[AHC_PATH_CAPACITY * 3];
+    snprintf(command, sizeof(command), "cd \"%s\" && nohup \"%s\" %s >/dev/null 2>&1 &", state->synastria_path, wowext_path, state->launch_parameters);
+    if (system(command) != 0) {
+        set_action_status(state, "Could not launch WoWExt.exe.", "Launch failed");
+        return false;
+    }
+#endif
+
+    set_action_status(state, "Launched Synastria.", "Game launched");
+    return true;
+}
+
+static void clear_companion_data(CompanionState *state)
+{
+    remove(state->config_path);
+    remove(state->history_path);
+    state->synastria_path[0] = '\0';
+    state->snapshot_path[0] = '\0';
+    state->launch_parameters[0] = '\0';
+    state->history_count = 0;
+    state->snapshot_mod_time = 0;
+    state->next_snapshot_poll_time = 0.0;
+    memset(&state->snapshot, 0, sizeof(state->snapshot));
+    reset_wow_config_fields(state);
+    state->clear_data_confirming = false;
+    set_action_status(state, "Cleared local companion settings and attune history.", "Companion data cleared");
 }
 
 static void draw_card(Rectangle bounds, const char *title)
 {
-    DrawRectangleRounded((Rectangle){ bounds.x + 5.0f, bounds.y + 7.0f, bounds.width, bounds.height }, 0.05f, 10, (Color){ 0, 0, 0, 135 });
+    DrawRectangleRounded((Rectangle){ bounds.x + 5.0f, bounds.y + 7.0f, bounds.width, bounds.height }, 0.05f, 10, (Color){ 0, 0, 0, 125 });
     DrawRectangleRounded(bounds, 0.035f, 8, AHC_PANEL);
-    DrawRectangleRounded((Rectangle){ bounds.x + 2.0f, bounds.y + 2.0f, bounds.width - 4.0f, 42.0f }, 0.035f, 8, (Color){ 50, 37, 23, 255 });
-    DrawRectangle((int)bounds.x + 12, (int)bounds.y + 43, (int)bounds.width - 24, 1, AHC_BORDER_BRIGHT);
+    DrawRectangleRounded((Rectangle){ bounds.x + 2.0f, bounds.y + 2.0f, bounds.width - 4.0f, 42.0f }, 0.035f, 8, (Color){ 30, 45, 68, 255 });
+    DrawRectangle((int)bounds.x + 12, (int)bounds.y + 43, (int)bounds.width - 24, 1, (Color){ 88, 124, 166, 190 });
     DrawRectangleRoundedLines(bounds, 0.035f, 8, AHC_BORDER);
-    DrawRectangleRoundedLines((Rectangle){ bounds.x + 3.0f, bounds.y + 3.0f, bounds.width - 6.0f, bounds.height - 6.0f }, 0.03f, 8, (Color){ 82, 56, 25, 180 });
-    draw_text(title, (int)bounds.x + 18, (int)bounds.y + 13, 20, AHC_LF);
+    DrawRectangleRoundedLines((Rectangle){ bounds.x + 3.0f, bounds.y + 3.0f, bounds.width - 6.0f, bounds.height - 6.0f }, 0.03f, 8, (Color){ 91, 124, 161, 120 });
+    draw_text(title, (int)bounds.x + 18, (int)bounds.y + 13, 20, (Color){ 198, 224, 255, 255 });
 }
 
 static bool draw_tab_button(const char *label, Rectangle bounds, bool active)
@@ -994,22 +1939,28 @@ static bool draw_tab_button(const char *label, Rectangle bounds, bool active)
     return draw_wow_button(label, bounds, active, 18);
 }
 
-static void draw_header(const CompanionState *state)
+static void draw_header(CompanionState *state)
 {
-    DrawRectangleGradientH(0, 0, GetScreenWidth(), 126, (Color){ 72, 45, 20, 255 }, (Color){ 12, 16, 24, 255 });
-    DrawCircle(GetScreenWidth() - 120, 34, 90, (Color){ 214, 169, 80, 32 });
-    DrawCircle(GetScreenWidth() - 42, 82, 54, (Color){ 89, 196, 255, 30 });
-    DrawRectangle(0, 124, GetScreenWidth(), 2, AHC_BORDER_BRIGHT);
+    DrawRectangleGradientH(0, 0, GetScreenWidth(), 126, (Color){ 20, 35, 58, 255 }, (Color){ 8, 16, 31, 255 });
+    DrawCircle(GetScreenWidth() - 128, 34, 98, (Color){ 56, 118, 184, 44 });
+    DrawCircle(GetScreenWidth() - 42, 82, 58, (Color){ 164, 197, 235, 26 });
+    DrawRectangle(0, 124, GetScreenWidth(), 2, (Color){ 88, 124, 166, 210 });
 
     draw_text("Attune Helper Companion", 26, 20, 42, AHC_TEXT);
-    draw_text("Synastria addon installs, updates, and daily attune history.", 28, 72, 20, (Color){ 228, 204, 153, 255 });
+    draw_text("Synastria addon installs, updates, and daily attune history.", 28, 72, 20, (Color){ 210, 221, 238, 255 });
 
     if (state->synastria_path[0]) {
         char path_line[AHC_PATH_CAPACITY + 32];
         snprintf(path_line, sizeof(path_line), "Synastria: %s", state->synastria_path);
-        draw_text(path_line, 28, 100, 16, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : GOLD);
+        draw_text(path_line, 28, 100, 16, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : AHC_STATUS_WARNING);
     } else {
-        draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 100, 16, GOLD);
+        draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 100, 16, AHC_STATUS_WARNING);
+    }
+
+    Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 40.0f, 158.0f, 44.0f };
+    bool can_launch = validate_synastria_path(state->synastria_path);
+    if (draw_wow_button("Play Game", launch_button, can_launch, 20)) {
+        launch_game(state);
     }
 }
 
@@ -1025,6 +1976,37 @@ static void draw_tabs(CompanionState *state)
     if (draw_tab_button("Settings", (Rectangle){ (float)content_left() + 352.0f, y, 164.0f, 44.0f }, state->tab == COMPANION_TAB_SETTINGS)) {
         state->tab = COMPANION_TAB_SETTINGS;
     }
+}
+
+static size_t build_display_history(const CompanionState *state, DisplaySnapshot *out, size_t out_capacity);
+static int daily_metric_value(const DisplaySnapshot *series, size_t count, size_t index, GraphMetric metric);
+
+static void format_count_with_delta(char *out, size_t out_capacity, const char *label, int value, int delta)
+{
+    char value_text[32];
+    char delta_text[32];
+    format_int_with_commas(value, value_text, sizeof(value_text));
+    format_int_with_commas(delta, delta_text, sizeof(delta_text));
+    if (delta > 0) {
+        snprintf(out, out_capacity, "%s  %s (+%s)", label, value_text, delta_text);
+        return;
+    }
+
+    snprintf(out, out_capacity, "%s  %s", label, value_text);
+}
+
+static void format_tooltip_count_with_delta(char *out, size_t out_capacity, const char *label, int value, int delta)
+{
+    char value_text[32];
+    char delta_text[32];
+    format_int_with_commas(value, value_text, sizeof(value_text));
+    format_int_with_commas(delta, delta_text, sizeof(delta_text));
+    if (delta > 0) {
+        snprintf(out, out_capacity, "%s: %s (+%s)", label, value_text, delta_text);
+        return;
+    }
+
+    snprintf(out, out_capacity, "%s: %s", label, value_text);
 }
 
 static void draw_snapshot_card(const CompanionState *state, Rectangle bounds)
@@ -1043,79 +2025,158 @@ static void draw_snapshot_card(const CompanionState *state, Rectangle bounds)
     snprintf(line, sizeof(line), "%s", state->snapshot.date[0] ? state->snapshot.date : "Unknown date");
     draw_text(line, (int)bounds.x + 20, (int)bounds.y + 58, 32, AHC_TEXT);
 
-    snprintf(line, sizeof(line), "Account %d", state->snapshot.account);
+    char account_text[32];
+    format_int_with_commas(state->snapshot.account, account_text, sizeof(account_text));
+    snprintf(line, sizeof(line), "Account %s", account_text);
     draw_text(line, (int)bounds.x + 20, (int)bounds.y + 98, 18, AHC_MUTED);
 
-    snprintf(line, sizeof(line), "TF  %d", state->snapshot.titanforged);
+    DisplaySnapshot display_history[AHC_DISPLAY_HISTORY_CAPACITY];
+    size_t display_count = build_display_history(state, display_history, AHC_DISPLAY_HISTORY_CAPACITY);
+    size_t snapshot_index = display_count;
+    for (size_t i = 0; i < display_count; i++) {
+        if (!display_history[i].synthetic && strcmp(display_history[i].snapshot.date, state->snapshot.date) == 0) {
+            snapshot_index = i;
+        }
+    }
+
+    int tf_delta = snapshot_index < display_count ? daily_metric_value(display_history, display_count, snapshot_index, GRAPH_METRIC_TITANFORGED) : 0;
+    int wf_delta = snapshot_index < display_count ? daily_metric_value(display_history, display_count, snapshot_index, GRAPH_METRIC_WARFORGED) : 0;
+    int lf_delta = snapshot_index < display_count ? daily_metric_value(display_history, display_count, snapshot_index, GRAPH_METRIC_LIGHTFORGED) : 0;
+
+    format_count_with_delta(line, sizeof(line), "TF", state->snapshot.titanforged, tf_delta);
     draw_text(line, (int)bounds.x + 20, (int)bounds.y + 146, 24, AHC_TF);
 
-    snprintf(line, sizeof(line), "WF  %d", state->snapshot.warforged);
+    format_count_with_delta(line, sizeof(line), "WF", state->snapshot.warforged, wf_delta);
     draw_text(line, (int)bounds.x + 20, (int)bounds.y + 182, 24, AHC_WF);
 
-    snprintf(line, sizeof(line), "LF  %d", state->snapshot.lightforged);
+    format_count_with_delta(line, sizeof(line), "LF", state->snapshot.lightforged, lf_delta);
     draw_text(line, (int)bounds.x + 20, (int)bounds.y + 218, 24, AHC_LF);
 }
 
 static int snapshot_metric_value(const AhcDailyAttuneSnapshot *snapshot, GraphMetric metric)
 {
     switch (metric) {
+        case GRAPH_METRIC_ACCOUNT:
+            return snapshot->account;
         case GRAPH_METRIC_WARFORGED:
             return snapshot->warforged;
         case GRAPH_METRIC_LIGHTFORGED:
             return snapshot->lightforged;
         case GRAPH_METRIC_TITANFORGED:
             return snapshot->titanforged;
-        case GRAPH_METRIC_TOTAL:
         default:
-            return snapshot->warforged + snapshot->lightforged + snapshot->titanforged;
+            return snapshot->account;
     }
 }
 
 static const char *graph_metric_label(GraphMetric metric)
 {
     switch (metric) {
+        case GRAPH_METRIC_ACCOUNT:
+            return "Account / day";
         case GRAPH_METRIC_WARFORGED:
             return "WF / day";
         case GRAPH_METRIC_LIGHTFORGED:
             return "LF / day";
         case GRAPH_METRIC_TITANFORGED:
             return "TF / day";
-        case GRAPH_METRIC_TOTAL:
         default:
-            return "Account attunes / day";
+            return "Account / day";
+    }
+}
+
+static const char *graph_metric_gain_label(GraphMetric metric)
+{
+    switch (metric) {
+        case GRAPH_METRIC_ACCOUNT:
+            return "New account attunes";
+        case GRAPH_METRIC_WARFORGED:
+            return "New WF";
+        case GRAPH_METRIC_LIGHTFORGED:
+            return "New LF";
+        case GRAPH_METRIC_TITANFORGED:
+            return "New TF";
+        default:
+            return "New account attunes";
     }
 }
 
 static Color graph_metric_color(GraphMetric metric)
 {
     switch (metric) {
+        case GRAPH_METRIC_ACCOUNT:
+            return AHC_ACCENT;
         case GRAPH_METRIC_WARFORGED:
             return AHC_WF;
         case GRAPH_METRIC_LIGHTFORGED:
             return AHC_LF;
         case GRAPH_METRIC_TITANFORGED:
             return AHC_TF;
-        case GRAPH_METRIC_TOTAL:
         default:
             return AHC_ACCENT;
     }
 }
 
-static int daily_metric_value(const CompanionState *state, size_t index, GraphMetric metric)
+static size_t build_display_history(const CompanionState *state, DisplaySnapshot *out, size_t out_capacity)
 {
-    if (index == 0 || index >= state->history_count) {
+    size_t out_count = 0;
+    for (size_t i = 0; i < state->history_count && out_count < out_capacity; i++) {
+        if (out_count == 0) {
+            out[out_count++] = (DisplaySnapshot){ state->history[i], false };
+            continue;
+        }
+
+        int previous_ordinal = 0;
+        int current_ordinal = 0;
+        if (date_to_ordinal(out[out_count - 1].snapshot.date, &previous_ordinal) && date_to_ordinal(state->history[i].date, &current_ordinal)) {
+            for (int day = previous_ordinal + 1; day < current_ordinal && out_count < out_capacity; day++) {
+                DisplaySnapshot synthetic = { out[out_count - 1].snapshot, true };
+                ordinal_to_date(day, synthetic.snapshot.date, sizeof(synthetic.snapshot.date));
+                out[out_count++] = synthetic;
+            }
+        }
+
+        if (out_count < out_capacity) {
+            out[out_count++] = (DisplaySnapshot){ state->history[i], false };
+        }
+    }
+
+    return out_count;
+}
+
+static int daily_metric_value(const DisplaySnapshot *series, size_t count, size_t index, GraphMetric metric)
+{
+    if (index == 0 || index >= count) {
         return 0;
     }
 
-    const AhcDailyAttuneSnapshot *previous_snapshot = &state->history[index - 1];
-    const AhcDailyAttuneSnapshot *current_snapshot = &state->history[index];
-    if (previous_snapshot->account != current_snapshot->account) {
-        return 0;
-    }
-
+    const AhcDailyAttuneSnapshot *previous_snapshot = &series[index - 1].snapshot;
+    const AhcDailyAttuneSnapshot *current_snapshot = &series[index].snapshot;
     int previous = snapshot_metric_value(previous_snapshot, metric);
     int current = snapshot_metric_value(current_snapshot, metric);
-    return current < previous ? current : current - previous;
+    return current > previous ? current - previous : 0;
+}
+
+static double account_attunes_per_tracked_day(const DisplaySnapshot *series, size_t count)
+{
+    if (count < 2) {
+        return 0.0;
+    }
+
+    int first = snapshot_metric_value(&series[0].snapshot, GRAPH_METRIC_ACCOUNT);
+    int last = snapshot_metric_value(&series[count - 1].snapshot, GRAPH_METRIC_ACCOUNT);
+    int first_ordinal = 0;
+    int last_ordinal = 0;
+    if (last <= first || !date_to_ordinal(series[0].snapshot.date, &first_ordinal) || !date_to_ordinal(series[count - 1].snapshot.date, &last_ordinal)) {
+        return 0.0;
+    }
+
+    int tracked_days = last_ordinal - first_ordinal;
+    if (tracked_days < 1) {
+        tracked_days = 1;
+    }
+
+    return (double)(last - first) / (double)tracked_days;
 }
 
 static bool draw_metric_chip(const char *label, Rectangle bounds, bool active)
@@ -1128,7 +2189,7 @@ static void draw_graph_card(CompanionState *state, Rectangle bounds)
     draw_card(bounds, "Daily attune history");
 
     const float chip_gap = 8.0f;
-    const float total_chip_width = 70.0f + 52.0f + 52.0f + 52.0f + chip_gap * 3.0f;
+    const float total_chip_width = 92.0f + 52.0f + 52.0f + 52.0f + chip_gap * 3.0f;
     float chip_x = bounds.x + bounds.width - total_chip_width - 18.0f;
     float chip_y = bounds.y + 8.0f;
     if (chip_x < bounds.x + 250.0f) {
@@ -1136,10 +2197,10 @@ static void draw_graph_card(CompanionState *state, Rectangle bounds)
         chip_y = bounds.y + 52.0f;
     }
 
-    if (draw_metric_chip("Total", (Rectangle){ chip_x, chip_y, 70.0f, 32.0f }, state->graph_metric == GRAPH_METRIC_TOTAL)) {
-        state->graph_metric = GRAPH_METRIC_TOTAL;
+    if (draw_metric_chip("Account", (Rectangle){ chip_x, chip_y, 92.0f, 32.0f }, state->graph_metric == GRAPH_METRIC_ACCOUNT)) {
+        state->graph_metric = GRAPH_METRIC_ACCOUNT;
     }
-    chip_x += 70.0f + chip_gap;
+    chip_x += 92.0f + chip_gap;
     if (draw_metric_chip("TF", (Rectangle){ chip_x, chip_y, 52.0f, 32.0f }, state->graph_metric == GRAPH_METRIC_TITANFORGED)) {
         state->graph_metric = GRAPH_METRIC_TITANFORGED;
     }
@@ -1173,15 +2234,18 @@ static void draw_graph_card(CompanionState *state, Rectangle bounds)
     DrawLine(plot_left, plot_top, plot_left, base_y, AHC_BORDER);
     DrawLine(plot_left, base_y, plot_right, base_y, AHC_BORDER);
 
-    if (state->history_count == 0) {
+    DisplaySnapshot display_history[AHC_DISPLAY_HISTORY_CAPACITY];
+    size_t display_count = build_display_history(state, display_history, AHC_DISPLAY_HISTORY_CAPACITY);
+
+    if (display_count == 0) {
         draw_text("Scan AttuneHelper to save daily points here.", plot_left + 12, plot_top + 42, 18, AHC_MUTED);
         draw_text("Hover a spike to see TF / WF / LF for that date.", plot_left + 12, plot_top + 72, 16, AHC_MUTED);
         return;
     }
 
     int max_delta = 1;
-    for (size_t i = 0; i < state->history_count; i++) {
-        int delta = daily_metric_value(state, i, state->graph_metric);
+    for (size_t i = 0; i < display_count; i++) {
+        int delta = daily_metric_value(display_history, display_count, i, state->graph_metric);
         if (delta > max_delta) {
             max_delta = delta;
         }
@@ -1193,16 +2257,16 @@ static void draw_graph_card(CompanionState *state, Rectangle bounds)
     char axis_label[128];
     snprintf(axis_label, sizeof(axis_label), "Daily gain scale 0-%d  |  %s to %s",
         max_delta,
-        state->history[0].date,
-        state->history[state->history_count - 1].date);
+        display_history[0].snapshot.date,
+        display_history[display_count - 1].snapshot.date);
     draw_text(axis_label, plot_left, plot_top - 24, 14, AHC_MUTED);
 
     for (int grid = 1; grid <= 3; grid++) {
         int y = base_y - (plot_height * grid) / 4;
-        DrawLine(plot_left + 1, y, plot_right, y, (Color){ 132, 98, 45, 70 });
+        DrawLine(plot_left + 1, y, plot_right, y, (Color){ 122, 152, 190, 70 });
     }
 
-    float slot_width = (float)(plot_right - plot_left) / (float)state->history_count;
+    float slot_width = (float)(plot_right - plot_left) / (float)display_count;
     float bar_width = slot_width * 0.46f;
     if (bar_width < 6.0f) {
         bar_width = 6.0f;
@@ -1211,12 +2275,12 @@ static void draw_graph_card(CompanionState *state, Rectangle bounds)
         bar_width = 30.0f;
     }
 
-    int label_step = (int)(state->history_count / 6) + 1;
+    int label_step = (int)(display_count / 6) + 1;
     Vector2 previous_point = { 0.0f, 0.0f };
     bool has_previous_point = false;
-    for (size_t i = 0; i < state->history_count; i++) {
+    for (size_t i = 0; i < display_count; i++) {
         float x = (float)plot_left + slot_width * (float)i + slot_width * 0.5f;
-        int delta = daily_metric_value(state, i, state->graph_metric);
+        int delta = daily_metric_value(display_history, display_count, i, state->graph_metric);
         float bar_height = delta > 0 ? ((float)delta / (float)max_delta) * (float)(plot_height - 12) : 3.0f;
         float point_y = (float)base_y - ((float)delta / (float)max_delta) * (float)(plot_height - 12);
         Vector2 point = { x, point_y };
@@ -1226,7 +2290,7 @@ static void draw_graph_card(CompanionState *state, Rectangle bounds)
 
         if (hovered) {
             hovered_index = (int)i;
-            DrawRectangleRounded((Rectangle){ hit.x + 2.0f, hit.y, hit.width - 4.0f, hit.height }, 0.12f, 6, (Color){ 89, 196, 255, 34 });
+            DrawRectangleRounded((Rectangle){ hit.x + 2.0f, hit.y, hit.width - 4.0f, hit.height }, 0.12f, 6, (Color){ 83, 167, 239, 34 });
         }
         if (state->graph_display == GRAPH_DISPLAY_PLOT) {
             if (has_previous_point) {
@@ -1244,20 +2308,23 @@ static void draw_graph_card(CompanionState *state, Rectangle bounds)
                 DrawRectangleRounded((Rectangle){ x - 5.0f, (float)base_y - 3.0f, 10.0f, 5.0f }, 0.45f, 6, hovered ? RAYWHITE : AHC_MUTED);
             }
         }
-        if ((int)i % label_step == 0 || i + 1 == state->history_count) {
-            draw_text(state->history[i].date + 5, (int)(x - 16.0f), base_y + 12, 12, AHC_MUTED);
+        if ((int)i % label_step == 0 || i + 1 == display_count) {
+            draw_text(display_history[i].snapshot.date + 5, (int)(x - 16.0f), base_y + 12, 12, AHC_MUTED);
         }
     }
 
-    draw_text(graph_metric_label(state->graph_metric), plot_left, (int)(bounds.y + bounds.height) - 30, 16, AHC_MUTED);
+    char average_line[160];
+    snprintf(average_line, sizeof(average_line), "Account attunes/day since tracking: %.1f", account_attunes_per_tracked_day(display_history, display_count));
+    draw_text(average_line, plot_left, (int)(bounds.y + bounds.height) - 30, 16, AHC_MUTED);
 
     if (hovered_index >= 0) {
-        const AhcDailyAttuneSnapshot *hovered = &state->history[hovered_index];
+        const DisplaySnapshot *hovered_display = &display_history[hovered_index];
+        const AhcDailyAttuneSnapshot *hovered = &hovered_display->snapshot;
         char line[128];
-        int daily_value = daily_metric_value(state, (size_t)hovered_index, state->graph_metric);
+        int daily_value = daily_metric_value(display_history, display_count, (size_t)hovered_index, state->graph_metric);
         int width = 252;
         int x = (int)mouse.x + 14;
-        int y = (int)mouse.y - 184;
+        int y = (int)mouse.y - 190;
         if (x + width > GetScreenWidth() - 16) {
             x = GetScreenWidth() - width - 16;
         }
@@ -1265,20 +2332,24 @@ static void draw_graph_card(CompanionState *state, Rectangle bounds)
             y = 16;
         }
 
-        DrawRectangleRounded((Rectangle){ (float)x + 4.0f, (float)y + 5.0f, (float)width, 170.0f }, 0.10f, 8, (Color){ 0, 0, 0, 130 });
-        DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)width, 170.0f }, 0.10f, 8, (Color){ 24, 18, 13, 248 });
-        DrawRectangleRoundedLines((Rectangle){ (float)x, (float)y, (float)width, 170.0f }, 0.10f, 8, AHC_BORDER_BRIGHT);
-        snprintf(line, sizeof(line), "%s  |  Account %d", hovered->date, hovered->account);
+        DrawRectangleRounded((Rectangle){ (float)x + 4.0f, (float)y + 5.0f, (float)width, 176.0f }, 0.10f, 8, (Color){ 0, 0, 0, 120 });
+        DrawRectangleRounded((Rectangle){ (float)x, (float)y, (float)width, 176.0f }, 0.10f, 8, (Color){ 16, 27, 42, 246 });
+        DrawRectangleRoundedLines((Rectangle){ (float)x, (float)y, (float)width, 176.0f }, 0.10f, 8, AHC_BORDER_BRIGHT);
+        snprintf(line, sizeof(line), "%s%s", hovered->date, hovered_display->synthetic ? "  |  filled day" : "");
         draw_text(line, x + 14, y + 12, 17, AHC_TEXT);
-        snprintf(line, sizeof(line), "Daily %s: %d", graph_metric_label(state->graph_metric), daily_value);
+        char value_text[32];
+        format_int_with_commas(daily_value, value_text, sizeof(value_text));
+        snprintf(line, sizeof(line), "%s: %s", graph_metric_gain_label(state->graph_metric), value_text);
         draw_text(line, x + 14, y + 42, 16, metric_color);
-        snprintf(line, sizeof(line), "Cumulative total: %d", hovered->titanforged + hovered->warforged + hovered->lightforged);
-        draw_text(line, x + 14, y + 68, 16, AHC_MUTED);
-        snprintf(line, sizeof(line), "TF: %d", hovered->titanforged);
+        char hovered_account[32];
+        format_int_with_commas(hovered->account, hovered_account, sizeof(hovered_account));
+        snprintf(line, sizeof(line), "Account: %s", hovered_account);
+        draw_text(line, x + 14, y + 68, 16, AHC_ACCENT);
+        format_tooltip_count_with_delta(line, sizeof(line), "TF", hovered->titanforged, daily_metric_value(display_history, display_count, (size_t)hovered_index, GRAPH_METRIC_TITANFORGED));
         draw_text(line, x + 14, y + 96, 17, AHC_TF);
-        snprintf(line, sizeof(line), "WF: %d", hovered->warforged);
+        format_tooltip_count_with_delta(line, sizeof(line), "WF", hovered->warforged, daily_metric_value(display_history, display_count, (size_t)hovered_index, GRAPH_METRIC_WARFORGED));
         draw_text(line, x + 14, y + 122, 17, AHC_WF);
-        snprintf(line, sizeof(line), "LF: %d", hovered->lightforged);
+        format_tooltip_count_with_delta(line, sizeof(line), "LF", hovered->lightforged, daily_metric_value(display_history, display_count, (size_t)hovered_index, GRAPH_METRIC_LIGHTFORGED));
         draw_text(line, x + 14, y + 148, 17, AHC_LF);
     }
 }
@@ -1400,24 +2471,51 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addon, Rectan
     bool git_checkout = addon_is_git_checkout(state, addon);
     bool managed = addon_is_managed(state, addon);
     bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
+    Rectangle badge = { bounds.x + bounds.width - 178.0f, bounds.y + 8.0f, 166.0f, 46.0f };
     DrawRectangleRounded(bounds, 0.035f, 8, hovered ? AHC_PANEL_HOVER : AHC_PANEL);
     DrawRectangleRoundedLines(bounds, 0.035f, 8, hovered ? AHC_BORDER_BRIGHT : AHC_BORDER);
+    draw_source_badge(badge, addon);
     draw_text(addon->name, (int)bounds.x + 16, (int)bounds.y + 10, 21, AHC_TEXT);
 
     char meta[256];
-    snprintf(meta, sizeof(meta), "%s  |  By %s  |  Folder: %s", addon->category, addon->author, addon->folder);
+    snprintf(meta, sizeof(meta), "%s  |  %s  |  By %s  |  Folder: %s", addon->category, addon_source_label(addon), addon->author, addon->folder);
     draw_text(meta, (int)bounds.x + 16, (int)bounds.y + 39, 15, AHC_MUTED);
 
-    draw_text(addon->description, (int)bounds.x + 16, (int)bounds.y + 66, 17, AHC_TEXT);
-    draw_text(installed ? (managed ? "Managed" : "Manual") : "Not installed", (int)bounds.x + (int)bounds.width - 230, (int)bounds.y + 16, 15, installed ? GREEN : GOLD);
+    char description_line[220];
+    snprintf(description_line, sizeof(description_line), "%s", addon->description);
+    draw_text(description_line, (int)bounds.x + 16, (int)bounds.y + 66, 17, AHC_TEXT);
 
-    const char *primary_label = installed ? (managed || git_checkout ? "Update" : "Replace") : "Install";
-    float primary_x = installed ? bounds.x + bounds.width - 184.0f : bounds.x + bounds.width - 88.0f;
-    if (draw_wow_button(primary_label, (Rectangle){ primary_x, bounds.y + 54.0f, 74.0f, 30.0f }, false, 15)) {
-        install_or_update_addon(state, addon);
-    }
-    if (installed && draw_wow_button("Uninstall", (Rectangle){ bounds.x + bounds.width - 96.0f, bounds.y + 54.0f, 82.0f, 30.0f }, false, 15)) {
-        uninstall_addon(state, addon);
+    const char *version_text = (addon->version && addon->version[0] && strcmp(addon->version, "unknown") != 0)
+        ? addon->version
+        : "No tagged version";
+    char version_line[96];
+    snprintf(version_line, sizeof(version_line), "Version %s", version_text);
+    draw_text(version_line, (int)bounds.x + 16, (int)bounds.y + 84, 13, AHC_MUTED);
+
+    bool installable = addon_repo_is_git_checkout(addon);
+    bool downloadable = addon_repo_is_zip_url(addon);
+    const char *status_text = installable
+        ? (installed ? (managed ? "✓ Managed / up to date" : "Manual") : "Not installed")
+        : (downloadable ? "Direct download available" : "Website entry");
+    draw_text(status_text, (int)bounds.x + (int)bounds.width - 250, (int)bounds.y + 80, 14, installed ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
+
+    if (installable) {
+        const char *primary_label = installed ? (managed || git_checkout ? "Update" : "Replace") : "Install";
+        float primary_x = installed ? bounds.x + bounds.width - 184.0f : bounds.x + bounds.width - 88.0f;
+        if (draw_wow_button(primary_label, (Rectangle){ primary_x, bounds.y + 58.0f, 74.0f, 30.0f }, false, 15)) {
+            install_or_update_addon(state, addon);
+        }
+        if (installed && draw_wow_button("Uninstall", (Rectangle){ bounds.x + bounds.width - 96.0f, bounds.y + 58.0f, 82.0f, 30.0f }, false, 15)) {
+            uninstall_addon(state, addon);
+        }
+    } else if (draw_wow_button(downloadable ? "Download" : "Open Page", (Rectangle){ bounds.x + bounds.width - 108.0f, bounds.y + 58.0f, 96.0f, 30.0f }, false, 14)) {
+        if (open_external_url(addon->repo)) {
+            char message[AHC_STATUS_CAPACITY];
+            snprintf(message, sizeof(message), downloadable ? "Started download for %s." : "Opened %s page in browser.", addon->name);
+            set_action_status(state, message, downloadable ? "Download started" : "Opened addon page");
+        } else {
+            set_action_status(state, downloadable ? "Could not open download URL." : "Could not open addon page in browser.", downloadable ? "Download failed" : "Open page failed");
+        }
     }
 }
 
@@ -1457,8 +2555,8 @@ static void draw_addons_tab(CompanionState *state)
     }
     int column_count = content.width >= 1100.0f ? 2 : 1;
     const float column_gap = 12.0f;
-    const float row_stride = 108.0f;
-    const float addon_card_height = 96.0f;
+    const float row_stride = 120.0f;
+    const float addon_card_height = 108.0f;
     float column_width = (list_bounds.width - (float)(column_count - 1) * column_gap) / (float)column_count;
     int visible_rows = (int)(list_height / row_stride);
     if (visible_rows < 1) {
@@ -1500,14 +2598,37 @@ static void draw_addons_tab(CompanionState *state)
     draw_text("For larger catalogs, release ZIP support will avoid GitHub clone friction.", (int)content.x + 20, (int)(content.y + content.height - 28.0f), 15, AHC_MUTED);
 }
 
+static void draw_labeled_textbox(const char *label, Rectangle bounds, char *value, int value_capacity, bool *editing)
+{
+    draw_text(label, (int)bounds.x, (int)bounds.y - 22, 14, AHC_MUTED);
+    if (GuiTextBox(bounds, value, value_capacity, *editing)) {
+        *editing = !*editing;
+    }
+}
+
 static void draw_settings_tab(CompanionState *state)
 {
     Rectangle content = content_rect();
-    Rectangle card = { content.x, content.y, content.width, 322.0f };
-    draw_card(card, "Setup");
+    float gap = 18.0f;
+    float left_width = content.width * 0.48f;
+    if (left_width < 480.0f) {
+        left_width = content.width;
+    }
+    float right_x = content.x + left_width + gap;
+    float right_width = content.width - left_width - gap;
+    bool two_columns = right_width >= 420.0f;
+    if (!two_columns) {
+        right_x = content.x;
+        right_width = content.width;
+    }
 
-    draw_text("Synastria folder", (int)card.x + 20, (int)card.y + 50, 22, AHC_TEXT);
-    draw_text("Paste the folder that contains WoWExt.exe, or let the app detect it.", (int)card.x + 20, (int)card.y + 82, 17, AHC_MUTED);
+    Rectangle setup_card = { content.x, content.y, left_width, 286.0f };
+    Rectangle data_card = { content.x, content.y + 304.0f, left_width, 174.0f };
+    Rectangle wow_card = { two_columns ? right_x : content.x, two_columns ? content.y : content.y + 496.0f, right_width, 456.0f };
+
+    draw_card(setup_card, "Setup");
+    draw_text("Synastria folder", (int)setup_card.x + 20, (int)setup_card.y + 50, 22, AHC_TEXT);
+    draw_text("Paste the folder that contains WoWExt.exe, or let the app detect it.", (int)setup_card.x + 20, (int)setup_card.y + 80, 16, AHC_MUTED);
 
     bool paste_requested = state->synastria_path_editing
         && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) || IsKeyDown(KEY_LEFT_SUPER) || IsKeyDown(KEY_RIGHT_SUPER))
@@ -1518,45 +2639,171 @@ static void draw_settings_tab(CompanionState *state)
         if (clipboard && clipboard[0]) {
             snprintf(state->synastria_path, sizeof(state->synastria_path), "%s", clipboard);
             trim_line(state->synastria_path);
-            set_status(state, "Pasted Synastria path from clipboard.");
+            set_action_status(state, "Pasted Synastria path from clipboard.", "Path pasted");
         }
     }
 
-    Rectangle textbox = { card.x + 20.0f, card.y + 122.0f, card.width - 146.0f, 40.0f };
-    if (textbox.width < 320.0f) {
-        textbox.width = 320.0f;
+    Rectangle textbox = { setup_card.x + 20.0f, setup_card.y + 112.0f, setup_card.width - 146.0f, 38.0f };
+    if (textbox.width < 300.0f) {
+        textbox.width = 300.0f;
     }
     if (GuiTextBox(textbox, state->synastria_path, (int)sizeof(state->synastria_path), state->synastria_path_editing)) {
         state->synastria_path_editing = !state->synastria_path_editing;
     }
 
-    if (draw_wow_button("Save", (Rectangle){ textbox.x + textbox.width + 18.0f, textbox.y, 108.0f, 40.0f }, false, 18)) {
+    if (draw_wow_button("Save", (Rectangle){ textbox.x + textbox.width + 16.0f, textbox.y, 100.0f, 38.0f }, false, 17)) {
         if (validate_synastria_path(state->synastria_path)) {
             save_settings(state);
             scan_attunehelper_snapshot(state);
+            load_wow_config(state);
         } else {
-            set_status(state, "That folder does not look like a Synastria install.");
+            set_action_status(state, "That folder does not look like a Synastria install.", "Path validation failed");
         }
     }
 
-    if (draw_wow_button("Scan snapshots", (Rectangle){ card.x + 20.0f, card.y + 188.0f, 172.0f, 42.0f }, false, 18)) {
+    if (draw_wow_button("Scan snapshots", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 162.0f, 160.0f, 34.0f }, false, 15)) {
         scan_attunehelper_snapshot(state);
     }
-    if (draw_wow_button("Auto-detect", (Rectangle){ card.x + 206.0f, card.y + 188.0f, 172.0f, 42.0f }, false, 18)) {
+    if (draw_wow_button("Auto-detect", (Rectangle){ setup_card.x + 194.0f, setup_card.y + 162.0f, 142.0f, 34.0f }, false, 15)) {
         if (try_auto_detect_synastria(state, true)) {
             scan_attunehelper_snapshot(state);
+            load_wow_config(state);
         }
     }
-    draw_text(validate_synastria_path(state->synastria_path) ? "Destination ready: WoWExt.exe found." : "Destination not set: choose the folder with WoWExt.exe.", (int)card.x + 20, (int)card.y + 264, 17, validate_synastria_path(state->synastria_path) ? GREEN : GOLD);
-    draw_text("Daily history is stored locally for graphing. No WTF backup or account sync is used.", (int)card.x + 20, (int)card.y + 292, 15, AHC_MUTED);
+    draw_text(validate_synastria_path(state->synastria_path) ? "Ready: WoWExt.exe found." : "Choose the folder with WoWExt.exe.", (int)setup_card.x + 352, (int)setup_card.y + 171, 15, validate_synastria_path(state->synastria_path) ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
+
+    draw_text("Launch parameters", (int)setup_card.x + 20, (int)setup_card.y + 216, 16, AHC_MUTED);
+    Rectangle launch_box = { setup_card.x + 20.0f, setup_card.y + 238.0f, setup_card.width - 166.0f, 34.0f };
+    if (launch_box.width < 300.0f) {
+        launch_box.width = 300.0f;
+    }
+    if (GuiTextBox(launch_box, state->launch_parameters, (int)sizeof(state->launch_parameters), state->launch_parameters_editing)) {
+        state->launch_parameters_editing = !state->launch_parameters_editing;
+    }
+    draw_text("Use Play Game in the header for quick launch.", (int)setup_card.x + 352, (int)setup_card.y + 246, 14, AHC_MUTED);
+
+    draw_card(data_card, "Data and backups");
+    draw_text("Backups are copied under Synastria/AttuneHelperBackup.", (int)data_card.x + 20, (int)data_card.y + 52, 16, AHC_MUTED);
+    if (draw_wow_button("Backup WTF", (Rectangle){ data_card.x + 20.0f, data_card.y + 80.0f, 142.0f, 34.0f }, false, 15)) {
+        char wtf_path[AHC_PATH_CAPACITY];
+        if (resolve_wtf_path(state, wtf_path, sizeof(wtf_path))) {
+            backup_directory_snapshot(state, wtf_path, "WTF", "WTF");
+        } else {
+            set_action_status(state, "WTF folder was not found.", "WTF backup blocked");
+        }
+    }
+    if (draw_wow_button("Backup AddOns", (Rectangle){ data_card.x + 176.0f, data_card.y + 80.0f, 160.0f, 34.0f }, false, 15)) {
+        char addons_path[AHC_PATH_CAPACITY];
+        if (resolve_addons_path(state, addons_path, sizeof(addons_path))) {
+            backup_directory_snapshot(state, addons_path, "Addons", "AddOns");
+        } else {
+            set_action_status(state, "AddOns folder was not found.", "AddOns backup blocked");
+        }
+    }
+
+    const char *clear_label = state->clear_data_confirming ? "Confirm clear" : "Clear companion data";
+    if (draw_wow_button(clear_label, (Rectangle){ data_card.x + 20.0f, data_card.y + 126.0f, 190.0f, 34.0f }, state->clear_data_confirming, 15)) {
+        if (state->clear_data_confirming) {
+            clear_companion_data(state);
+        } else {
+            state->clear_data_confirming = true;
+            set_action_status(state, "Click Confirm clear to remove local companion settings/history.", "Clear confirmation armed");
+        }
+    }
+    draw_text("Clear does not touch Synastria, WTF, AddOns, or backups.", (int)data_card.x + 226, (int)data_card.y + 134, 14, AHC_MUTED);
+
+    draw_card(wow_card, "WoW 3.3.5a settings");
+    draw_text("Edit display and safe quality fields before launch. Existing unknown Config.wtf lines are preserved.", (int)wow_card.x + 20, (int)wow_card.y + 52, 15, AHC_MUTED);
+    if (draw_wow_button("Load Config", (Rectangle){ wow_card.x + 20.0f, wow_card.y + 78.0f, 132.0f, 34.0f }, false, 15)) {
+        load_wow_config(state);
+    }
+    if (draw_wow_button("Save Config", (Rectangle){ wow_card.x + 164.0f, wow_card.y + 78.0f, 132.0f, 34.0f }, false, 15)) {
+        save_wow_config(state);
+    }
+    if (draw_wow_button("Use Monitor", (Rectangle){ wow_card.x + 308.0f, wow_card.y + 78.0f, 132.0f, 34.0f }, false, 15)) {
+        apply_monitor_defaults(state);
+        set_action_status(state, "Applied current monitor resolution and refresh.", "Monitor defaults applied");
+    }
+    char monitor_line[220];
+    snprintf(monitor_line, sizeof(monitor_line), "%s%s", state->monitor_name[0] ? state->monitor_name : "Monitor auto-detect ready", state->wow_config_loaded ? "  |  Config loaded" : "");
+    draw_text(monitor_line, (int)wow_card.x + 454, (int)wow_card.y + 86, 14, state->monitor_name[0] ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
+
+    float field_y = wow_card.y + 146.0f;
+    draw_labeled_textbox("Width", (Rectangle){ wow_card.x + 20.0f, field_y, 84.0f, 32.0f }, state->wow_width, (int)sizeof(state->wow_width), &state->wow_width_editing);
+    draw_labeled_textbox("Height", (Rectangle){ wow_card.x + 116.0f, field_y, 84.0f, 32.0f }, state->wow_height, (int)sizeof(state->wow_height), &state->wow_height_editing);
+    draw_labeled_textbox("Refresh", (Rectangle){ wow_card.x + 212.0f, field_y, 84.0f, 32.0f }, state->wow_refresh, (int)sizeof(state->wow_refresh), &state->wow_refresh_editing);
+
+    if (draw_wow_button(state->wow_windowed ? "Windowed: On" : "Windowed: Off", (Rectangle){ wow_card.x + 320.0f, field_y, 128.0f, 32.0f }, state->wow_windowed, 14)) {
+        state->wow_windowed = !state->wow_windowed;
+    }
+    if (draw_wow_button(state->wow_borderless ? "Borderless: On" : "Borderless: Off", (Rectangle){ wow_card.x + 460.0f, field_y, 142.0f, 32.0f }, state->wow_borderless, 14)) {
+        state->wow_borderless = !state->wow_borderless;
+        if (state->wow_borderless) {
+            state->wow_windowed = true;
+        }
+    }
+
+    field_y += 78.0f;
+    draw_labeled_textbox("VSync", (Rectangle){ wow_card.x + 20.0f, field_y, 84.0f, 32.0f }, state->wow_vsync, (int)sizeof(state->wow_vsync), &state->wow_vsync_editing);
+    draw_labeled_textbox("Multisample", (Rectangle){ wow_card.x + 116.0f, field_y, 110.0f, 32.0f }, state->wow_multisampling, (int)sizeof(state->wow_multisampling), &state->wow_multisampling_editing);
+    draw_labeled_textbox("Texture mip", (Rectangle){ wow_card.x + 238.0f, field_y, 110.0f, 32.0f }, state->wow_texture_resolution, (int)sizeof(state->wow_texture_resolution), &state->wow_texture_resolution_editing);
+    draw_labeled_textbox("Env detail", (Rectangle){ wow_card.x + 360.0f, field_y, 110.0f, 32.0f }, state->wow_environment_detail, (int)sizeof(state->wow_environment_detail), &state->wow_environment_detail_editing);
+    draw_labeled_textbox("Ground FX", (Rectangle){ wow_card.x + 482.0f, field_y, 110.0f, 32.0f }, state->wow_ground_effect_density, (int)sizeof(state->wow_ground_effect_density), &state->wow_ground_effect_density_editing);
+
+    draw_text("Common 21:9 setup: set native width/height, refresh rate, Windowed On, Borderless On.", (int)wow_card.x + 20, (int)(wow_card.y + wow_card.height - 42.0f), 14, AHC_MUTED);
+}
+
+static void draw_process_footer(const CompanionState *state)
+{
+    Rectangle footer = { 0.0f, (float)GetScreenHeight() - 46.0f, (float)GetScreenWidth(), 46.0f };
+    DrawRectangleRec(footer, (Color){ 7, 14, 23, 244 });
+    DrawRectangle(0, GetScreenHeight() - 46, GetScreenWidth(), 1, AHC_BORDER);
+
+    double now = app_time();
+    bool active = state->process_action[0] && now <= state->process_until;
+    const char *action = active ? state->process_action : "Idle";
+
+    if (active) {
+        float progress = (float)((now - state->process_started_at) / AHC_PROCESS_ACTIVE_SECONDS);
+        if (progress < 0.0f) {
+            progress = 0.0f;
+        }
+        if (progress > 1.0f) {
+            progress = 1.0f;
+        }
+        int sweep_width = GetScreenWidth() / 4;
+        int sweep_x = (int)((float)(GetScreenWidth() + sweep_width) * progress) - sweep_width;
+        DrawRectangle(sweep_x, GetScreenHeight() - 45, sweep_width, 3, AHC_ACCENT);
+    }
+
+    char dots[4] = "";
+    if (active) {
+        int dot_count = ((int)(now * 3.0)) % 4;
+        for (int i = 0; i < dot_count; i++) {
+            dots[i] = '.';
+        }
+        dots[dot_count] = '\0';
+    }
+
+    char line[AHC_STATUS_CAPACITY * 2];
+    snprintf(line, sizeof(line), "%s%s  |  %s", action, dots, state->status);
+    draw_text(line, 26, GetScreenHeight() - 32, 17, active ? AHC_TEXT : AHC_MUTED);
+
+    if (active) {
+        float pulse_phase = (float)(now * 2.0 - (double)((int)(now * 2.0)));
+        float pulse = pulse_phase < 0.5f ? pulse_phase * 2.0f : (1.0f - pulse_phase) * 2.0f;
+        DrawCircle(GetScreenWidth() - 32, GetScreenHeight() - 23, 6.0f + pulse * 3.0f, (Color){ 83, 167, 239, 90 });
+        DrawCircle(GetScreenWidth() - 32, GetScreenHeight() - 23, 4.0f, AHC_ACCENT);
+    }
 }
 
 static void init_state(CompanionState *state)
 {
     memset(state, 0, sizeof(*state));
     state->tab = COMPANION_TAB_ATTUNES;
-    state->graph_metric = GRAPH_METRIC_TOTAL;
+    state->graph_metric = GRAPH_METRIC_ACCOUNT;
     state->graph_display = GRAPH_DISPLAY_BARS;
+    reset_wow_config_fields(state);
     load_addon_catalog(state);
     resolve_config_paths(state);
     load_settings(state);
@@ -1579,20 +2826,34 @@ int main(void)
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(1280, 760, "Attune Helper Companion");
+    apply_monitor_defaults(&state);
     load_ui_font();
+    load_ui_images();
     SetTargetFPS(60);
     GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
-    GuiSetStyle(DEFAULT, BASE_COLOR_NORMAL, 0x44331fff);
-    GuiSetStyle(DEFAULT, BORDER_COLOR_NORMAL, 0x84622dff);
-    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, 0xf8e8beff);
-    GuiSetStyle(BUTTON, BASE_COLOR_FOCUSED, 0x5b421eff);
-    GuiSetStyle(BUTTON, BORDER_COLOR_FOCUSED, 0xd6a950ff);
-    GuiSetStyle(BUTTON, BASE_COLOR_PRESSED, 0x145b87ff);
+    GuiSetStyle(DEFAULT, BASE_COLOR_NORMAL, color_to_gui_hex(AHC_PANEL_DARK));
+    GuiSetStyle(DEFAULT, BORDER_COLOR_NORMAL, color_to_gui_hex(AHC_BORDER));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, color_to_gui_hex(AHC_TEXT));
+    GuiSetStyle(DEFAULT, BASE_COLOR_FOCUSED, color_to_gui_hex(AHC_PANEL_HOVER));
+    GuiSetStyle(DEFAULT, BORDER_COLOR_FOCUSED, color_to_gui_hex(AHC_BORDER_BRIGHT));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_FOCUSED, color_to_gui_hex(AHC_TEXT));
+    GuiSetStyle(DEFAULT, BASE_COLOR_PRESSED, color_to_gui_hex((Color){ 13, 21, 34, 255 }));
+    GuiSetStyle(DEFAULT, BORDER_COLOR_PRESSED, color_to_gui_hex(AHC_ACCENT));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_PRESSED, color_to_gui_hex(AHC_TEXT));
+    GuiSetStyle(BUTTON, BASE_COLOR_FOCUSED, color_to_gui_hex(AHC_PANEL_HOVER));
+    GuiSetStyle(BUTTON, BORDER_COLOR_FOCUSED, color_to_gui_hex(AHC_BORDER_BRIGHT));
+    GuiSetStyle(BUTTON, BASE_COLOR_PRESSED, color_to_gui_hex((Color){ 18, 29, 44, 255 }));
+    GuiSetStyle(BUTTON, BORDER_COLOR_PRESSED, color_to_gui_hex(AHC_ACCENT));
+    GuiSetStyle(BUTTON, TEXT_COLOR_PRESSED, color_to_gui_hex(AHC_TEXT));
 
     while (!WindowShouldClose()) {
+        poll_attunehelper_snapshot(&state);
+
         BeginDrawing();
         ClearBackground(AHC_BACKGROUND);
-        DrawRectangleGradientV(0, 126, GetScreenWidth(), GetScreenHeight() - 126, (Color){ 24, 19, 14, 255 }, (Color){ 7, 6, 5, 255 });
+        DrawRectangleGradientV(0, 126, GetScreenWidth(), GetScreenHeight() - 126, AHC_BACKGROUND_TOP, AHC_BACKGROUND_BOTTOM);
+        DrawCircle(GetScreenWidth() - 120, 184, 220, (Color){ 55, 112, 175, 42 });
+        DrawCircle(120, GetScreenHeight() - 86, 180, (Color){ 25, 56, 93, 38 });
 
         draw_header(&state);
         draw_tabs(&state);
@@ -1609,9 +2870,7 @@ int main(void)
                 break;
         }
 
-        DrawRectangle(0, GetScreenHeight() - 46, GetScreenWidth(), 46, (Color){ 16, 12, 9, 238 });
-        DrawRectangle(0, GetScreenHeight() - 46, GetScreenWidth(), 1, AHC_BORDER);
-        draw_text(state.status, 26, GetScreenHeight() - 32, 17, AHC_MUTED);
+        draw_process_footer(&state);
 
         EndDrawing();
     }
@@ -1620,6 +2879,11 @@ int main(void)
     ahc_addon_manifest_free(&state.addon_manifest);
     if (g_has_ui_font) {
         UnloadFont(g_ui_font);
+    }
+    for (size_t i = 0; i < g_avatar_cache_count; i++) {
+        if (g_avatar_cache[i].loaded) {
+            UnloadTexture(g_avatar_cache[i].texture);
+        }
     }
     return 0;
 }
