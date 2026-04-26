@@ -23,16 +23,31 @@ Build output: debug — `android/app/build/outputs/apk/debug/app-debug.apk`. Rel
 ## Local build
 
 1. Install **JDK 17** (or 21) and the **Android SDK** (Android Studio or `sdkmanager`).
-2. From the repo root:
+2. Point Gradle at the SDK: set **`ANDROID_HOME`** (or **`ANDROID_SDK_ROOT`**) to the SDK root, **or** create **`android/local.properties`** with `sdk.dir=...` (see [local.properties.example](../android/local.properties.example)). The file is **gitignored**; do not commit it.
+3. From the repo root:
+
+   **Windows (CI parity, same as `scripts/android-verify.sh`):**
+
+   ```bat
+   android-verify.bat
+   ```
+
+   It uses the default Android Studio path `%LOCALAPPDATA%\Android\Sdk` if `ANDROID_HOME` is unset and `local.properties` is missing, and writes `local.properties` for you in that case.
+
+   **macOS / Linux / Git Bash:**
+
+   ```bash
+   bash scripts/android-verify.sh
+   ```
+
+   **Manual:**
 
    ```bash
    cd android
    ./gradlew assembleDebug
    ```
 
-3. On Windows, use `gradlew.bat` instead of `./gradlew` if you prefer.
-
-`local.properties` with `sdk.dir=...` is optional if `ANDROID_HOME` is set; do not commit `local.properties` (it is usually gitignored for local paths).
+   On Windows, use `gradlew.bat` instead of `./gradlew` if you prefer.
 
 ## CI: Android APK (GitHub Actions)
 

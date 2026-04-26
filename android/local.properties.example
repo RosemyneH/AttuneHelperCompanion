@@ -1,0 +1,11 @@
+# Copy this file to "local.properties" in this folder and set sdk.dir, OR set
+# ANDROID_HOME to your Android SDK (same path Android Studio uses).
+# local.properties is gitignored.
+#
+# Windows (forward slashes work):
+# sdk.dir=C:/Users/YourName/AppData/Local/Android/Sdk
+#
+# Git Bash style escape (also valid on Windows for Gradle):
+# sdk.dir=C\:\\Users\\YourName\\AppData\\Local\\Android\\Sdk
+
+sdk.dir=
