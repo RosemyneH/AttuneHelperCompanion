@@ -10,10 +10,15 @@
 
 #define AHC_TRAYMSG (WM_APP + 100)
 #define AHC_TRAY_CLASS "AttuneHelperCompanionTray"
+#define AHC_APP_ICON_ID 1
 
 static WNDPROC s_old_wnd;
 static HWND s_tray_hwnd;
 static NOTIFYICONDATAA s_nid;
+static HICON s_icon_big;
+static HICON s_icon_small;
+static int s_destroy_icon_big;
+static int s_destroy_icon_small;
 static int s_tray_added;
 static int s_class_registered;
 static volatile LONG s_pending;
@@ -117,6 +122,33 @@ static HWND ahc_tray_create_owner_window(void)
         NULL);
 }
 
+static HICON ahc_load_app_icon(int width, int height, int *destroy_icon)
+{
+    HICON icon = NULL;
+    HINSTANCE instance = GetModuleHandleA(NULL);
+    if (destroy_icon) {
+        *destroy_icon = 0;
+    }
+    icon = (HICON)LoadImageA(
+        instance,
+        MAKEINTRESOURCEA(AHC_APP_ICON_ID),
+        IMAGE_ICON,
+        width,
+        height,
+        LR_DEFAULTCOLOR);
+    if (icon) {
+        if (destroy_icon) {
+            *destroy_icon = 1;
+        }
+        return icon;
+    }
+    icon = LoadIconA(instance, MAKEINTRESOURCEA(AHC_APP_ICON_ID));
+    if (icon) {
+        return icon;
+    }
+    return LoadIconA(NULL, IDI_APPLICATION);
+}
+
 void ahc_tray_install(void *raylib_hwnd)
 {
     HWND w = (HWND)raylib_hwnd;
@@ -128,6 +160,21 @@ void ahc_tray_install(void *raylib_hwnd)
     }
     if (!s_tray_hwnd) {
         s_tray_hwnd = ahc_tray_create_owner_window();
+    }
+    if (!s_icon_big) {
+        s_icon_big = ahc_load_app_icon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), &s_destroy_icon_big);
+    }
+    if (!s_icon_small) {
+        s_icon_small =
+            ahc_load_app_icon(GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), &s_destroy_icon_small);
+    }
+    if (s_icon_big) {
+        SendMessageA(w, WM_SETICON, ICON_BIG, (LPARAM)s_icon_big);
+        SetClassLongPtrA(w, GCLP_HICON, (LONG_PTR)s_icon_big);
+    }
+    if (s_icon_small) {
+        SendMessageA(w, WM_SETICON, ICON_SMALL, (LPARAM)s_icon_small);
+        SetClassLongPtrA(w, GCLP_HICONSM, (LONG_PTR)s_icon_small);
     }
 
     ZeroMemory(&s_nid, sizeof(s_nid));
@@ -143,7 +190,7 @@ void ahc_tray_install(void *raylib_hwnd)
     strncpy(s_nid.szTip, "Attune Helper (snapshot sync continues)", sizeof(s_nid.szTip) - 1);
     s_nid.szTip[sizeof(s_nid.szTip) - 1] = '\0';
 #endif
-    s_nid.hIcon = LoadIconA(0, IDI_APPLICATION);
+    s_nid.hIcon = s_icon_small ? s_icon_small : (s_icon_big ? s_icon_big : LoadIconA(0, IDI_APPLICATION));
     s_nid.uFlags = (UINT)(s_nid.uFlags | NIF_ICON);
 
     s_tray_added = (Shell_NotifyIconA(NIM_ADD, &s_nid) != 0) ? 1 : 0;
@@ -169,6 +216,16 @@ void ahc_tray_shutdown(void *raylib_hwnd)
         UnregisterClassA(AHC_TRAY_CLASS, GetModuleHandleA(NULL));
         s_class_registered = 0;
     }
+    if (s_destroy_icon_big && s_icon_big) {
+        DestroyIcon(s_icon_big);
+    }
+    if (s_destroy_icon_small && s_icon_small) {
+        DestroyIcon(s_icon_small);
+    }
+    s_icon_big = NULL;
+    s_icon_small = NULL;
+    s_destroy_icon_big = 0;
+    s_destroy_icon_small = 0;
     ZeroMemory(&s_nid, sizeof(s_nid));
 }
 
