@@ -21,7 +21,12 @@ build-android-test/
 # Android / Gradle
 android/.gradle/
 android/**/build/
-android/local.properties
+android/**/.cxx/
+android/captures/
+*~
+*.swp
+*.swo
+.DS_Store
 **/*.iml
 *.jks
 *.keystore
