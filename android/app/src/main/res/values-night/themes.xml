@@ -1,3 +1,22 @@
 <resources>
-    <style name="Theme.AttuneHelperCompanion" parent="Theme.Material3.DayNight.NoActionBar" />
+    <style name="Theme.AttuneHelperCompanion" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@color/pumpkin_bg</item>
+        <item name="android:statusBarColor">@color/pumpkin_bg</item>
+        <item name="android:navigationBarColor">@color/pumpkin_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="colorPrimary">@color/pumpkin_primary</item>
+        <item name="colorOnPrimary">@color/pumpkin_on_primary</item>
+        <item name="colorSecondary">@color/pumpkin_secondary_soft</item>
+        <item name="colorOnSecondary">@color/pumpkin_bg</item>
+        <item name="colorSurface">@color/pumpkin_surface</item>
+        <item name="colorOnSurface">@color/pumpkin_text</item>
+        <item name="colorSurfaceVariant">@color/pumpkin_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/pumpkin_text_muted</item>
+        <item name="colorOutline">@color/pumpkin_outline</item>
+        <item name="colorError">@color/pumpkin_error</item>
+        <item name="materialButtonStyle">@style/Widget.Ahc.Button</item>
+        <item name="materialCardViewStyle">@style/Widget.Ahc.Card</item>
+    </style>
 </resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="pumpkin_bg">#120D14</color>
+    <color name="pumpkin_surface">#211522</color>
+    <color name="pumpkin_surface_high">#2D1B2F</color>
+    <color name="pumpkin_surface_variant">#3A2339</color>
+    <color name="pumpkin_primary">#F28B2E</color>
+    <color name="pumpkin_primary_dark">#C46218</color>
+    <color name="pumpkin_on_primary">#261006</color>
+    <color name="pumpkin_secondary">#7A3C87</color>
+    <color name="pumpkin_secondary_soft">#C58BE3</color>
+    <color name="pumpkin_text">#FFF1DE</color>
+    <color name="pumpkin_text_muted">#CDB9C6</color>
+    <color name="pumpkin_outline">#6B4A63</color>
+    <color name="pumpkin_success">#6ED6A5</color>
+    <color name="pumpkin_error">#FFB4AB</color>
+</resources>

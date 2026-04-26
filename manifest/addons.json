@@ -111,6 +111,33 @@
       "version": "v2.4"
     },
     {
+      "id": "consoleport-lk",
+      "name": "ConsolePortLK",
+      "author": "Sebastian Lindfors, Leandro Araujo",
+      "category": "Mobile & Controller",
+      "folder": "ConsolePort",
+      "description": "Recommended for mobile and controller play; adds gamepad-friendly controls for Wrath clients.",
+      "repo": "https://github.com/leoaviana/ConsolePortLK.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/leoaviana/ConsolePortLK.git"
+      },
+      "github_release": {
+        "owner": "leoaviana",
+        "repo": "ConsolePortLK",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null,
+      "avatar_url": "https://github.com/leoaviana.png?size=96",
+      "version": "1.4.0",
+      "categories": [
+        "Mobile & Controller",
+        "Community Favorites",
+        "Quality of Life"
+      ]
+    },
+    {
       "id": "droms-instance-timer",
       "name": "Droms Instance Timer",
       "author": "Dromkal",

@@ -22,10 +22,17 @@ object AddonInstall {
     private const val MAX_DOWNLOAD_BYTES = 64L * 1024 * 1024
     private const val MAX_EXTRACTED_TOTAL_BYTES = 256L * 1024 * 1024
     private const val MAX_SINGLE_ZIP_FILE_BYTES = 32L * 1024 * 1024
+    private const val MOBILE_CONTROLLER_CATEGORY = "Mobile & Controller"
 
     data class Entry(
         val id: String,
         val name: String,
+        val author: String,
+        val category: String,
+        val categories: List<String>,
+        val description: String,
+        val version: String,
+        val avatarUrl: String,
         val folder: String,
         val sourceSubdir: String,
         val gitUrl: String,
@@ -62,14 +69,42 @@ object AddonInstall {
                 Entry(
                     id = a.optString("id"),
                     name = a.optString("name"),
+                    author = a.optString("author"),
+                    category = a.optString("category"),
+                    categories = readStringArray(a.optJSONArray("categories")),
+                    description = a.optString("description"),
+                    version = a.optString("version"),
+                    avatarUrl = a.optString("avatar_url"),
                     folder = a.optString("folder"),
                     sourceSubdir = a.optString("source_subdir", ""),
                     gitUrl = u,
                 )
             )
         }
-        out.sortBy { it.name }
+        out.sortWith(
+            compareBy<Entry> { if (it.hasCategory(MOBILE_CONTROLLER_CATEGORY)) 0 else 1 }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+        )
         cached = out
+        return out
+    }
+
+    private fun Entry.hasCategory(value: String): Boolean {
+        return category.equals(value, ignoreCase = true) ||
+            categories.any { it.equals(value, ignoreCase = true) }
+    }
+
+    private fun readStringArray(arr: JSONArray?): List<String> {
+        if (arr == null) {
+            return emptyList()
+        }
+        val out = ArrayList<String>(arr.length())
+        for (i in 0 until arr.length()) {
+            val value = arr.optString(i).trim()
+            if (value.isNotEmpty()) {
+                out.add(value)
+            }
+        }
         return out
     }
 
@@ -161,9 +196,9 @@ object AddonInstall {
             out.delete()
             val req = Request.Builder().url(h).build()
             var ok = false
-            client.newCall(req).execute().use { r ->
+            client.newCall(req).execute().use response@{ r ->
                 if (!r.isSuccessful) {
-                    return@use
+                    return@response
                 }
                 r.body?.byteStream()?.use { ins ->
                     FileOutputStream(out).use { o ->
@@ -177,7 +212,7 @@ object AddonInstall {
                             }
                             if (total + n > MAX_DOWNLOAD_BYTES) {
                                 out.delete()
-                                return@use
+                                return@response
                             }
                             o.write(buf, 0, n)
                             total += n
