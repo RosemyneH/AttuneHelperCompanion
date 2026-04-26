@@ -18,6 +18,7 @@
         <item name="colorError">@color/ahc_error</item>
         <item name="materialButtonStyle">@style/Widget.Ahc.Button</item>
         <item name="materialCardViewStyle">@style/Widget.Ahc.Card</item>
+        <item name="chipStyle">@style/Widget.Ahc.Chip.Filter</item>
     </style>
 
     <style name="Widget.Ahc.Button" parent="Widget.Material3.Button">
@@ -67,9 +68,14 @@
     </style>
 
     <style name="Widget.Ahc.Chip.Filter" parent="Widget.Material3.Chip.Filter">
-        <item name="android:minHeight">48dp</item>
-        <item name="chipMinHeight">48dp</item>
-        <item name="ensureMinTouchTargetSize">true</item>
+        <item name="android:minHeight">@dimen/catalog_filter_chip_min_height</item>
+        <item name="chipMinHeight">@dimen/catalog_filter_chip_min_height</item>
+        <item name="android:textSize">@dimen/catalog_filter_chip_text</item>
+        <item name="chipStartPadding">@dimen/catalog_filter_chip_padding_h</item>
+        <item name="chipEndPadding">@dimen/catalog_filter_chip_padding_h</item>
+        <item name="textStartPadding">@dimen/catalog_filter_chip_padding_h</item>
+        <item name="textEndPadding">@dimen/catalog_filter_chip_padding_h</item>
+        <item name="ensureMinTouchTargetSize">false</item>
     </style>
 
     <style name="Widget.Ahc.TextField" parent="Widget.Material3.TextInputLayout.OutlinedBox.Dense">

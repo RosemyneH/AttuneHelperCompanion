@@ -10,6 +10,10 @@
     <dimen name="corner_control">12dp</dimen>
     <dimen name="content_padding_horizontal">20dp</dimen>
     <dimen name="content_padding_compact">12dp</dimen>
+    <dimen name="catalog_filter_chip_min_height">36dp</dimen>
+    <dimen name="catalog_filter_chip_text">12sp</dimen>
+    <dimen name="catalog_filter_chip_padding_h">6dp</dimen>
+    <dimen name="catalog_filter_chip_spacing_h">4dp</dimen>
     <dimen name="elevation_card">4dp</dimen>
     <dimen name="elevation_list_card">2dp</dimen>
 </resources>

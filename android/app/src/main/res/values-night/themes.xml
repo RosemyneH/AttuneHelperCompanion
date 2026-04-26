@@ -18,5 +18,6 @@
         <item name="colorError">@color/ahc_error</item>
         <item name="materialButtonStyle">@style/Widget.Ahc.Button</item>
         <item name="materialCardViewStyle">@style/Widget.Ahc.Card</item>
+        <item name="chipStyle">@style/Widget.Ahc.Chip.Filter</item>
     </style>
 </resources>

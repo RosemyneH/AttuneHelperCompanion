@@ -90,8 +90,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val scanQr = registerForActivityResult(ScanContract()) { r: ScanIntentResult? ->
+        if (isFinishing || isDestroyed) {
+            return@registerForActivityResult
+        }
         val t = r?.contents?.trim() ?: return@registerForActivityResult
-        applyIncomingToken(t)
+        if (t.isEmpty()) {
+            return@registerForActivityResult
+        }
+        try {
+            applyIncomingToken(t)
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Could not import code: ${e.message ?: e.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private val requestCamera = registerForActivityResult(
@@ -512,9 +526,9 @@ class MainActivity : AppCompatActivity() {
             .sorted()
         val allCategories = listOf("") + categories
         var checkId = View.NO_ID
+        // ʕ •ᴥ•ʔ Filter chips use 36dp min height (below 40dp a11y ideal) for density; row scrolls horizontally.
         for (category in allCategories) {
             val chip = Chip(this, null, com.google.android.material.R.attr.chipStyle)
-            chip.minHeight = dp(48)
             chip.text = if (category.isEmpty()) getString(R.string.catalog_all) else category
             chip.tag = category
             chip.isCheckable = true
