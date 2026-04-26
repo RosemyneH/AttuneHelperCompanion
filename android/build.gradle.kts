@@ -1,4 +1,1 @@
-plugins {
-    id("com.android.application") version "8.5.2" apply false
-    id("org.jetbrains.kotlin.android") version "1.9.24" apply false
-}
+// Root: plugin versions are declared in settings.gradle.kts (avoids com.android.application resolution errors in CI).

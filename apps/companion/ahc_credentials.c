@@ -153,6 +153,7 @@ bool ahc_credential_wow_password_exists(const char *config_dir)
 
 #else
 
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
 #include <unistd.h>
