@@ -302,6 +302,7 @@ static bool addon_current_install_path(const CompanionState *state, const AhcAdd
 static bool ahc_posix_wine_or_proton_ready(void);
 #endif
 static void apply_monitor_defaults(CompanionState *state);
+static void constrain_window_to_current_monitor(void);
 static void draw_window_chrome(CompanionState *state);
 
 static void draw_text(const char *text, int x, int y, int size, Color color)
@@ -3402,8 +3403,10 @@ static void draw_window_chrome(CompanionState *state)
             float sx = w.x + m.x;
             float sy = w.y + m.y;
             SetWindowPosition((int)(sx - g_chrome_grab.x), (int)(sy - g_chrome_grab.y));
+            constrain_window_to_current_monitor();
         } else {
             g_chrome_drag = false;
+            constrain_window_to_current_monitor();
         }
     }
 }
@@ -4838,42 +4841,153 @@ static int ahc_display_fps_cap(const CompanionState *state)
     return (rr > 0) ? rr : 60;
 }
 
+static int monitor_for_window_center(void)
+{
+    int fallback = GetCurrentMonitor();
+    int monitor_count = GetMonitorCount();
+    Vector2 window_pos = GetWindowPosition();
+    float cx = window_pos.x + (float)GetScreenWidth() * 0.5f;
+    float cy = window_pos.y + (float)GetScreenHeight() * 0.5f;
+
+    for (int i = 0; i < monitor_count; i++) {
+        Vector2 monitor_pos = GetMonitorPosition(i);
+        int monitor_width = GetMonitorWidth(i);
+        int monitor_height = GetMonitorHeight(i);
+        if (monitor_width <= 0 || monitor_height <= 0) {
+            continue;
+        }
+        if (cx >= monitor_pos.x && cy >= monitor_pos.y
+            && cx < monitor_pos.x + (float)monitor_width
+            && cy < monitor_pos.y + (float)monitor_height) {
+            return i;
+        }
+    }
+
+    return fallback;
+}
+
+static void target_window_size_for_monitor(int monitor, int *target_width, int *target_height)
+{
+    int monitor_width = GetMonitorWidth(monitor);
+    int monitor_height = GetMonitorHeight(monitor);
+    int width = 1500;
+    int height = 900;
+
+    if (monitor_width > 0 && monitor_height > 0) {
+        width = (int)((float)monitor_width * 0.84f);
+        height = (int)((float)monitor_height * 0.84f);
+        if (width < 1280) {
+            width = 1280;
+        }
+        if (height < 820) {
+            height = 820;
+        }
+        if (width > monitor_width - 80) {
+            width = monitor_width - 80;
+        }
+        if (height > monitor_height - 90) {
+            height = monitor_height - 90;
+        }
+    }
+
+    if (width < 1120) {
+        width = 1120;
+    }
+    if (height < 720) {
+        height = 720;
+    }
+
+    *target_width = width;
+    *target_height = height;
+}
+
+static void constrain_window_to_monitor(int monitor, bool center_if_resized)
+{
+    if (monitor < 0 || monitor >= GetMonitorCount() || IsWindowFullscreen()) {
+        return;
+    }
+
+    Vector2 monitor_pos = GetMonitorPosition(monitor);
+    int monitor_width = GetMonitorWidth(monitor);
+    int monitor_height = GetMonitorHeight(monitor);
+    if (monitor_width <= 0 || monitor_height <= 0) {
+        return;
+    }
+
+    int max_width = monitor_width - 80;
+    int max_height = monitor_height - 90;
+    if (max_width < 1120) {
+        max_width = 1120;
+    }
+    if (max_height < 720) {
+        max_height = 720;
+    }
+
+    int width = GetScreenWidth();
+    int height = GetScreenHeight();
+    bool resized = false;
+    if (width > max_width) {
+        width = max_width;
+        resized = true;
+    }
+    if (height > max_height) {
+        height = max_height;
+        resized = true;
+    }
+    if (resized) {
+        SetWindowSize(width, height);
+    }
+
+    Vector2 window_pos = GetWindowPosition();
+    int x = (int)window_pos.x;
+    int y = (int)window_pos.y;
+    int left = (int)monitor_pos.x;
+    int top = (int)monitor_pos.y;
+    int right = left + monitor_width;
+    int bottom = top + monitor_height;
+
+    if (center_if_resized && resized) {
+        x = left + (monitor_width - width) / 2;
+        y = top + (monitor_height - height) / 2;
+    } else {
+        if (x + width > right - 24) {
+            x = right - width - 24;
+        }
+        if (y + height > bottom - 24) {
+            y = bottom - height - 24;
+        }
+        if (x < left + 24) {
+            x = left + 24;
+        }
+        if (y < top + 24) {
+            y = top + 24;
+        }
+    }
+
+    SetWindowPosition(x, y);
+}
+
+static void constrain_window_to_current_monitor(void)
+{
+    constrain_window_to_monitor(monitor_for_window_center(), false);
+}
+
 static void apply_window_defaults(void)
 {
     int monitor = GetCurrentMonitor();
+    Vector2 monitor_pos = GetMonitorPosition(monitor);
     int monitor_width = GetMonitorWidth(monitor);
     int monitor_height = GetMonitorHeight(monitor);
-    int target_width = 1500;
-    int target_height = 900;
-
-    if (monitor_width > 0 && monitor_height > 0) {
-        target_width = (int)((float)monitor_width * 0.84f);
-        target_height = (int)((float)monitor_height * 0.84f);
-        if (target_width < 1280) {
-            target_width = 1280;
-        }
-        if (target_height < 820) {
-            target_height = 820;
-        }
-        if (target_width > monitor_width - 80) {
-            target_width = monitor_width - 80;
-        }
-        if (target_height > monitor_height - 90) {
-            target_height = monitor_height - 90;
-        }
-    }
-
-    if (target_width < 1120) {
-        target_width = 1120;
-    }
-    if (target_height < 720) {
-        target_height = 720;
-    }
+    int target_width;
+    int target_height;
+    target_window_size_for_monitor(monitor, &target_width, &target_height);
 
     SetWindowMinSize(1120, 720);
     SetWindowSize(target_width, target_height);
     if (monitor_width > target_width && monitor_height > target_height) {
-        SetWindowPosition((monitor_width - target_width) / 2, (monitor_height - target_height) / 2);
+        SetWindowPosition(
+            (int)monitor_pos.x + (monitor_width - target_width) / 2,
+            (int)monitor_pos.y + (monitor_height - target_height) / 2);
     }
 }
 
@@ -4935,6 +5049,9 @@ int main(void)
         }
 
         update_ui_scale(&state);
+        if (!IsWindowHidden() && !IsWindowMinimized()) {
+            constrain_window_to_current_monitor();
+        }
         poll_other_instances(&state);
         poll_addon_install_job(&state);
         poll_attunehelper_snapshot(&state);
