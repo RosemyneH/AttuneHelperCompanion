@@ -40,6 +40,10 @@ import com.attunehelper.companion.nfc.AhcNfcHelper
 import com.attunehelper.companion.nfc.NfcNdefPushCompat
 import com.attunehelper.companion.saf.SynastriaFolder
 import com.attunehelper.companion.sync.AttuneSyncCodec
+import com.attunehelper.companion.attune.graph.AttuneGraphView
+import com.attunehelper.companion.attune.graph.GraphDisplay
+import com.attunehelper.companion.attune.graph.GraphMetric
+import com.attunehelper.companion.attune.graph.attuneGraphDetailText
 import com.attunehelper.companion.util.QrBitmaps
 import com.attunehelper.companion.util.WinlatorIntents
 import com.google.android.material.button.MaterialButton
@@ -47,6 +51,7 @@ import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.navigationrail.NavigationRailView
 import com.google.android.material.textfield.TextInputEditText
+import com.google.zxing.BarcodeFormat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanIntentResult
 import com.journeyapps.barcodescanner.ScanOptions
@@ -65,6 +70,8 @@ class MainActivity : AppCompatActivity() {
     private var ignoreRailSelection: Boolean = false
     private var categoryChipListenerPaused: Boolean = false
     private var addonSearchBlobByEntryIndex: List<String> = emptyList()
+    private lateinit var attuneGraph: AttuneGraphView
+    private lateinit var textAttuneGraphDetail: TextView
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
     private val debouncedRenderAddonCatalog: Runnable = Runnable {
         if (isFinishing) {
@@ -154,8 +161,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_scan_qr).setOnClickListener { onScanQrClicked() }
         findViewById<MaterialButton>(R.id.btn_play_winlator).setOnClickListener { openWinlator() }
         findViewById<MaterialButton>(R.id.btn_nfc_prepare).setOnClickListener { prepareNfcPush() }
+        findViewById<MaterialButton>(R.id.btn_attunes_open_sync).setOnClickListener { showSection(R.id.section_sync) }
+        attuneGraph = findViewById(R.id.attune_graph)
+        textAttuneGraphDetail = findViewById(R.id.text_attune_graph_detail)
+        setupAttuneGraphChips()
+        attuneGraph.setOnAttuneGraphSelectionListener { _: Int? -> updateAttuneGraphDetail() }
 
-        showSection(R.id.section_sync)
+        showSection(R.id.section_attunes)
         updateTreeLabel()
         refreshAttuneText()
         loadAddonCatalog()
@@ -172,16 +184,16 @@ class MainActivity : AppCompatActivity() {
                 return@setOnItemSelectedListener true
             }
             when (item.itemId) {
+                R.id.nav_menu_attunes -> {
+                    showSection(R.id.section_attunes)
+                    true
+                }
                 R.id.nav_menu_catalog -> {
                     showSection(R.id.section_catalog)
                     true
                 }
                 R.id.nav_menu_sync -> {
                     showSection(R.id.section_sync)
-                    true
-                }
-                R.id.nav_menu_transfer -> {
-                    showSection(R.id.section_transfer)
                     true
                 }
                 R.id.nav_menu_play -> {
@@ -195,9 +207,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSection(sectionId: Int) {
         val sections = listOf(
+            R.id.section_attunes,
             R.id.section_catalog,
             R.id.section_sync,
-            R.id.section_transfer,
             R.id.section_play,
         )
         for (id in sections) {
@@ -207,11 +219,11 @@ class MainActivity : AppCompatActivity() {
             findViewById<ImageView>(R.id.image_qr).setImageDrawable(null)
         }
         val menuId = when (sectionId) {
+            R.id.section_attunes -> R.id.nav_menu_attunes
             R.id.section_catalog -> R.id.nav_menu_catalog
             R.id.section_sync -> R.id.nav_menu_sync
-            R.id.section_transfer -> R.id.nav_menu_transfer
             R.id.section_play -> R.id.nav_menu_play
-            else -> R.id.nav_menu_sync
+            else -> R.id.nav_menu_attunes
         }
         val rail = findViewById<NavigationRailView>(R.id.navigation_rail)
         if (rail.selectedItemId != menuId) {
@@ -404,17 +416,46 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun refreshAttuneText() {
-        val lines = store.getAll()
-        val t = findViewById<TextView>(R.id.text_attune_line)
-        if (lines.isEmpty()) {
-            t.text = getString(R.string.no_attune_yet)
-        } else {
-            val last = lines.takeLast(8).joinToString("\n") { s ->
-                "${s.date}  acc=${s.account}  wf=${s.warforged}  lf=${s.lightforged}  tf=${s.titanforged}"
+    private fun setupAttuneGraphChips() {
+        val gMetric = findViewById<ChipGroup>(R.id.chip_group_attune_metric)
+        val gDisp = findViewById<ChipGroup>(R.id.chip_group_attune_display)
+        gMetric.setOnCheckedStateChangeListener { _, checkedIds ->
+            if (checkedIds.isEmpty()) {
+                return@setOnCheckedStateChangeListener
             }
-            t.text = last
+            when (checkedIds[0]) {
+                R.id.chip_attune_m_account -> attuneGraph.graphMetric = GraphMetric.ACCOUNT
+                R.id.chip_attune_m_tf -> attuneGraph.graphMetric = GraphMetric.TITANFORGED
+                R.id.chip_attune_m_wf -> attuneGraph.graphMetric = GraphMetric.WARFORGED
+                R.id.chip_attune_m_lf -> attuneGraph.graphMetric = GraphMetric.LIGHTFORGED
+            }
+            updateAttuneGraphDetail()
         }
+        gDisp.setOnCheckedStateChangeListener { _, checkedIds ->
+            if (checkedIds.isEmpty()) {
+                return@setOnCheckedStateChangeListener
+            }
+            when (checkedIds[0]) {
+                R.id.chip_attune_d_bars -> attuneGraph.graphDisplay = GraphDisplay.BARS
+                R.id.chip_attune_d_plot -> attuneGraph.graphDisplay = GraphDisplay.PLOT
+            }
+            updateAttuneGraphDetail()
+        }
+    }
+
+    private fun updateAttuneGraphDetail() {
+        val idx = attuneGraph.selectedIndex
+        val rows = attuneGraph.getDisplayRows()
+        if (idx == null || idx !in rows.indices) {
+            textAttuneGraphDetail.text = ""
+        } else {
+            textAttuneGraphDetail.text = attuneGraphDetailText(rows, idx, attuneGraph.graphMetric)
+        }
+    }
+
+    private fun refreshAttuneText() {
+        attuneGraph.setSnapshots(store.getAll())
+        updateAttuneGraphDetail()
     }
 
     private fun importFromField() {
@@ -428,6 +469,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyIncomingToken(token: String) {
         val s = token.trim()
+        val fromQr = AttuneSyncCodec.decodeQrOrNull(s)
+        if (fromQr != null) {
+            store.upsert(fromQr)
+            refreshAttuneText()
+            Toast.makeText(this, "Imported snapshot for ${fromQr.date} (AHC-Q1).", Toast.LENGTH_LONG).show()
+            return
+        }
         val bulk = AttuneSyncCodec.decodeFullOrNull(s)
         if (bulk != null) {
             store.mergeIncoming(bulk)
@@ -440,13 +488,6 @@ class MainActivity : AppCompatActivity() {
             store.upsert(fromLua)
             refreshAttuneText()
             Toast.makeText(this, "Imported snapshot from AttuneHelper.lua (NFC) — ${fromLua.date}.", Toast.LENGTH_LONG).show()
-            return
-        }
-        val qr = AttuneSyncCodec.decodeQrOrNull(s)
-        if (qr != null) {
-            store.upsert(qr)
-            refreshAttuneText()
-            Toast.makeText(this, "Imported snapshot for ${qr.date}.", Toast.LENGTH_LONG).show()
             return
         }
         Toast.makeText(this, "Unrecognized code format.", Toast.LENGTH_LONG).show()
@@ -487,8 +528,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildScanOptions(): ScanOptions {
         return ScanOptions()
+            .setDesiredBarcodeFormats(listOf(BarcodeFormat.QR_CODE.name))
             .setBeepEnabled(false)
             .setOrientationLocked(false)
+            .setPrompt(getString(R.string.scan_qr_prompt))
     }
 
     private fun launchQrScan() {
@@ -772,7 +815,7 @@ class MainActivity : AppCompatActivity() {
     private fun installAddon(entry: AddonInstall.Entry) {
         val s = store.synastriaTreeUri() ?: run {
             Toast.makeText(this, "Choose Synastria folder first (write access for AddOns).", Toast.LENGTH_LONG).show()
-            showSection(R.id.section_sync)
+            showSection(R.id.section_attunes)
             return
         }
         val u = Uri.parse(s)

@@ -97,12 +97,19 @@ object AttuneSyncCodec {
     }
 
     fun decodeQrOrNull(s: String): AttuneSnapshot? {
-        if (!s.trim().startsWith(QR_PREFIX)) {
+        var t = s.trim()
+        if (t.startsWith("\uFEFF")) {
+            t = t.substring(1).trim()
+        }
+        if (!t.startsWith(QR_PREFIX)) {
             return null
         }
-        val t = s.trim().removePrefix(QR_PREFIX)
-        val parts = t.split('|')
+        t = t.removePrefix(QR_PREFIX).trim()
+        val parts = t.split('|').map { it.trim() }
         if (parts.size != 5) {
+            return null
+        }
+        if (parts.any { it.isEmpty() }) {
             return null
         }
         return AttuneSnapshot(

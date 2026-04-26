@@ -3468,6 +3468,33 @@ static void format_tooltip_count_with_delta(char *out, size_t out_capacity, cons
     snprintf(out, out_capacity, "%s: %s", label, value_text);
 }
 
+static void draw_snapshot_phone_qr(const CompanionState *state, Rectangle bounds, float y_label_top)
+{
+    if (!state->phone_qr_valid || !IsTextureValid(state->phone_qr_tx)) {
+        return;
+    }
+    draw_text("Phone (latest day)", (int)bounds.x + 20, (int)y_label_top, 15, AHC_MUTED);
+    float qr_y = y_label_top + 22.0f;
+    float max_w = bounds.width - 40.0f;
+    float max_h = (bounds.y + bounds.height) - qr_y - 12.0f;
+    if (max_w < 32.0f || max_h < 32.0f) {
+        return;
+    }
+    float tw = (float)state->phone_qr_tx.width;
+    float th = (float)state->phone_qr_tx.height;
+    if (tw < 1.0f || th < 1.0f) {
+        return;
+    }
+    float s = max_w / tw;
+    if (th * s > max_h) {
+        s = max_h / th;
+    }
+    if (s > 2.0f) {
+        s = 2.0f;
+    }
+    DrawTextureEx(state->phone_qr_tx, (Vector2){ bounds.x + 20.0f, qr_y }, 0.0f, s, WHITE);
+}
+
 static void draw_snapshot_card(const CompanionState *state, Rectangle bounds)
 {
     char line[160];
@@ -3478,6 +3505,7 @@ static void draw_snapshot_card(const CompanionState *state, Rectangle bounds)
         draw_text("Set your Synastria folder once, then scan.", (int)bounds.x + 20, (int)bounds.y + 92, 18, AHC_MUTED);
         draw_text("Expected file:", (int)bounds.x + 20, (int)bounds.y + 140, 16, AHC_MUTED);
         draw_text("WTF/Account/*/SavedVariables/AttuneHelper.lua", (int)bounds.x + 20, (int)bounds.y + 164, 16, AHC_ACCENT);
+        draw_snapshot_phone_qr(state, bounds, bounds.y + 200.0f);
         return;
     }
 
@@ -3510,6 +3538,7 @@ static void draw_snapshot_card(const CompanionState *state, Rectangle bounds)
 
     format_count_with_delta(line, sizeof(line), "LF", state->snapshot.lightforged, lf_delta);
     draw_text(line, (int)bounds.x + 20, (int)bounds.y + 218, 24, AHC_LF);
+    draw_snapshot_phone_qr(state, bounds, bounds.y + 256.0f);
 }
 
 static int snapshot_metric_value(const AhcDailyAttuneSnapshot *snapshot, GraphMetric metric)
@@ -3863,14 +3892,18 @@ static void companion_refresh_phone_qr(CompanionState *state)
         return;
     }
     int scale = 5;
-    int px = qsize * scale;
-    Image im = GenImageColor(px, px, (Color){ 255, 255, 255, 255 });
+    int qz = 4 * scale;
+    int grid = qsize * scale;
+    int total = grid + 2 * qz;
+    Image im = GenImageColor(total, total, (Color){ 255, 255, 255, 255 });
     for (int y = 0; y < qsize; y++) {
         for (int x = 0; x < qsize; x++) {
             Color c = qrcodegen_getModule(qrcodeb, x, y) ? (Color){ 0, 0, 0, 255 } : (Color){ 255, 255, 255, 255 };
             for (int dy = 0; dy < scale; dy++) {
                 for (int dx = 0; dx < scale; dx++) {
-                    ImageDrawPixel(&im, x * scale + dx, y * scale + dy, c);
+                    int px = qz + x * scale + dx;
+                    int py = qz + y * scale + dy;
+                    ImageDrawPixel(&im, px, py, c);
                 }
             }
         }
@@ -3957,11 +3990,6 @@ static void draw_attunes_tab(CompanionState *state)
     }
     if (draw_wow_button("Seed test data", (Rectangle){ content.x + 546.0f, button_y, 180.0f, button_height }, false, 18)) {
         seed_test_history(state);
-    }
-    if (state->phone_qr_valid && IsTextureValid(state->phone_qr_tx)) {
-        float qy = button_y + button_height + 12.0f;
-        float qscale = 1.5f;
-        DrawTextureEx(state->phone_qr_tx, (Vector2){ content.x, qy }, 0.0f, qscale, WHITE);
     }
 }
 

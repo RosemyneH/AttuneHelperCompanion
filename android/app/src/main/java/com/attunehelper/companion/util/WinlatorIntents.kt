@@ -34,7 +34,7 @@ object QrBitmaps {
         }
         val hints = mapOf(
             EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
-            EncodeHintType.MARGIN to 1
+            EncodeHintType.MARGIN to 4
         )
         val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, hints)
         val w = matrix.width

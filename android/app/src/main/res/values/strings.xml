@@ -1,8 +1,8 @@
 <resources>
     <string name="app_name">Attune Helper</string>
+    <string name="bottom_attunes">Attunes</string>
     <string name="bottom_catalog">Catalog</string>
     <string name="bottom_sync">Sync</string>
-    <string name="bottom_transfer">Transfer</string>
     <string name="bottom_play">Play</string>
     <string name="catalog_search_hint">Search add-ons, authors, categories</string>
     <string name="catalog_all">All</string>
@@ -33,9 +33,23 @@
     <string name="no_tree_yet">No folder selected. Use “Choose folder” and pick the drive or folder that contains your Synastria (or shared Winlator storage). The app only sees what you select.</string>
     <string name="choose_synastria_folder">Choose Synastria folder</string>
     <string name="scan_attune_snapshot">Scan AttuneHelper.lua</string>
-    <string name="section_attunes">Attune log (this device)</string>
-    <string name="section_sync">Sync &amp; devices</string>
-    <string name="section_sync_help">Export / Import a long code to move your full attune log. QR only fits the latest day (one snapshot); use the text code for a full history.</string>
+    <string name="section_attunes_chart">Attune chart</string>
+    <string name="section_attunes_chart_help">This tab is your mobile attune chart: the last few days are listed below. To start or update from the Windows companion, open Sync and scan the Attune chart QR. To load what is already in your Synastria tree on this device, use Library and scan AttuneHelper.lua.</string>
+    <string name="attunes_open_sync">Open Sync to scan PC QR</string>
+    <string name="section_attunes_history">Recent days (this device)</string>
+    <string name="attune_graph_empty_1">Scan AttuneHelper to save daily points here.</string>
+    <string name="attune_graph_empty_2">Tap a bar or point to see TF / WF / LF for that date.</string>
+    <string name="attune_graph_axis">Daily gain scale 0–%1$d  |  %2$s to %3$s</string>
+    <string name="attune_graph_footer">Account attunes/day since tracking: %1$.1f</string>
+    <string name="graph_metric_account">Account</string>
+    <string name="graph_metric_tf">TF</string>
+    <string name="graph_metric_wf">WF</string>
+    <string name="graph_metric_lf">LF</string>
+    <string name="graph_display_bars">Bars</string>
+    <string name="graph_display_plot">Plot</string>
+    <string name="section_sync">Phone &amp; desktop</string>
+    <string name="section_sync_help">This is the main path: on PC, open the companion’s Attune chart and use Show QR (phone). Here, tap Scan QR. That sends one day (AHC-Q1). Use paste / export / import for the long AHC1: code when you need the full log on this device.</string>
+    <string name="scan_qr_prompt">Aim at the AHC-Q1 QR (desktop Attune chart)</string>
     <string name="paste_code_hint">Paste AHC1:… import code, or a short AHC-Q1: line from a QR</string>
     <string name="import_code">Import (merge into this device)</string>
     <string name="export_code">Export full log (code)</string>
@@ -55,7 +69,7 @@
     <string name="tree_selected_prefix">Using tree URI: </string>
     <string name="scanning">Scanning…</string>
     <string name="scan_ok">OK — loaded snapshot for %1$s.</string>
-    <string name="no_attune_yet">No attune rows yet. Scan AttuneHelper.lua or import a sync code.</string>
+    <string name="no_attune_yet">No data yet. Open Sync and scan the desktop Attune chart QR, or use Library to scan AttuneHelper.lua from this device.</string>
     <string name="section_nfc">NFC (tap to transfer)</string>
     <string name="section_nfc_help">~7 KB limit per tap. Sends attune data (full or one day) and sometimes a gzip’d AttuneHelper.lua from your last scan. Add-ons and full WTF trees are too big for NFC—use download or USB/file copy. Tap Prepare, then hold phones back-to-back; both sides use this app in the foreground.</string>
     <string name="nfc_prepare_push">Prepare NFC push (then touch backs)</string>

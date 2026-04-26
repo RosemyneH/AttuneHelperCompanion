@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
-        android:id="@+id/nav_menu_sync"
-        android:icon="@drawable/ic_nav_sync"
-        android:title="@string/bottom_sync" />
+        android:id="@+id/nav_menu_attunes"
+        android:icon="@drawable/ic_nav_attunes"
+        android:title="@string/bottom_attunes" />
     <item
         android:id="@+id/nav_menu_catalog"
         android:icon="@drawable/ic_nav_catalog"
         android:title="@string/bottom_catalog" />
     <item
-        android:id="@+id/nav_menu_transfer"
-        android:icon="@drawable/ic_nav_transfer"
-        android:title="@string/bottom_transfer" />
+        android:id="@+id/nav_menu_sync"
+        android:icon="@drawable/ic_nav_sync"
+        android:title="@string/bottom_sync" />
     <item
         android:id="@+id/nav_menu_play"
         android:icon="@drawable/ic_nav_play"

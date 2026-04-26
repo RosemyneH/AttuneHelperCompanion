@@ -12,4 +12,9 @@
     <color name="ahc_outline_bright">#92B6E0</color>
     <color name="ahc_success">#6ED6A5</color>
     <color name="ahc_error">#FFB4AB</color>
+    <color name="ahc_tf">#8F8BFF</color>
+    <color name="ahc_wf">#FF9656</color>
+    <color name="ahc_lf">#FFE273</color>
+    <color name="ahc_graph_grid">#467A98BE</color>
+    <color name="ahc_graph_select">#2253A7EF</color>
 </resources>
