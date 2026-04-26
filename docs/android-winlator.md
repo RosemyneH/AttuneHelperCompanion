@@ -18,8 +18,8 @@ Use the **Windows** or **Linux** build in the same environment that can run **Wo
 
 ## Path B — Android host, game in a guest (split worlds)
 
-1. The **Android** build in this repo is currently a **stub** (no full raylib UI; the main screen explains that WoW is not run natively and points to **Winlator’s official project** for users who need a Windows-in-a-box layer). Forks and other emulators are not wired in; users choose their own trusted source.
-2. A typical future shape is: **read-only** catalog / docs on the phone + **sideloaded** Windows/Linux companion, or a **remote** session (VNC, Steam Remote Play, or your own) where the real launcher runs.
+1. The **Android** app in this repo has a **Material** UI (not the desktop raylib build): you pick a **Synastria root** (storage access) so the app can read **AttuneHelper.lua**, keep a local attune log, **export/import** a shareable code, show a one-day **QR**, install add-ons from the shipped **GitHub codeload** list into `Interface/AddOns`, and **open Winlator** if `com.winlator` is present. The on-device **Play** action does not start WoW; it starts Winlator so the guest can run the real client.
+2. A typical **split** path remains: read-only or file-manager style work on the phone + **sideloaded** Windows/Linux companion in the guest, or a **remote** session (VNC, Steam Remote Play, or your own) where the real launcher runs.
 
 Risks: no shared DPAPI between Android and a random guest Windows user; do not expect **wow_autologin.cred** from the desktop to “just work” across that boundary.
 

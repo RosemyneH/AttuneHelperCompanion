@@ -7,8 +7,15 @@ The `android/` directory is a standard Gradle (Kotlin) Android app used for the 
 | Path | Purpose |
 |------|--------|
 | `android/settings.gradle.kts` | Project name and `include(":app")` |
-| `android/app/build.gradle.kts` | App module, SDK levels, dependencies |
+| `android/app/build.gradle.kts` | App module, SDK levels, dependencies; `assets` include `../manifest/addons.json` for the in-app add-on list |
 | `android/gradlew` (and `gradlew.bat`) | Gradle wrapper (version pinned in `gradle/wrapper/`) |
+
+## What the Android app does (v1+)
+
+- **Synastria folder (SAF):** user picks a storage root (for example a shared or copied Synastria tree). The app walks it and reads `WTF/.../SavedVariables/AttuneHelper.lua` to parse the **DailyAttuneSnapshot** and keep a local attune log.
+- **Sync:** full history can be **exported / imported** as a text token (`AHC1:` + gzip + Base64). A **QR** encodes **one day** only (compact `AHC-Q1:`) so it fits in a single code; use the long code to move a full log between devices.
+- **Add-ons:** pick an add-on from the catalog; the app downloads the GitHub **codeload** zip (`main` or `master`) and extracts the add-on **folder** into `Interface/AddOns/…` under the chosen tree. Some repos with unusual layout or default branches may need a later release to improve.
+- **Play:** **Open Winlator** uses `com.winlator` if installed; otherwise opens the official Winlator releases page. The game still runs **inside** Winlator; this host app does not start WoW directly.
 
 Build output (local or CI): `android/app/build/outputs/apk/debug/app-debug.apk`
 
