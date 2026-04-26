@@ -23,6 +23,12 @@ Run from the repo root:
 powershell -ExecutionPolicy Bypass -File scripts\generate-android-keystore.ps1
 ```
 
+To **replace** an existing `attune-release.jks` in `E:\Security\AttuneHelperCompanion\` (and regenerate the credentials file), add **`-Force`**.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\generate-android-keystore.ps1 -Force
+```
+
 This is not a “seed” in the crypto-wallet sense: Android uses a **Java keystore file** and passwords. Keep `E:\Security\…` off any git remote; back it up to something only you control.
 
 ---

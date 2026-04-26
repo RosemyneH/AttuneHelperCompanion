@@ -2,9 +2,17 @@
 # This is NOT stored in git. There is no blockchain "seed" — Android signing uses a
 # Java keystore (.jks) + passwords. Back up the folder; restrict NTFS to your user.
 #
-# Usage: powershell -ExecutionPolicy Bypass -File scripts\generate-android-keystore.ps1
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File scripts\generate-android-keystore.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\generate-android-keystore.ps1 -Force
+# -Force overwrites an existing attune-release.jks and the credentials .txt in E:\Security\…
 # Requires: JDK keytool (Microsoft OpenJDK, Android Studio jbr, etc.). PATH optional;
 # this script searches common install locations if keytool is not on PATH.
+
+[CmdletBinding()]
+param(
+    [switch]$Force
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -49,8 +57,15 @@ $KeystorePath = Join-Path $DestRoot $KeystoreName
 $CredPath = Join-Path $DestRoot $CredFileName
 
 if (Test-Path -LiteralPath $KeystorePath) {
-    Write-Error "Keystore already exists: $KeystorePath`nDelete it first if you really want a new one."
-    exit 1
+    if (-not $Force) {
+        Write-Error "Keystore already exists: $KeystorePath`nRun with -Force to delete it and generate a new one, or remove the file manually."
+        exit 1
+    }
+    Write-Warning "Removing existing keystore (you passed -Force)."
+    Remove-Item -LiteralPath $KeystorePath -Force
+    if (Test-Path -LiteralPath $CredPath) {
+        Remove-Item -LiteralPath $CredPath -Force
+    }
 }
 
 $KeytoolExe = Get-KeytoolPath
