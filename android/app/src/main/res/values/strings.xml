@@ -34,7 +34,7 @@
     <string name="choose_synastria_folder">Choose Synastria folder</string>
     <string name="scan_attune_snapshot">Scan AttuneHelper.lua</string>
     <string name="section_attunes_chart">Attune chart</string>
-    <string name="section_attunes_chart_help">This tab is your mobile attune chart: the last few days are listed below. To start or update from the Windows companion, open Sync and scan the Attune chart QR. To load what is already in your Synastria tree on this device, use Library and scan AttuneHelper.lua.</string>
+    <string name="section_attunes_chart_help">The chart above is your attune view on this device. To update from the Windows companion, open Sync and scan the Attune chart QR. To load from your Synastria tree, use Play → Library and scan AttuneHelper.lua.</string>
     <string name="attunes_open_sync">Open Sync to scan PC QR</string>
     <string name="section_attunes_history">Recent days (this device)</string>
     <string name="attune_graph_empty_1">Scan AttuneHelper to save daily points here.</string>

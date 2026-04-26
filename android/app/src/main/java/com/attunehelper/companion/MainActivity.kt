@@ -206,13 +206,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showSection(sectionId: Int) {
-        val sections = listOf(
-            R.id.section_attunes,
+        val attunesHost = findViewById<View>(R.id.section_attunes)
+        val mainScroll = findViewById<ScrollView>(R.id.main_scroll)
+        if (sectionId == R.id.section_attunes) {
+            attunesHost.visibility = View.VISIBLE
+            mainScroll.visibility = View.GONE
+        } else {
+            attunesHost.visibility = View.GONE
+            mainScroll.visibility = View.VISIBLE
+        }
+        val scrollSections = listOf(
             R.id.section_catalog,
             R.id.section_sync,
             R.id.section_play,
         )
-        for (id in sections) {
+        for (id in scrollSections) {
             findViewById<View>(id).visibility = if (id == sectionId) View.VISIBLE else View.GONE
         }
         if (sectionId != R.id.section_sync) {
@@ -234,8 +242,10 @@ class MainActivity : AppCompatActivity() {
                 ignoreRailSelection = false
             }
         }
-        findViewById<ScrollView>(R.id.main_scroll).post {
-            findViewById<ScrollView>(R.id.main_scroll).smoothScrollTo(0, 0)
+        mainScroll.post {
+            if (mainScroll.isShown) {
+                mainScroll.smoothScrollTo(0, 0)
+            }
         }
     }
 
@@ -386,15 +396,17 @@ class MainActivity : AppCompatActivity() {
         if (s == null) {
             t.text = getString(R.string.no_tree_yet)
             badge.setText(R.string.tree_missing_short)
+            badge.visibility = View.VISIBLE
         } else {
             t.text = getString(R.string.tree_selected_prefix) + s
-            badge.setText(R.string.tree_ready_short)
+            badge.visibility = View.GONE
         }
     }
 
     private fun scanSnapshot() {
         val s = store.synastriaTreeUri() ?: run {
-            Toast.makeText(this, "Choose a Synastria folder first.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Choose a Synastria folder first (Play → Library).", Toast.LENGTH_LONG).show()
+            showSection(R.id.section_play)
             return
         }
         val u = Uri.parse(s)
@@ -456,6 +468,29 @@ class MainActivity : AppCompatActivity() {
     private fun refreshAttuneText() {
         attuneGraph.setSnapshots(store.getAll())
         updateAttuneGraphDetail()
+        updateAttunesIntroCardVisibility()
+    }
+
+    private fun localDateYmdUs(): String {
+        val c = java.util.Calendar.getInstance()
+        return String.format(
+            java.util.Locale.US,
+            "%04d-%02d-%02d",
+            c.get(java.util.Calendar.YEAR),
+            c.get(java.util.Calendar.MONTH) + 1,
+            c.get(java.util.Calendar.DAY_OF_MONTH),
+        )
+    }
+
+    private fun hasAttuneRowForLocalToday(): Boolean {
+        val today = localDateYmdUs()
+        return store.getAll().any { it.date == today }
+    }
+
+    private fun updateAttunesIntroCardVisibility() {
+        val intro = findViewById<MaterialCardView>(R.id.card_attunes_intro)
+        intro.visibility = if (hasAttuneRowForLocalToday()) View.GONE else View.VISIBLE
+        findViewById<MaterialCardView>(R.id.card_attunes_graph).requestLayout()
     }
 
     private fun importFromField() {
@@ -694,6 +729,9 @@ class MainActivity : AppCompatActivity() {
     private fun createAddonCard(entry: AddonInstall.Entry): View {
         val selected = selectedAddonEntry?.id == entry.id
         val card = MaterialCardView(this)
+        card.useCompatPadding = false
+        val cPad = dp(1)
+        card.setContentPadding(cPad, cPad, cPad, cPad)
         card.radius = resources.getDimension(R.dimen.corner_card_list)
         card.cardElevation = resources.getDimension(R.dimen.elevation_list_card)
         card.strokeWidth = dp(if (selected) 2 else 1)
@@ -706,18 +744,21 @@ class MainActivity : AppCompatActivity() {
             renderAddonCatalog()
         }
 
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.setPadding(dp(10), dp(8), dp(8), dp(8))
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.VERTICAL
+        root.setPadding(dp(6), dp(2), dp(6), dp(2))
+
+        val topRow = LinearLayout(this)
+        topRow.orientation = LinearLayout.HORIZONTAL
 
         val icon = ImageView(this)
         icon.setImageResource(R.drawable.ic_addon_plugin)
-        icon.setPadding(0, 0, dp(10), 0)
+        icon.setPadding(0, 0, dp(6), 0)
         icon.contentDescription = entry.name
         icon.imageTintList = ColorStateList.valueOf(getColor(R.color.ahc_accent))
-        row.addView(
+        topRow.addView(
             icon,
-            LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+            LinearLayout.LayoutParams(dp(40), dp(40)).apply {
                 gravity = android.view.Gravity.TOP
             }
         )
@@ -725,26 +766,26 @@ class MainActivity : AppCompatActivity() {
         val body = LinearLayout(this)
         body.orientation = LinearLayout.VERTICAL
         val bodyLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        bodyLp.marginEnd = dp(6)
-        val titleRow = LinearLayout(this)
-        titleRow.orientation = LinearLayout.HORIZONTAL
         val nameTv = textView(entry.name, 15.5f, R.color.ahc_text, true)
-        nameTv.ellipsize = android.text.TextUtils.TruncateAt.END
-        nameTv.maxLines = 1
-        nameTv.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        titleRow.addView(nameTv)
+        nameTv.maxLines = 6
+        nameTv.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        )
+        body.addView(nameTv)
         if (entry.version.isNotBlank()) {
-            val v = textView("v" + entry.version, 12f, R.color.ahc_text_muted)
-            v.setPadding(dp(4), 0, 0, 0)
-            titleRow.addView(v)
+            body.addView(
+                textView("v" + entry.version, 12f, R.color.ahc_text_muted).apply {
+                    setPadding(0, dp(1), 0, 0)
+                }
+            )
         }
-        body.addView(titleRow)
         val cat = displayCategory(entry)
         if (cat.isNotBlank()) {
             body.addView(
                 textView(cat, 11.5f, R.color.ahc_text_muted).apply {
-                    setPadding(0, dp(2), 0, 0)
-                    maxLines = 1
+                    setPadding(0, dp(1), 0, 0)
+                    maxLines = 3
                 }
             )
         }
@@ -754,15 +795,16 @@ class MainActivity : AppCompatActivity() {
                 13.5f,
                 R.color.ahc_text,
             ).apply {
-                setPadding(0, dp(4), 0, 0)
-                maxLines = 2
-                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(2), 0, 0)
+                maxLines = 8
             }
         )
-        row.addView(body, bodyLp)
+        topRow.addView(body, bodyLp)
+        root.addView(topRow)
 
-        val actions = LinearLayout(this)
-        actions.orientation = LinearLayout.VERTICAL
+        val actionRow = LinearLayout(this)
+        actionRow.orientation = LinearLayout.HORIZONTAL
+        actionRow.gravity = android.view.Gravity.END
         val installBtn = MaterialButton(
             this,
             null,
@@ -777,7 +819,7 @@ class MainActivity : AppCompatActivity() {
         installBtn.setTextColor(getColor(R.color.ahc_accent))
         installBtn.isEnabled = !addonInstalling
         installBtn.setOnClickListener { installAddon(entry) }
-        actions.addView(installBtn)
+        actionRow.addView(installBtn)
         if (entry.installUrl.isNotBlank() && (entry.installUrl.startsWith("http://", true) || entry.installUrl.startsWith("https://", true))) {
             val copyBtn = MaterialButton(this, null, AppCompatR.attr.borderlessButtonStyle)
             copyBtn.text = getString(R.string.addon_copy_link)
@@ -787,21 +829,21 @@ class MainActivity : AppCompatActivity() {
             copyBtn.setTextSize(12f)
             copyBtn.setOnClickListener { copyAddonUrl(entry.installUrl) }
             val lp2 = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp2.topMargin = dp(2)
+            lp2.marginStart = dp(4)
             copyBtn.layoutParams = lp2
-            actions.addView(copyBtn)
+            actionRow.addView(copyBtn)
         }
-        val actionLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        actionLp.gravity = android.view.Gravity.CENTER_VERTICAL
-        row.addView(actions, actionLp)
+        val arLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        arLp.topMargin = dp(0)
+        root.addView(actionRow, arLp)
 
-        card.addView(row)
+        card.addView(root)
         return card.apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).apply {
-                topMargin = dp(6)
+                topMargin = 0
             }
         }
     }
@@ -814,8 +856,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun installAddon(entry: AddonInstall.Entry) {
         val s = store.synastriaTreeUri() ?: run {
-            Toast.makeText(this, "Choose Synastria folder first (write access for AddOns).", Toast.LENGTH_LONG).show()
-            showSection(R.id.section_attunes)
+            Toast.makeText(this, "Choose Synastria folder first (Play → Library).", Toast.LENGTH_LONG).show()
+            showSection(R.id.section_play)
             return
         }
         val u = Uri.parse(s)
