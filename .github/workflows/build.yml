@@ -1,5 +1,10 @@
 # One workflow, one matrix build, and (on version tags) a published GitHub Release.
 # Pushes/PRs only upload workflow artifacts; they do not create a Release. Push tag v* to release.
+#
+# Note: The GitHub Actions UI and workflow artifacts list do not show embedded app icons
+# (generic zip/file icons). The Windows .exe and Linux AppImage still carry their icons
+# (Explorer, desktop, file manager) after you download and extract; tag releases also attach
+# a PNG of the app icon for a visible brand asset on the Release page.
 name: build
 
 on:
@@ -115,7 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libfuse2 librsvg2-bin
+          sudo apt-get install -y --no-install-recommends libfuse2 librsvg2-bin imagemagick
           cd "$GITHUB_WORKSPACE"
           bash "$GITHUB_WORKSPACE/packaging/appimage/build-appimage.sh"
           shopt -s nullglob
@@ -154,6 +159,13 @@ jobs:
         with:
           path: release-assets
 
+      - name: Stage app icon for Release page
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -f "$GITHUB_WORKSPACE/images/green_ahc_logo.png" \
+            "$GITHUB_WORKSPACE/AttuneHelperCompanion-app-icon.png"
+
       - name: Choose Android release APK
         shell: bash
         run: |
@@ -179,6 +191,7 @@ jobs:
             release-assets/attune_helper_companion_windows/attune_helper_companion.exe
             release-assets/attune_helper_companion_linux/AttuneHelperCompanion-Linux-x86_64.AppImage
             release-assets/attune_helper_companion_android/AttuneHelperCompanion-android.apk
+            AttuneHelperCompanion-app-icon.png
           fail_on_unmatched_files: true
           draft: false
           prerelease: false
