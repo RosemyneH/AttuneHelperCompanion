@@ -26,6 +26,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.R as AppCompatR
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.attunehelper.companion.addon.AddonInstall
@@ -36,10 +37,11 @@ import com.attunehelper.companion.saf.SynastriaFolder
 import com.attunehelper.companion.sync.AttuneSyncCodec
 import com.attunehelper.companion.util.QrBitmaps
 import com.attunehelper.companion.util.WinlatorIntents
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.navigationrail.NavigationRailView
+import com.google.android.material.textfield.TextInputEditText
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanIntentResult
 import kotlinx.coroutines.Dispatchers
@@ -95,7 +97,7 @@ class MainActivity : AppCompatActivity() {
         configureNfcSection()
         CredentialsStore.isStubAvailable()
 
-        setupBottomNavigation()
+        setupNavigationRail()
         setupAddonSearch()
         findViewById<MaterialButton>(R.id.btn_open_winlator).setOnClickListener {
             startActivity(
@@ -112,7 +114,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_copy_code).setOnClickListener { copyField() }
         findViewById<MaterialButton>(R.id.btn_qr_today).setOnClickListener { showTodayQr() }
         findViewById<MaterialButton>(R.id.btn_scan_qr).setOnClickListener { onScanQrClicked() }
-        findViewById<MaterialButton>(R.id.btn_install_addon).setOnClickListener { installSelectedAddon() }
         findViewById<MaterialButton>(R.id.btn_play_winlator).setOnClickListener { openWinlator() }
         findViewById<MaterialButton>(R.id.btn_nfc_prepare).setOnClickListener { prepareNfcPush() }
 
@@ -122,8 +123,8 @@ class MainActivity : AppCompatActivity() {
         loadAddonCatalog()
     }
 
-    private fun setupBottomNavigation() {
-        findViewById<BottomNavigationView>(R.id.bottom_navigation).setOnItemSelectedListener { item ->
+    private fun setupNavigationRail() {
+        findViewById<NavigationRailView>(R.id.navigation_rail).setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_menu_catalog -> {
                     showSection(R.id.section_catalog)
@@ -156,6 +157,9 @@ class MainActivity : AppCompatActivity() {
         for (id in sections) {
             findViewById<View>(id).visibility = if (id == sectionId) View.VISIBLE else View.GONE
         }
+        if (sectionId != R.id.section_sync) {
+            findViewById<ImageView>(R.id.image_qr).setImageDrawable(null)
+        }
         val menuId = when (sectionId) {
             R.id.section_catalog -> R.id.nav_menu_catalog
             R.id.section_sync -> R.id.nav_menu_sync
@@ -163,9 +167,9 @@ class MainActivity : AppCompatActivity() {
             R.id.section_play -> R.id.nav_menu_play
             else -> R.id.nav_menu_catalog
         }
-        val bottomNav = findViewById<BottomNavigationView>(R.id.bottom_navigation)
-        if (bottomNav.selectedItemId != menuId) {
-            bottomNav.selectedItemId = menuId
+        val rail = findViewById<NavigationRailView>(R.id.navigation_rail)
+        if (rail.selectedItemId != menuId) {
+            rail.selectedItemId = menuId
         }
         findViewById<ScrollView>(R.id.main_scroll).post {
             findViewById<ScrollView>(R.id.main_scroll).smoothScrollTo(0, 0)
@@ -173,7 +177,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupAddonSearch() {
-        findViewById<EditText>(R.id.edit_addon_search).addTextChangedListener(
+        findViewById<TextInputEditText>(R.id.edit_addon_search).addTextChangedListener(
             object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -422,8 +426,10 @@ class MainActivity : AppCompatActivity() {
         val last = all.maxByOrNull { it.date }!!
         val token = AttuneSyncCodec.encodeOneDayQr(last)
         val iv = findViewById<ImageView>(R.id.image_qr)
-        val bmp = QrBitmaps.fromText(token, 720)
+        iv.setImageDrawable(null)
+        val bmp = QrBitmaps.fromText(token, 512)
         iv.setImageBitmap(bmp)
+        iv.setMaxHeight(dp(360))
         Toast.makeText(this, "QR encodes the latest day only: ${last.date}.", Toast.LENGTH_LONG).show()
     }
 
@@ -442,7 +448,6 @@ class MainActivity : AppCompatActivity() {
             selectedAddonEntry = list.firstOrNull()
             renderCategoryFilters()
             renderAddonCatalog()
-            updateSelectedAddonPanel()
         }
     }
 
@@ -466,8 +471,8 @@ class MainActivity : AppCompatActivity() {
         for (category in allCategories) {
             val button = MaterialButton(this)
             button.text = if (category.isEmpty()) getString(R.string.catalog_all) else category
-            button.minHeight = dp(44)
-            button.cornerRadius = dp(18)
+            button.minHeight = dp(36)
+            button.cornerRadius = dp(10)
             button.isAllCaps = false
             button.backgroundTintList = ColorStateList.valueOf(
                 getColor(if (selectedAddonCategory == category) R.color.ahc_accent else R.color.ahc_surface_variant)
@@ -505,12 +510,11 @@ class MainActivity : AppCompatActivity() {
         }
         if (selectedAddonEntry != null && selectedAddonEntry !in addonEntries) {
             selectedAddonEntry = filtered.firstOrNull()
-            updateSelectedAddonPanel()
         }
     }
 
     private fun filteredAddonEntries(): List<AddonInstall.Entry> {
-        val query = findViewById<EditText>(R.id.edit_addon_search).text?.toString()?.trim()?.lowercase().orEmpty()
+        val query = findViewById<TextInputEditText>(R.id.edit_addon_search).text?.toString()?.trim()?.lowercase().orEmpty()
         return addonEntries.filter { entry ->
             val categoryMatch = selectedAddonCategory.isEmpty() ||
                 entry.category.equals(selectedAddonCategory, ignoreCase = true) ||
@@ -532,8 +536,8 @@ class MainActivity : AppCompatActivity() {
     private fun createAddonCard(entry: AddonInstall.Entry): View {
         val selected = selectedAddonEntry?.id == entry.id
         val card = MaterialCardView(this)
-        card.radius = resources.getDimension(R.dimen.corner_card)
-        card.cardElevation = resources.getDimension(R.dimen.elevation_card)
+        card.radius = resources.getDimension(R.dimen.corner_card_list)
+        card.cardElevation = resources.getDimension(R.dimen.elevation_list_card)
         card.strokeWidth = dp(if (selected) 2 else 1)
         card.strokeColor = getColor(if (selected) R.color.ahc_accent else R.color.ahc_outline)
         card.setCardBackgroundColor(getColor(if (selected) R.color.ahc_surface_high else R.color.ahc_surface))
@@ -541,55 +545,97 @@ class MainActivity : AppCompatActivity() {
         card.isFocusable = true
         card.setOnClickListener {
             selectedAddonEntry = entry
-            updateSelectedAddonPanel()
             renderAddonCatalog()
         }
 
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
-        row.setPadding(dp(18), dp(16), dp(18), dp(16))
+        row.setPadding(dp(10), dp(8), dp(8), dp(8))
 
         val icon = ImageView(this)
         icon.setImageResource(R.drawable.ic_addon_plugin)
-        icon.setPadding(0, 0, dp(14), 0)
+        icon.setPadding(0, 0, dp(10), 0)
         icon.contentDescription = entry.name
         icon.imageTintList = ColorStateList.valueOf(getColor(R.color.ahc_accent))
         row.addView(
             icon,
-            LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+            LinearLayout.LayoutParams(dp(44), dp(44)).apply {
                 gravity = android.view.Gravity.TOP
             }
         )
 
         val body = LinearLayout(this)
         body.orientation = LinearLayout.VERTICAL
-        val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        body.addView(textView(entry.name, 18f, R.color.ahc_text, true))
-        body.addView(
-            textView(
-                getString(
-                    R.string.addon_meta_line,
-                    displayAuthor(entry),
-                    displaySource(entry),
-                    displayCategory(entry),
-                ),
-                12.5f,
-                R.color.ahc_accent,
-            ).apply {
-                setPadding(0, dp(4), 0, 0)
-            }
-        )
+        val bodyLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        bodyLp.marginEnd = dp(6)
+        val titleRow = LinearLayout(this)
+        titleRow.orientation = LinearLayout.HORIZONTAL
+        val nameTv = textView(entry.name, 15.5f, R.color.ahc_text, true)
+        nameTv.ellipsize = android.text.TextUtils.TruncateAt.END
+        nameTv.maxLines = 1
+        nameTv.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        titleRow.addView(nameTv)
+        if (entry.version.isNotBlank()) {
+            val v = textView("v" + entry.version, 12f, R.color.ahc_text_muted)
+            v.setPadding(dp(4), 0, 0, 0)
+            titleRow.addView(v)
+        }
+        body.addView(titleRow)
+        val cat = displayCategory(entry)
+        if (cat.isNotBlank()) {
+            body.addView(
+                textView(cat, 11.5f, R.color.ahc_text_muted).apply {
+                    setPadding(0, dp(2), 0, 0)
+                    maxLines = 1
+                }
+            )
+        }
         body.addView(
             textView(
                 entry.description.ifBlank { getString(R.string.addon_description_empty) },
-                14f,
-                R.color.ahc_text_muted,
+                13.5f,
+                R.color.ahc_text,
             ).apply {
-                maxLines = 3
-                setPadding(0, dp(6), 0, 0)
+                setPadding(0, dp(4), 0, 0)
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
             }
         )
-        row.addView(body, lp)
+        row.addView(body, bodyLp)
+
+        val actions = LinearLayout(this)
+        actions.orientation = LinearLayout.VERTICAL
+        val installBtn = MaterialButton(
+            this,
+            null,
+            com.google.android.material.R.attr.materialButtonOutlinedStyle,
+        )
+        installBtn.text = getString(R.string.addon_install)
+        installBtn.isAllCaps = false
+        installBtn.minWidth = 0
+        installBtn.minHeight = dp(40)
+        installBtn.setPadding(dp(8), 0, dp(8), 0)
+        installBtn.strokeColor = ColorStateList.valueOf(getColor(R.color.ahc_accent))
+        installBtn.setTextColor(getColor(R.color.ahc_accent))
+        installBtn.isEnabled = !addonInstalling
+        installBtn.setOnClickListener { installAddon(entry) }
+        actions.addView(installBtn)
+        if (entry.installUrl.isNotBlank() && (entry.installUrl.startsWith("http://", true) || entry.installUrl.startsWith("https://", true))) {
+            val copyBtn = MaterialButton(this, null, AppCompatR.attr.borderlessButtonStyle)
+            copyBtn.text = getString(R.string.addon_copy_link)
+            copyBtn.isAllCaps = false
+            copyBtn.minHeight = dp(36)
+            copyBtn.setTextColor(getColor(R.color.ahc_text_muted))
+            copyBtn.setTextSize(12f)
+            copyBtn.setOnClickListener { copyAddonUrl(entry.installUrl) }
+            val lp2 = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp2.topMargin = dp(2)
+            copyBtn.layoutParams = lp2
+            actions.addView(copyBtn)
+        }
+        val actionLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        actionLp.gravity = android.view.Gravity.CENTER_VERTICAL
+        row.addView(actions, actionLp)
 
         card.addView(row)
         return card.apply {
@@ -597,46 +643,18 @@ class MainActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).apply {
-                topMargin = dp(10)
+                topMargin = dp(6)
             }
         }
     }
 
-    private fun displaySource(entry: AddonInstall.Entry): String {
-        return entry.source.ifBlank { getString(R.string.addon_source_unknown) }
+    private fun copyAddonUrl(url: String) {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("add-on", url))
+        Toast.makeText(this, R.string.addon_copied_link, Toast.LENGTH_SHORT).show()
     }
 
-    private fun updateSelectedAddonPanel() {
-        val entry = selectedAddonEntry
-        val button = findViewById<MaterialButton>(R.id.btn_install_addon)
-        val name = findViewById<TextView>(R.id.text_addon_selected_name)
-        val meta = findViewById<TextView>(R.id.text_addon_selected_meta)
-        val description = findViewById<TextView>(R.id.text_addon_selected_description)
-        if (entry == null) {
-            name.setText(R.string.catalog_install_ready)
-            meta.text = ""
-            description.text = ""
-            button.isEnabled = false
-            return
-        }
-        name.text = getString(R.string.catalog_selected, entry.name)
-        val version = if (entry.version.isBlank()) "" else " - " + getString(R.string.addon_version, entry.version)
-        meta.text = getString(
-            R.string.addon_meta_line,
-            displayAuthor(entry),
-            displaySource(entry),
-            displayCategory(entry),
-        ) + version + "\n" + getString(R.string.addon_folder, entry.folder)
-        description.text = entry.description.ifBlank { getString(R.string.addon_description_empty) }
-        button.isEnabled = !addonInstalling
-    }
-
-    private fun installSelectedAddon() {
-        val e = selectedAddonEntry
-        if (e == null) {
-            Toast.makeText(this, R.string.catalog_pick_first, Toast.LENGTH_LONG).show()
-            return
-        }
+    private fun installAddon(entry: AddonInstall.Entry) {
         val s = store.synastriaTreeUri() ?: run {
             Toast.makeText(this, "Choose Synastria folder first (write access for AddOns).", Toast.LENGTH_LONG).show()
             showSection(R.id.section_sync)
@@ -644,15 +662,15 @@ class MainActivity : AppCompatActivity() {
         }
         val u = Uri.parse(s)
         val status = findViewById<TextView>(R.id.text_addon_status)
-        val button = findViewById<MaterialButton>(R.id.btn_install_addon)
+        selectedAddonEntry = entry
         addonInstalling = true
-        button.isEnabled = false
+        status.visibility = View.VISIBLE
         status.setTextColor(getColor(R.color.ahc_accent))
-        status.text = getString(R.string.catalog_installing, e.name)
+        status.text = getString(R.string.catalog_installing, entry.name)
+        renderAddonCatalog()
         lifecycleScope.launch {
-            val r = withContext(Dispatchers.IO) { AddonInstall.installAddon(this@MainActivity, u, e) }
+            val r = withContext(Dispatchers.IO) { AddonInstall.installAddon(this@MainActivity, u, entry) }
             addonInstalling = false
-            button.isEnabled = true
             if (r.isSuccess) {
                 status.setTextColor(getColor(R.color.ahc_success))
                 status.text = r.getOrNull()
@@ -663,6 +681,7 @@ class MainActivity : AppCompatActivity() {
                 status.text = message
                 Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
             }
+            renderAddonCatalog()
         }
     }
 

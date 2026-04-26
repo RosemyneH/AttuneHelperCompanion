@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">Attune Helper</string>
-    <string name="home_title">Attune Helper</string>
     <string name="bottom_catalog">Catalog</string>
     <string name="bottom_sync">Sync</string>
     <string name="bottom_transfer">Transfer</string>
@@ -47,6 +46,9 @@
     <string name="section_addons">Synastria AddOns (zip from GitHub)</string>
     <string name="section_addons_help">Pick an addon, then install. Needs the Synastria folder with write access. GitHub “main” or “master” zip is used; some repos need a different branch in a future version.</string>
     <string name="download_install">Download &amp; install to Interface/AddOns</string>
+    <string name="addon_install">Install</string>
+    <string name="addon_copy_link">Copy link</string>
+    <string name="addon_copied_link">Link copied</string>
     <string name="section_play">Play (Winlator)</string>
     <string name="section_play_help">Opens the mainline Winlator app if it is installed. The game and Windows companion run inside Winlator; this Android screen only helps files and history on the host.</string>
     <string name="open_winlator">Open Winlator</string>

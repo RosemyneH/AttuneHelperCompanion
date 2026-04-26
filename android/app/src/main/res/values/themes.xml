@@ -61,4 +61,15 @@
     <style name="Widget.Ahc.BottomNav.ActiveIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
         <item name="android:color">@color/ahc_surface_variant</item>
     </style>
+
+    <style name="Widget.Ahc.Rail.ActiveIndicator" parent="Widget.Material3.NavigationRailView.ActiveIndicator">
+        <item name="android:color">@color/ahc_surface_variant</item>
+    </style>
+
+    <style name="Widget.Ahc.TextField" parent="Widget.Material3.TextInputLayout.OutlinedBox.Dense">
+        <item name="boxStrokeColor">@color/ahc_textinput_stroke</item>
+        <item name="boxStrokeWidth">1dp</item>
+        <item name="boxStrokeWidthFocused">1dp</item>
+        <item name="hintTextColor">@color/ahc_text_muted</item>
+    </style>
 </resources>

@@ -4,48 +4,38 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/ahc_bg"
-    android:orientation="vertical">
+    android:orientation="horizontal">
+
+    <com.google.android.material.navigationrail.NavigationRailView
+        android:id="@+id/navigation_rail"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:background="@color/ahc_surface"
+        android:minWidth="72dp"
+        android:paddingTop="@dimen/space_sm"
+        app:itemActiveIndicatorStyle="@style/Widget.Ahc.Rail.ActiveIndicator"
+        app:itemIconSize="24dp"
+        app:itemIconTint="@color/bottom_nav_item_tint"
+        app:itemTextColor="@color/bottom_nav_item_tint"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/bottom_nav_menu" />
 
     <ScrollView
         android:id="@+id/main_scroll"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
         android:layout_weight="1"
         android:clipToPadding="false"
         android:fillViewport="true"
-        android:paddingStart="@dimen/content_padding_horizontal"
-        android:paddingEnd="@dimen/content_padding_horizontal">
+        android:paddingStart="@dimen/content_padding_compact"
+        android:paddingEnd="@dimen/content_padding_compact">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingTop="@dimen/space_lg"
+            android:paddingTop="@dimen/space_sm"
             android:paddingBottom="@dimen/space_lg">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingTop="@dimen/space_sm"
-                android:paddingBottom="@dimen/space_xs">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/home_title"
-                    android:textAppearance="?attr/textAppearanceTitleLarge"
-                    android:textColor="@color/ahc_text" />
-
-                <TextView
-                    android:id="@+id/text_tree_badge"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_xs"
-                    android:text="@string/no_tree_yet"
-                    android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="@color/ahc_text_muted" />
-            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/section_catalog"
@@ -53,142 +43,86 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <com.google.android.material.card.MaterialCardView
-                    style="@style/Widget.Ahc.Card"
+                <TextView
+                    android:id="@+id/text_tree_badge"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_md"
-                    app:cardUseCompatPadding="true">
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:text="@string/tree_missing_short"
+                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                    android:textColor="@color/ahc_text_muted" />
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="@dimen/space_lg">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/section_catalog"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"
-                            android:textColor="@color/ahc_text" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_xs"
-                            android:text="@string/section_catalog_help"
-                            android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/ahc_text_muted" />
-
-                        <EditText
-                            android:id="@+id/edit_addon_search"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_md"
-                            android:backgroundTint="@color/ahc_outline"
-                            android:hint="@string/catalog_search_hint"
-                            android:importantForAutofill="no"
-                            android:inputType="text|textNoSuggestions"
-                            android:minHeight="48dp"
-                            android:singleLine="true"
-                            android:textColor="@color/ahc_text"
-                            android:textColorHint="@color/ahc_text_muted" />
-
-                        <HorizontalScrollView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_sm"
-                            android:scrollbars="none">
-
-                            <LinearLayout
-                                android:id="@+id/layout_category_filters"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:orientation="horizontal" />
-                        </HorizontalScrollView>
-
-                        <TextView
-                            android:id="@+id/text_catalog_count"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_md"
-                            android:textAppearance="?attr/textAppearanceLabelLarge"
-                            android:textColor="@color/ahc_accent" />
-
-                        <LinearLayout
-                            android:id="@+id/layout_addon_catalog"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_sm"
-                            android:orientation="vertical" />
-
-                        <TextView
-                            android:id="@+id/text_addon_empty"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_md"
-                            android:text="@string/catalog_empty"
-                            android:textAppearance="?attr/textAppearanceBodyMedium"
-                            android:textColor="@color/ahc_text_muted"
-                            android:visibility="gone" />
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-
-                <com.google.android.material.card.MaterialCardView
-                    style="@style/Widget.Ahc.Card.Highlight"
+                <HorizontalScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_md"
-                    app:cardUseCompatPadding="true">
+                    android:layout_marginTop="@dimen/space_sm"
+                    android:scrollbars="none">
 
                     <LinearLayout
+                        android:id="@+id/layout_category_filters"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Ahc.TextField"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_sm"
+                    app:expandedHintEnabled="true"
+                    app:hint="@string/catalog_search_hint"
+                    app:hintTextColor="@color/ahc_text_muted"
+                    app:startIconDrawable="@drawable/ic_search_24"
+                    app:startIconMinSize="24dp"
+                    app:startIconTint="@color/ahc_text_muted">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/edit_addon_search"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="@dimen/space_lg">
+                        android:importantForAutofill="no"
+                        android:inputType="text|textNoSuggestions"
+                        android:minHeight="44dp"
+                        android:singleLine="true"
+                        android:textColor="@color/ahc_text"
+                        android:textColorHint="@color/ahc_text_muted" />
+                </com.google.android.material.textfield.TextInputLayout>
 
-                        <TextView
-                            android:id="@+id/text_addon_selected_name"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/catalog_install_ready"
-                            android:textAppearance="?attr/textAppearanceTitleMedium"
-                            android:textColor="@color/ahc_text" />
+                <TextView
+                    android:id="@+id/text_catalog_count"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="@color/ahc_text_muted" />
 
-                        <TextView
-                            android:id="@+id/text_addon_selected_meta"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_xs"
-                            android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/ahc_text_muted" />
+                <TextView
+                    android:id="@+id/text_addon_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:visibility="gone"
+                    android:textAppearance="?attr/textAppearanceBodySmall" />
 
-                        <TextView
-                            android:id="@+id/text_addon_selected_description"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_sm"
-                            android:textAppearance="?attr/textAppearanceBodyMedium"
-                            android:textColor="@color/ahc_text_muted" />
+                <LinearLayout
+                    android:id="@+id/layout_addon_catalog"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_sm"
+                    android:orientation="vertical" />
 
-                        <TextView
-                            android:id="@+id/text_addon_status"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_sm"
-                            android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/ahc_success" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_install_addon"
-                            style="@style/Widget.Ahc.Button"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_md"
-                            android:text="@string/download_install" />
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
+                <TextView
+                    android:id="@+id/text_addon_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_sm"
+                    android:gravity="center"
+                    android:text="@string/catalog_empty"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="@color/ahc_text_muted"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <LinearLayout
@@ -202,14 +136,13 @@
                     style="@style/Widget.Ahc.Card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_md"
                     app:cardUseCompatPadding="true">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="@dimen/space_lg">
+                        android:padding="@dimen/space_md">
 
                         <TextView
                             android:layout_width="match_parent"
@@ -257,14 +190,14 @@
                     style="@style/Widget.Ahc.Card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_md"
+                    android:layout_marginTop="@dimen/space_sm"
                     app:cardUseCompatPadding="true">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="@dimen/space_lg">
+                        android:padding="@dimen/space_md">
 
                         <TextView
                             android:layout_width="match_parent"
@@ -288,14 +221,14 @@
                     style="@style/Widget.Ahc.Card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_md"
+                    android:layout_marginTop="@dimen/space_sm"
                     app:cardUseCompatPadding="true">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="@dimen/space_lg">
+                        android:padding="@dimen/space_md">
 
                         <TextView
                             android:layout_width="match_parent"
@@ -389,14 +322,13 @@
                     style="@style/Widget.Ahc.Card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_md"
                     app:cardUseCompatPadding="true">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="@dimen/space_lg">
+                        android:padding="@dimen/space_md">
 
                         <TextView
                             android:layout_width="match_parent"
@@ -443,14 +375,13 @@
                     style="@style/Widget.Ahc.Card"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_md"
                     app:cardUseCompatPadding="true">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="@dimen/space_lg">
+                        android:padding="@dimen/space_md">
 
                         <TextView
                             android:layout_width="match_parent"
@@ -495,16 +426,4 @@
             </LinearLayout>
         </LinearLayout>
     </ScrollView>
-
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/bottom_navigation"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/ahc_surface"
-        app:itemActiveIndicatorStyle="@style/Widget.Ahc.BottomNav.ActiveIndicator"
-        app:itemIconSize="26dp"
-        app:itemIconTint="@color/bottom_nav_item_tint"
-        app:itemTextColor="@color/bottom_nav_item_tint"
-        app:labelVisibilityMode="labeled"
-        app:menu="@menu/bottom_nav_menu" />
 </LinearLayout>
