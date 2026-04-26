@@ -8,6 +8,12 @@ Use a Release build of `attune_helper_companion.exe` from `build/` or a GitHub A
 - Launching the app should open only the companion window, without a debug console.
 - The app should remember or detect the Synastria folder path.
 - The Play Game button should stay visible and usable.
+- With **AwesomeWotLK autologin** off, launch should behave as before (**WoWExt.exe**; ShellExecute/CreateProcess on Windows, Wine/Proton on Linux).
+- With autologin **on**, after **Save autologin**, **Play Game** should start **Wow.exe** (not WoWExt) with `-login` / `-password` / `-realmname` (plus any validated **Launch parameters** as extras). If the password was not stored, **Play Game** should stay disabled and launch should show a clear message, not fail silently.
+
+## Autologin and security (manual)
+- The password is **not** written to `settings.ini`. On Windows it is stored with **DPAPI** in `wow_autologin.cred` under the app config directory; on Linux a **0600** file is used. **Clear companion data** should remove that credential file for the current profile. Anyone with access to the machine or a backup of that file may be able to recover stored credentials (DPAPI is tied to the Windows user), so use a **unique game password** and do not hand an untrusted person your user session. The password field in the app is **cleared from the UI buffer after a successful save**; a short time in process memory is still required to launch. **Android** in this repository is a **NDK/JNI placeholder** only until a Keystore-backed path exists; see [android-winlator.md](android-winlator.md) and [threat-model.md](threat-model.md).
+- On Linux with Wine, keep **Launch parameters** free of trick `-login` / `-password` tokens when autologin is on; the app rejects such patterns in the extra field.
 
 ## Addons
 - The Addons tab should stay responsive while scrolling and filtering.

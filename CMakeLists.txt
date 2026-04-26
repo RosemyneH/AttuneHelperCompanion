@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(AttuneHelperCompanion VERSION 0.1.0 LANGUAGES C)
+project(AttuneHelperCompanion VERSION 0.2.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -11,6 +11,7 @@ find_package(Threads REQUIRED)
 option(AHC_BUILD_APP "Build the native companion application" ON)
 option(AHC_BUILD_TESTS "Build tests" ON)
 option(AHC_BUILD_BENCH "Build parse benchmark tool" ON)
+option(AHC_BUILD_ANDROID "Build Android NDK target (separate from desktop app; experimental)" OFF)
 option(AHC_ENABLE_MASM "Use MASM ahc_memchr on MSVC x64 (else C memchr)" OFF)
 set(AHC_OPT_PROFILE "default" CACHE STRING "Optimization profile: default, release, lto, pgo_instrument, sanitize")
 set_property(CACHE AHC_OPT_PROFILE PROPERTY STRINGS default release lto pgo_instrument sanitize)
@@ -58,8 +59,12 @@ add_library(ahc_core
     src/ahc/ahc_arena.c
     src/ahc/ahc_mem_telemetry.c
     src/ahc/ahc_find_literal.c
+    src/ahc/ahc_wow_autologin.c
     ${AHC_MEMCHR_SRC}
 )
+if(WIN32)
+    target_sources(ahc_core PRIVATE src/ahc/ahc_wow_autologin_win.c)
+endif()
 
 target_include_directories(ahc_core
     PUBLIC
@@ -138,6 +143,7 @@ if(AHC_BUILD_APP)
         apps/companion/main.c
         apps/companion/ahc_tray.c
         apps/companion/ahc_process.c
+        apps/companion/ahc_credentials.c
     )
     if(WIN32)
         set_target_properties(attune_helper_companion PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -162,7 +168,7 @@ if(AHC_BUILD_APP)
             Threads::Threads
     )
     if(WIN32)
-        target_link_libraries(attune_helper_companion PRIVATE shell32 user32)
+        target_link_libraries(attune_helper_companion PRIVATE shell32 user32 crypt32)
     endif()
 
     add_custom_command(TARGET attune_helper_companion POST_BUILD
@@ -204,6 +210,9 @@ if(AHC_BUILD_TESTS)
     add_executable(ahc_find_literal_test
         tests/ahc_find_literal_test.c
     )
+    add_executable(ahc_wow_autologin_test
+        tests/ahc_wow_autologin_test.c
+    )
 
     target_link_libraries(attune_snapshot_test
         PRIVATE
@@ -218,6 +227,10 @@ if(AHC_BUILD_TESTS)
             ahc_core
     )
     target_link_libraries(ahc_find_literal_test
+        PRIVATE
+            ahc_core
+    )
+    target_link_libraries(ahc_wow_autologin_test
         PRIVATE
             ahc_core
     )
@@ -236,11 +249,13 @@ if(AHC_BUILD_TESTS)
         target_compile_options(addon_manifest_test PRIVATE /W4)
         target_compile_options(ahc_arena_test PRIVATE /W4)
         target_compile_options(ahc_find_literal_test PRIVATE /W4)
+        target_compile_options(ahc_wow_autologin_test PRIVATE /W4)
     else()
         target_compile_options(attune_snapshot_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(addon_manifest_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_arena_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_find_literal_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(ahc_wow_autologin_test PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     if(AHC_OPT_PROFILE STREQUAL "sanitize" AND NOT MSVC)
@@ -252,10 +267,17 @@ if(AHC_BUILD_TESTS)
         target_link_options(ahc_arena_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(ahc_find_literal_test PRIVATE -fsanitize=address,undefined -g)
         target_link_options(ahc_find_literal_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(ahc_wow_autologin_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(ahc_wow_autologin_test PRIVATE -fsanitize=address,undefined)
     endif()
 
     add_test(NAME attune_snapshot_test COMMAND attune_snapshot_test)
     add_test(NAME addon_manifest_test COMMAND addon_manifest_test)
     add_test(NAME ahc_arena_test COMMAND ahc_arena_test)
     add_test(NAME ahc_find_literal_test COMMAND ahc_find_literal_test)
+    add_test(NAME ahc_wow_autologin_test COMMAND ahc_wow_autologin_test)
+endif()
+
+if(AHC_BUILD_ANDROID)
+    add_subdirectory(android)
 endif()

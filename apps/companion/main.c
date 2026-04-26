@@ -8,7 +8,9 @@
 #include "addons/addon_catalog.h"
 #include "addons/addon_manifest.h"
 #include "attune/attune_snapshot.h"
+#include "ahc/ahc_wow_autologin.h"
 #include "ahc_process.h"
+#include "ahc_credentials.h"
 #include "ahc_tray.h"
 
 #include "raylib.h"
@@ -30,6 +32,7 @@
 #include <time.h>
 
 #if defined(_WIN32)
+#include <wchar.h>
 __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void *hModule, char *lpFilename, unsigned long nSize);
 __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #include <direct.h>
@@ -143,6 +146,14 @@ typedef struct CompanionState {
     bool addon_status_root_valid;
     AddonInstallStatus addon_statuses[AHC_ADDON_STATUS_CACHE_CAPACITY];
     char launch_parameters[256];
+    bool awesome_wotlk_autologin;
+    char autologin_user[AHC_WOW_TRUST_STR_MAX + 1];
+    char autologin_realm[AHC_WOW_TRUST_STR_MAX + 1];
+    char autologin_password_edit[AHC_CREDENTIAL_PASSWORD_MAX];
+    bool autologin_user_editing;
+    bool autologin_realm_editing;
+    bool autologin_password_editing;
+    bool autologin_password_stored;
     char monitor_name[128];
     long snapshot_mod_time;
     double next_snapshot_poll_time;
@@ -428,8 +439,21 @@ static void draw_centered_text(const char *label, Rectangle bounds, int size, Co
 
 static bool draw_wow_button(const char *label, Rectangle bounds, bool active, int text_size)
 {
+#if defined(PLATFORM_ANDROID)
+    Rectangle hit = bounds;
+    if (hit.height < 44.0f) {
+        float pad = 0.5f * (44.0f - hit.height);
+        hit.y -= pad;
+        if (hit.y < 0.0f) {
+            hit.y = 0.0f;
+        }
+        hit.height = 44.0f;
+    }
+#else
+    Rectangle hit = bounds;
+#endif
     Vector2 mouse = GetMousePosition();
-    bool hovered = CheckCollisionPointRec(mouse, bounds);
+    bool hovered = CheckCollisionPointRec(mouse, hit);
     bool pressed = hovered && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
     Color fill = active ? (Color){ 44, 104, 164, 255 } : AHC_PANEL_DARK;
     Color border = active ? AHC_ACCENT : AHC_BORDER;
@@ -455,7 +479,10 @@ static bool draw_wow_button(const char *label, Rectangle bounds, bool active, in
     DrawRectangle((int)bounds.x + 4, (int)bounds.y + 3, (int)bounds.width - 8, 1, top_glint);
     draw_centered_text(label, bounds, text_size, text);
 
-    return hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+    if (!hovered || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        return false;
+    }
+    return true;
 }
 
 static void load_ui_font(void)
@@ -1960,6 +1987,7 @@ static void load_settings(CompanionState *state)
 {
     FILE *file = fopen(state->config_path, "rb");
     if (!file) {
+        state->autologin_password_stored = ahc_credential_wow_password_exists(state->config_dir);
         return;
     }
 
@@ -1975,15 +2003,62 @@ static void load_settings(CompanionState *state)
             if (state->ui_scale_index < 0 || state->ui_scale_index > 3) {
                 state->ui_scale_index = 0;
             }
+        } else if (strncmp(line, "awesome_wotlk_autologin=", 25) == 0) {
+            state->awesome_wotlk_autologin = atoi(line + 25) != 0;
+        } else if (strncmp(line, "autologin_user=", 16) == 0) {
+            snprintf(state->autologin_user, sizeof(state->autologin_user), "%s", line + 16);
+        } else if (strncmp(line, "autologin_realm=", 17) == 0) {
+            snprintf(state->autologin_realm, sizeof(state->autologin_realm), "%s", line + 17);
         }
     }
 
     fclose(file);
+    state->autologin_password_stored = ahc_credential_wow_password_exists(state->config_dir);
+}
+
+static bool ahc_line_contains_ci(const char *hay, const char *needle)
+{
+    if (!hay || !needle) {
+        return false;
+    }
+    for (const char *h = hay; *h; h++) {
+        const char *a = h;
+        const char *b = needle;
+        while (*a && *b) {
+            unsigned char ca = (unsigned char)*a;
+            unsigned char cb = (unsigned char)*b;
+            if (ca >= (unsigned char)'A' && ca <= (unsigned char)'Z') {
+                ca = (unsigned char)(ca - (unsigned char)'A' + (unsigned char)'a');
+            }
+            if (cb >= (unsigned char)'A' && cb <= (unsigned char)'Z') {
+                cb = (unsigned char)(cb - (unsigned char)'A' + (unsigned char)'a');
+            }
+            if (ca != cb) {
+                break;
+            }
+            a++;
+            b++;
+        }
+        if (!*b) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool save_settings(CompanionState *state)
 {
     AHC_MKDIR(state->config_dir);
+    if (state->awesome_wotlk_autologin && state->launch_parameters[0]) {
+        if (ahc_line_contains_ci(state->launch_parameters, "-password")
+            || ahc_line_contains_ci(state->launch_parameters, "-login")) {
+            state->launch_parameters[0] = '\0';
+            set_action_status(
+                state,
+                "Cleared launch parameters: do not use -password or -login here when autologin is on.",
+                "Launch parameters adjusted");
+        }
+    }
 
     FILE *file = fopen(state->config_path, "wb");
     if (!file) {
@@ -1994,6 +2069,9 @@ static bool save_settings(CompanionState *state)
     fprintf(file, "synastria_path=%s\n", state->synastria_path);
     fprintf(file, "launch_parameters=%s\n", state->launch_parameters);
     fprintf(file, "ui_scale=%d\n", state->ui_scale_index);
+    fprintf(file, "awesome_wotlk_autologin=%d\n", state->awesome_wotlk_autologin ? 1 : 0);
+    fprintf(file, "autologin_user=%s\n", state->autologin_user);
+    fprintf(file, "autologin_realm=%s\n", state->autologin_realm);
     fclose(file);
     set_status(state, "Settings saved.");
     return true;
@@ -3000,12 +3078,79 @@ static bool resolve_wowext_path(const CompanionState *state, char *out, size_t o
     return FileExists(out);
 }
 
+static bool resolve_wow_exe_path(const CompanionState *state, char *out, size_t out_capacity)
+{
+    if (!validate_synastria_path(state->synastria_path)) {
+        return false;
+    }
+    path_join(out, out_capacity, state->synastria_path, "Wow.exe");
+    return FileExists(out);
+}
+
+static bool persist_autologin_settings(CompanionState *state)
+{
+    AHC_MKDIR(state->config_dir);
+    if (!state->awesome_wotlk_autologin) {
+        ahc_credential_clear_wow_password(state->config_dir);
+        state->autologin_password_stored = false;
+        state->autologin_password_edit[0] = '\0';
+    } else {
+        char u[AHC_WOW_TRUST_STR_MAX + 1], rlm[AHC_WOW_TRUST_STR_MAX + 1], pwv[AHC_CREDENTIAL_PASSWORD_MAX];
+        const char *r_src = state->autologin_realm[0] ? state->autologin_realm : "AzerothCore";
+        if (!ahc_wow_trust_sanitize_user(state->autologin_user, u, sizeof u) || !ahc_wow_trust_sanitize_realm(r_src, rlm, sizeof rlm)) {
+            set_action_status(
+                state,
+                "Autologin: use a non-empty account and realm (alphanumeric, email, realm spaces allowed).",
+                "Save failed");
+            return false;
+        }
+        snprintf(state->autologin_user, sizeof state->autologin_user, "%s", u);
+        snprintf(state->autologin_realm, sizeof state->autologin_realm, "%s", rlm);
+        if (state->autologin_password_edit[0]) {
+            if (!ahc_wow_trust_password(state->autologin_password_edit, pwv, sizeof pwv)) {
+                set_action_status(state, "Autologin: password has disallowed control characters or is out of range.", "Save failed");
+                return false;
+            }
+            if (!ahc_credential_store_wow_password(state->config_dir, pwv)) {
+                memset(pwv, 0, sizeof pwv);
+                set_action_status(state, "Could not store the password. Check the config folder is writable.", "Save failed");
+                return false;
+            }
+            memset(pwv, 0, sizeof pwv);
+            state->autologin_password_edit[0] = '\0';
+            state->autologin_password_stored = true;
+        }
+    }
+    if (!save_settings(state)) {
+        return false;
+    }
+    if (state->awesome_wotlk_autologin) {
+        state->autologin_password_stored = ahc_credential_wow_password_exists(state->config_dir);
+    }
+    set_action_status(
+        state,
+        "Autologin settings saved. The password is never written to settings.ini; Windows uses DPAPI, Linux uses a 0600 file.",
+        "Autologin saved");
+    return true;
+}
+
 static bool launch_game(CompanionState *state)
 {
-    char wowext_path[AHC_PATH_CAPACITY];
-    if (!resolve_wowext_path(state, wowext_path, sizeof(wowext_path))) {
+    if (!validate_synastria_path(state->synastria_path)) {
         set_action_status(state, "Set a valid Synastria folder before launching.", "Launch blocked");
         return false;
+    }
+
+    if (state->awesome_wotlk_autologin) {
+        if (state->launch_parameters[0]
+            && (ahc_line_contains_ci(state->launch_parameters, "-password")
+                || ahc_line_contains_ci(state->launch_parameters, "-login"))) {
+            set_action_status(
+                state,
+                "Remove -password and -login from launch parameters when autologin is on.",
+                "Launch blocked");
+            return false;
+        }
     }
 
     save_settings(state);
@@ -3013,7 +3158,97 @@ static bool launch_game(CompanionState *state)
         return false;
     }
 
-    set_process_action(state, "Launching Synastria");
+    set_process_action(state, "Launching game");
+
+    if (state->awesome_wotlk_autologin) {
+        char wow_exe[AHC_PATH_CAPACITY];
+        if (!resolve_wow_exe_path(state, wow_exe, sizeof(wow_exe))) {
+            set_action_status(state, "Autologin requires Wow.exe in the Synastria folder.", "Launch blocked");
+            return false;
+        }
+        char pass[AHC_CREDENTIAL_PASSWORD_MAX];
+        if (!ahc_credential_load_wow_password(state->config_dir, pass, sizeof(pass))) {
+            set_action_status(
+                state,
+                "Autologin: set account, realm, and password in Settings, then Save autologin.",
+                "Launch blocked");
+            return false;
+        }
+        char u[AHC_WOW_TRUST_STR_MAX + 1], rlm[AHC_WOW_TRUST_STR_MAX + 1], xtra[256] = { 0 };
+        const char *r_src = state->autologin_realm[0] ? state->autologin_realm : "AzerothCore";
+        if (!ahc_wow_trust_sanitize_user(state->autologin_user, u, sizeof u) || !ahc_wow_trust_sanitize_realm(r_src, rlm, sizeof rlm)
+            || !ahc_wow_trust_sanitize_extra_arg(state->launch_parameters, xtra, sizeof xtra)) {
+            memset(pass, 0, sizeof pass);
+            set_action_status(
+                state,
+                "Autologin: check account, realm, and extra launch text (no -login/-password in that field).",
+                "Launch failed");
+            return false;
+        }
+#if defined(_WIN32)
+        {
+            wchar_t wcmd[32768];
+            if (ahc_wow_win_build_cmdline(
+                    wow_exe,
+                    u,
+                    pass,
+                    rlm,
+                    xtra[0] != '\0' ? xtra : NULL,
+                    wcmd,
+                    (int)(sizeof wcmd / sizeof wcmd[0]))
+                != 0) {
+                memset(pass, 0, sizeof pass);
+                set_action_status(
+                    state,
+                    "Autologin: could not build command line (size or character rules).",
+                    "Launch failed");
+                return false;
+            }
+            memset(pass, 0, sizeof pass);
+            if (!ahc_win_launch_wcmdline_in_dir(wcmd, state->synastria_path)) {
+                set_action_status(state, "CreateProcessW failed to start Wow.exe (autologin).", "Launch failed");
+                return false;
+            }
+        }
+#else
+        {
+            char final_args[4096];
+            if (!ahc_wow_posix_build_args(
+                    u, pass, rlm, (xtra[0] != '\0') ? xtra : NULL, final_args, sizeof final_args)) {
+                memset(pass, 0, sizeof pass);
+                set_action_status(
+                    state,
+                    "Autologin: could not build launch arguments (too long or bad characters).",
+                    "Launch failed");
+                return false;
+            }
+            memset(pass, 0, sizeof pass);
+            char command[AHC_SH_CMD_BYTES];
+            if (!ahc_posix_build_game_launch(state->synastria_path, wow_exe, final_args, command, sizeof command)) {
+                set_action_status(
+                    state,
+                    "Install Wine, set WINE, or set AHC_PROTON or PROTON_PATH to a Proton script from Steam.",
+                    "Launch failed");
+                return false;
+            }
+            if (!ahc_posix_run_detached_shell(command)) {
+                set_action_status(state, "Could not launch Wow.exe via Wine/Proton (autologin).", "Launch failed");
+                return false;
+            }
+        }
+#endif
+        set_action_status(state, "Launched Wow.exe with autologin (legacy client args).", "Game launched");
+        return true;
+    }
+
+    char wowext_path[AHC_PATH_CAPACITY];
+    if (!resolve_wowext_path(state, wowext_path, sizeof(wowext_path))) {
+        set_action_status(
+            state,
+            "Set a valid Synastria folder (missing WoWExt.exe) or enable autologin if you only use Wow.exe.",
+            "Launch blocked");
+        return false;
+    }
 
 #if defined(_WIN32)
     if (!ahc_launch_file_hidden(wowext_path, state->launch_parameters, state->synastria_path)) {
@@ -3021,21 +3256,29 @@ static bool launch_game(CompanionState *state)
         return false;
     }
 #else
-    char command[AHC_SH_CMD_BYTES];
-    if (!ahc_posix_build_game_launch(state->synastria_path, wowext_path, state->launch_parameters, command, sizeof(command))) {
-        set_action_status(
-            state,
-            "Install Wine, set WINE, or set AHC_PROTON or PROTON_PATH to a Proton script from Steam.",
-            "Launch failed");
-        return false;
-    }
-    if (system(command) != 0) {
-        set_action_status(state, "Could not launch WoWExt.exe via Wine/Proton.", "Launch failed");
-        return false;
+    {
+        char final_args[4096];
+        int na = snprintf(final_args, sizeof final_args, "%s", state->launch_parameters);
+        if (na < 0 || (size_t)na >= sizeof final_args) {
+            set_action_status(state, "Launch parameters are too long.", "Launch failed");
+            return false;
+        }
+        char command[AHC_SH_CMD_BYTES];
+        if (!ahc_posix_build_game_launch(state->synastria_path, wowext_path, final_args, command, sizeof command)) {
+            set_action_status(
+                state,
+                "Install Wine, set WINE, or set AHC_PROTON or PROTON_PATH to a Proton script from Steam.",
+                "Launch failed");
+            return false;
+        }
+        if (!ahc_posix_run_detached_shell(command)) {
+            set_action_status(state, "Could not launch WoWExt.exe via Wine/Proton.", "Launch failed");
+            return false;
+        }
     }
 #endif
 
-    set_action_status(state, "Launched Synastria.", "Game launched");
+    set_action_status(state, "Launched Synastria (WoWExt).", "Game launched");
     return true;
 }
 
@@ -3043,9 +3286,15 @@ static void clear_companion_data(CompanionState *state)
 {
     remove(state->config_path);
     remove(state->history_path);
+    ahc_credential_clear_wow_password(state->config_dir);
     state->synastria_path[0] = '\0';
     state->snapshot_path[0] = '\0';
     state->launch_parameters[0] = '\0';
+    state->awesome_wotlk_autologin = false;
+    state->autologin_user[0] = '\0';
+    state->autologin_realm[0] = '\0';
+    state->autologin_password_edit[0] = '\0';
+    state->autologin_password_stored = false;
     state->history_count = 0;
     state->snapshot_mod_time = 0;
     state->next_snapshot_poll_time = 0.0;
@@ -3053,6 +3302,43 @@ static void clear_companion_data(CompanionState *state)
     reset_wow_config_fields(state);
     state->clear_data_confirming = false;
     set_action_status(state, "Cleared local companion settings and attune history.", "Companion data cleared");
+}
+
+static bool companion_can_launch(const CompanionState *state)
+{
+    if (!validate_synastria_path(state->synastria_path)) {
+        return false;
+    }
+#if !defined(_WIN32)
+    if (!ahc_posix_wine_or_proton_ready()) {
+        return false;
+    }
+#endif
+    if (state->awesome_wotlk_autologin) {
+        char wow_exe[AHC_PATH_CAPACITY];
+        if (!resolve_wow_exe_path(state, wow_exe, sizeof(wow_exe))) {
+            return false;
+        }
+        if (!ahc_credential_wow_password_exists(state->config_dir)) {
+            return false;
+        }
+        char u[AHC_WOW_TRUST_STR_MAX + 1], rlm[AHC_WOW_TRUST_STR_MAX + 1];
+        if (!ahc_wow_trust_sanitize_user(state->autologin_user, u, sizeof u)) {
+            return false;
+        }
+        const char *r_src = state->autologin_realm[0] ? state->autologin_realm : "AzerothCore";
+        if (!ahc_wow_trust_sanitize_realm(r_src, rlm, sizeof rlm)) {
+            return false;
+        }
+        if (state->launch_parameters[0]
+            && (ahc_line_contains_ci(state->launch_parameters, "-password")
+                || ahc_line_contains_ci(state->launch_parameters, "-login"))) {
+            return false;
+        }
+        return true;
+    }
+    char wowext_path[AHC_PATH_CAPACITY];
+    return resolve_wowext_path(state, wowext_path, sizeof(wowext_path));
 }
 
 static void draw_card(Rectangle bounds, const char *title)
@@ -3142,10 +3428,7 @@ static void draw_header(CompanionState *state)
     }
 
     Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 14.0f + (float)c, 158.0f, 42.0f };
-    bool can_launch = validate_synastria_path(state->synastria_path);
-#if !defined(_WIN32)
-    can_launch = can_launch && ahc_posix_wine_or_proton_ready();
-#endif
+    bool can_launch = companion_can_launch(state);
     if (draw_wow_button("Play Game", launch_button, can_launch, 20)) {
         launch_game(state);
     }
@@ -4068,9 +4351,9 @@ static void draw_settings_tab(CompanionState *state)
         right_width = content.width;
     }
 
-    Rectangle setup_card = { content.x, content.y, left_width, 326.0f };
-    Rectangle data_card = { content.x, content.y + 344.0f, left_width, 174.0f };
-    Rectangle wow_card = { two_columns ? right_x : content.x, two_columns ? content.y : content.y + 536.0f, right_width, 456.0f };
+    Rectangle setup_card = { content.x, content.y, left_width, 600.0f };
+    Rectangle data_card = { content.x, content.y + 618.0f, left_width, 174.0f };
+    Rectangle wow_card = { two_columns ? right_x : content.x, two_columns ? content.y : content.y + 810.0f, right_width, 456.0f };
 
     draw_card(setup_card, "Setup");
     draw_text("Synastria folder", (int)setup_card.x + 20, (int)setup_card.y + 50, 22, AHC_TEXT);
@@ -4140,15 +4423,58 @@ static void draw_settings_tab(CompanionState *state)
         draw_text(ready_msg, (int)setup_card.x + 352, (int)setup_card.y + 171, 15, run_ok ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
     }
 
+    if (state->awesome_wotlk_autologin) {
+        state->launch_parameters_editing = false;
+    }
     draw_text("Launch parameters", (int)setup_card.x + 20, (int)setup_card.y + 244, 16, AHC_MUTED);
+    if (state->awesome_wotlk_autologin) {
+        draw_text(
+            "Autologin on: only extra client flags here (no -login / -password).",
+            (int)setup_card.x + 20,
+            (int)setup_card.y + 221,
+            14,
+            AHC_STATUS_WARNING);
+    }
     Rectangle launch_box = { setup_card.x + 20.0f, setup_card.y + 266.0f, setup_card.width - 166.0f, 34.0f };
     if (launch_box.width < 300.0f) {
         launch_box.width = 300.0f;
     }
-    if (GuiTextBox(launch_box, state->launch_parameters, (int)sizeof(state->launch_parameters), state->launch_parameters_editing)) {
-        state->launch_parameters_editing = !state->launch_parameters_editing;
+    {
+        bool launch_editing = state->launch_parameters_editing && !state->awesome_wotlk_autologin;
+        if (GuiTextBox(launch_box, state->launch_parameters, (int)sizeof(state->launch_parameters), launch_editing)) {
+            state->launch_parameters_editing = !state->launch_parameters_editing;
+        }
     }
     draw_text("Use Play Game in the header for quick launch.", (int)setup_card.x + 352, (int)setup_card.y + 274, 14, AHC_MUTED);
+
+    draw_text(
+        "AwesomeWotLK autologin: launches Wow.exe with -login, -password, -realmname; optional extras in Launch parameters.",
+        (int)setup_card.x + 20,
+        (int)setup_card.y + 300,
+        15,
+        AHC_MUTED);
+    (void)GuiCheckBox(
+        (Rectangle){ setup_card.x + 20.0f, setup_card.y + 328.0f, 420.0f, 28.0f },
+        "Enable autologin (password: Windows DPAPI, Linux 0600 file, Android not yet wired).",
+        &state->awesome_wotlk_autologin);
+    {
+        const char *pwst = state->autologin_password_stored ? "On-disk password: stored" : "On-disk password: not stored";
+        draw_text(
+            pwst,
+            (int)setup_card.x + 20,
+            (int)setup_card.y + 364,
+            14,
+            state->autologin_password_stored ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
+    }
+    draw_labeled_textbox("Account (login name)", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 402.0f, setup_card.width - 200.0f, 32.0f },
+        state->autologin_user, (int)sizeof(state->autologin_user), &state->autologin_user_editing);
+    draw_labeled_textbox("Realm", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 474.0f, setup_card.width - 200.0f, 32.0f },
+        state->autologin_realm, (int)sizeof(state->autologin_realm), &state->autologin_realm_editing);
+    draw_labeled_textbox("Password (type to set/change; cleared on save from memory only)", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 544.0f, setup_card.width - 200.0f, 32.0f },
+        state->autologin_password_edit, (int)sizeof(state->autologin_password_edit), &state->autologin_password_editing);
+    if (draw_wow_button("Save autologin", (Rectangle){ setup_card.x + setup_card.width - 192.0f, setup_card.y + 542.0f, 180.0f, 40.0f }, false, 16)) {
+        (void)persist_autologin_settings(state);
+    }
 
     draw_card(data_card, "Data and backups");
     draw_text("Backups are copied under Synastria/AttuneHelperBackup.", (int)data_card.x + 20, (int)data_card.y + 52, 16, AHC_MUTED);
@@ -4275,6 +4601,10 @@ static void init_state(CompanionState *state)
     load_addon_catalog(state);
     resolve_config_paths(state);
     load_settings(state);
+    if (!state->autologin_realm[0]) {
+        snprintf(state->autologin_realm, sizeof state->autologin_realm, "AzerothCore");
+    }
+    state->autologin_password_stored = ahc_credential_wow_password_exists(state->config_dir);
     load_history(state);
     set_status(state, "Ready.");
 

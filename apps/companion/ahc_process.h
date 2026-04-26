@@ -3,8 +3,24 @@
 
 #include <stdbool.h>
 
+#if defined(_WIN32)
+#include <wchar.h>
+#endif
+
 bool ahc_run_command_hidden(const char *command);
 bool ahc_open_url_hidden(const char *url);
 bool ahc_launch_file_hidden(const char *file, const char *parameters, const char *working_dir);
+
+#if defined(_WIN32)
+/**
+ * CreateProcessW with a mutable wide command line and UTF-8 working directory.
+ */
+bool ahc_win_launch_wcmdline_in_dir(const wchar_t *cmdline, const char *workdir_utf8);
+#else
+/**
+ * Runs a full shell line (e.g. nohup wine … &) for detached game launch.
+ */
+bool ahc_posix_run_detached_shell(const char *command);
+#endif
 
 #endif

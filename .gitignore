@@ -16,3 +16,10 @@ Testing/
 *.ilk
 *.lib
 *.dll
+build-android-test/
+
+# Android / Gradle
+android/.gradle/
+android/**/build/
+android/local.properties
+**/*.iml
