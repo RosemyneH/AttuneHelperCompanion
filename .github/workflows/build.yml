@@ -114,6 +114,45 @@ jobs:
         # RUNNER_OS is provided by GitHub (Linux, Windows) for ci-build.sh
         run: bash "$GITHUB_WORKSPACE/scripts/ci-build.sh"
 
+      - name: Verify Windows exe has embedded icon
+        if: matrix.label == 'windows'
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'build/attune_helper_companion.exe'
+          if (!(Test-Path $exe)) {
+            throw "Expected Windows executable at $exe"
+          }
+          $code = @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class ResourceCheck {
+            public delegate bool EnumResNameProc(IntPtr hModule, IntPtr lpszType, IntPtr lpszName, IntPtr lParam);
+            [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+            public static extern IntPtr LoadLibraryEx(string lpFileName, IntPtr hFile, uint dwFlags);
+            [DllImport("kernel32.dll", SetLastError=true)]
+            public static extern bool FreeLibrary(IntPtr hModule);
+            [DllImport("kernel32.dll", SetLastError=true)]
+            public static extern bool EnumResourceNames(IntPtr hModule, IntPtr lpszType, EnumResNameProc lpEnumFunc, IntPtr lParam);
+          }
+          '@
+          Add-Type $code
+          $module = [ResourceCheck]::LoadLibraryEx($exe, [IntPtr]::Zero, 0x00000002)
+          if ($module -eq [IntPtr]::Zero) {
+            throw "Could not load $exe for resource inspection"
+          }
+          $script:groupIcons = 0
+          $script:iconImages = 0
+          $groupCallback = [ResourceCheck+EnumResNameProc]{ param($mod, $type, $name, $param) $script:groupIcons++; return $true }
+          $iconCallback = [ResourceCheck+EnumResNameProc]{ param($mod, $type, $name, $param) $script:iconImages++; return $true }
+          [void][ResourceCheck]::EnumResourceNames($module, [IntPtr]14, $groupCallback, [IntPtr]::Zero)
+          [void][ResourceCheck]::EnumResourceNames($module, [IntPtr]3, $iconCallback, [IntPtr]::Zero)
+          [void][ResourceCheck]::FreeLibrary($module)
+          Write-Host "GROUP_ICON resources: $groupIcons"
+          Write-Host "ICON image resources: $iconImages"
+          if ($groupIcons -lt 1 -or $iconImages -lt 1) {
+            throw "Windows executable is missing embedded icon resources"
+          }
+
       - name: Build AppImage (Linux)
         if: matrix.label == 'linux'
         shell: bash
@@ -195,13 +234,21 @@ jobs:
           fi
           ls -la "$out"
 
+      - name: Stage release asset names
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -f \
+            "$GITHUB_WORKSPACE/release-assets/attune_helper_companion_windows/attune_helper_companion.exe" \
+            "$GITHUB_WORKSPACE/release-assets/AttuneHelperCompanion-Windows-x86_64.exe"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ env.AHC_RELEASE_NAME }}
           generate_release_notes: true
           files: |
-            release-assets/attune_helper_companion_windows/attune_helper_companion.exe
+            release-assets/AttuneHelperCompanion-Windows-x86_64.exe
             release-assets/attune_helper_companion_linux/AttuneHelperCompanion-Linux-x86_64.AppImage
             release-assets/attune_helper_companion_android/AttuneHelperCompanion-android.apk
           fail_on_unmatched_files: true
