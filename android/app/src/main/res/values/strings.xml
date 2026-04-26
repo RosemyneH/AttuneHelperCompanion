@@ -28,4 +28,12 @@
     <string name="scanning">Scanning…</string>
     <string name="scan_ok">OK — loaded snapshot for %1$s.</string>
     <string name="no_attune_yet">No attune rows yet. Scan AttuneHelper.lua or import a sync code.</string>
+    <string name="section_nfc">NFC (tap to transfer)</string>
+    <string name="section_nfc_help">~7 KB limit per tap. Sends attune data (full or one day) and sometimes a gzip’d AttuneHelper.lua from your last scan. Add-ons and full WTF trees are too big for NFC—use download or USB/file copy. Tap Prepare, then hold phones back-to-back; both sides use this app in the foreground.</string>
+    <string name="nfc_prepare_push">Prepare NFC push (then touch backs)</string>
+    <string name="nfc_nfc_unavailable">NFC is not available on this device.</string>
+    <string name="nfc_disabled">Turn on NFC in system settings to use this.</string>
+    <string name="nfc_prepared">Ready to send. If the message is too large, only the latest day is sent. AttuneHelper.lua is included when it still fits after gzip.</string>
+    <string name="nfc_nothing_to_send">Nothing to send yet. Scan a snapshot or import a code first.</string>
+    <string name="nfc_imported">Received over NFC.</string>
 </resources>

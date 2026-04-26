@@ -3,8 +3,12 @@
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" tools:ignore="PermissionImpliesUnsupportedChromeOs" />
+    <uses-permission android:name="android.permission.NFC" />
     <uses-feature
         android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.nfc"
         android:required="false" />
     <queries>
         <package android:name="com.winlator" />
@@ -24,6 +28,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.AttuneHelperCompanion"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

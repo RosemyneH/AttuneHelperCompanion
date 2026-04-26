@@ -1,6 +1,7 @@
 package com.attunehelper.companion.sync
 
 import android.util.Base64
+import com.attunehelper.companion.attune.AttuneHelperLuaParser
 import com.attunehelper.companion.attune.AttuneSnapshot
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12,7 +13,10 @@ import java.util.zip.GZIPOutputStream
 
 object AttuneSyncCodec {
     const val BULK_PREFIX = "AHC1:"
+    const val LUA_PREFIX = "AHC-LUA1:"
     private const val QR_PREFIX = "AHC-Q1:"
+
+    private const val MAX_NFC_LUA_UTF8 = 6 * 1024
 
     fun encodeFullHistory(snapshots: List<AttuneSnapshot>): String {
         val a = jsonArray(snapshots)
@@ -46,6 +50,34 @@ object AttuneSyncCodec {
 
     fun encodeOneDayQr(s: AttuneSnapshot): String =
         "$QR_PREFIX${s.date}|${s.account}|${s.warforged}|${s.lightforged}|${s.titanforged}"
+
+    fun encodeGzippedLuaFileOrNullForNfc(fileBytes: ByteArray): String? {
+        if (fileBytes.isEmpty() || fileBytes.size > 512 * 1024) {
+            return null
+        }
+        val gz = gzip(fileBytes)
+        val b64 = Base64.encodeToString(gz, Base64.NO_WRAP or Base64.URL_SAFE)
+        val s = LUA_PREFIX + b64
+        if (s.toByteArray(StandardCharsets.UTF_8).size > MAX_NFC_LUA_UTF8) {
+            return null
+        }
+        return s
+    }
+
+    fun decodeGzippedLuaToSnapshotOrNull(s: String): AttuneSnapshot? {
+        var t = s.trim()
+        if (!t.startsWith(LUA_PREFIX)) {
+            return null
+        }
+        t = t.removePrefix(LUA_PREFIX).filter { !it.isWhitespace() }
+        return try {
+            val raw = Base64.decode(t, Base64.NO_WRAP or Base64.URL_SAFE)
+            val lua = ungzip(raw)
+            AttuneHelperLuaParser.parse(lua) ?: return null
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     fun decodeQrOrNull(s: String): AttuneSnapshot? {
         if (!s.trim().startsWith(QR_PREFIX)) {

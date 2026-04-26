@@ -93,8 +93,19 @@ class AttuneHistoryStore(
         }
     }
 
+    fun lastAttuneHelperLuaDocumentUri(): String? = prefs.getString(KEY_LUA_URI, null)
+
+    fun setLastAttuneHelperLuaDocumentUri(value: String?) {
+        if (value == null) {
+            prefs.edit().remove(KEY_LUA_URI).apply()
+        } else {
+            prefs.edit().putString(KEY_LUA_URI, value).apply()
+        }
+    }
+
     companion object {
         private const val KEY_SNAPSHOTS = "snaps"
         private const val KEY_URI = "synastria_tree_uri"
+        private const val KEY_LUA_URI = "attunehelper_lua_uri"
     }
 }

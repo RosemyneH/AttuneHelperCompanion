@@ -16,6 +16,7 @@ object SynastriaFolder {
     data class ScanResult(
         val snapshot: AttuneSnapshot,
         val relativeNote: String,
+        val attuneHelperLuaUri: Uri,
     )
 
     fun findAttuneHelperSnapshot(
@@ -84,7 +85,7 @@ object SynastriaFolder {
                 ?: return Result.failure(
                     IllegalStateException("Found AttuneHelper.lua but could not read DailyAttuneSnapshot.")
                 )
-            Result.success(ScanResult(s, rel))
+            Result.success(ScanResult(s, rel, f.uri))
         } catch (e: Exception) {
             Result.failure(e)
         }

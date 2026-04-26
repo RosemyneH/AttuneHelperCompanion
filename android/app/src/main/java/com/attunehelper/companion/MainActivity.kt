@@ -1,14 +1,19 @@
 package com.attunehelper.companion
 
 import android.Manifest
+import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.nfc.NdefMessage
+import android.nfc.NfcAdapter
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.ImageView
 import android.widget.TextView
@@ -16,15 +21,16 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import com.attunehelper.companion.addon.AddonInstall
 import com.attunehelper.companion.data.AttuneHistoryStore
+import com.attunehelper.companion.nfc.AhcNfcHelper
 import com.attunehelper.companion.saf.SynastriaFolder
 import com.attunehelper.companion.sync.AttuneSyncCodec
 import com.attunehelper.companion.util.QrBitmaps
 import com.attunehelper.companion.util.WinlatorIntents
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanIntentResult
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +40,8 @@ import kotlinx.coroutines.withContext
 class MainActivity : AppCompatActivity() {
     private lateinit var store: AttuneHistoryStore
     private var addonEntries: List<AddonInstall.Entry> = emptyList()
+    private var nfcAdapter: NfcAdapter? = null
+    private var nfcPrepared: NdefMessage? = null
 
     private val pickTree = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -71,6 +79,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         store = AttuneHistoryStore(applicationContext)
+        nfcAdapter = NfcAdapter.getDefaultAdapter(this)
+        configureNfcSection()
         CredentialsStore.isStubAvailable()
 
         findViewById<MaterialButton>(R.id.btn_open_winlator).setOnClickListener {
@@ -90,12 +100,126 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_scan_qr).setOnClickListener { onScanQrClicked() }
         findViewById<MaterialButton>(R.id.btn_install_addon).setOnClickListener { installSelectedAddon() }
         findViewById<MaterialButton>(R.id.btn_play_winlator).setOnClickListener { openWinlator() }
-
-        findViewById<android.widget.EditText>(R.id.edit_sync_code).doAfterTextChanged { }
+        findViewById<MaterialButton>(R.id.btn_nfc_prepare).setOnClickListener { prepareNfcPush() }
 
         updateTreeLabel()
         refreshAttuneText()
         loadAddonSpinner()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (NfcAdapter.ACTION_NDEF_DISCOVERED == intent.action) {
+            deliverNfcPayloads(intent)
+        }
+    }
+
+    private fun nfcDispatchPending(): PendingIntent {
+        val i = Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val f = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        return PendingIntent.getActivity(this, 0, i, f)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (nfcAdapter == null) {
+            return
+        }
+        nfcAdapter?.setNdefPushMessage(nfcPrepared, this, null)
+        if (nfcAdapter?.isEnabled != true) {
+            return
+        }
+        val filters = arrayOf(
+            IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED).apply {
+                try {
+                    addDataType(AhcNfcHelper.MIME_AHC)
+                    addDataType(AhcNfcHelper.MIME_LUA)
+                } catch (e: Exception) {
+                }
+            }
+        )
+        try {
+            nfcAdapter?.enableForegroundDispatch(this, nfcDispatchPending(), filters, null)
+        } catch (e: Exception) {
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (nfcAdapter == null) {
+            return
+        }
+        try {
+            nfcAdapter?.disableForegroundDispatch(this)
+        } catch (e: Exception) {
+        }
+        nfcAdapter?.setNdefPushMessage(null, this, null)
+    }
+
+    private fun configureNfcSection() {
+        val c = findViewById<MaterialCardView>(R.id.card_nfc)
+        if (nfcAdapter == null) {
+            c.visibility = View.GONE
+            return
+        }
+        c.visibility = View.VISIBLE
+        if (nfcAdapter?.isEnabled != true) {
+            findViewById<TextView>(R.id.text_nfc_status).setText(R.string.nfc_disabled)
+        }
+    }
+
+    private fun prepareNfcPush() {
+        if (nfcAdapter == null) {
+            Toast.makeText(this, R.string.nfc_nfc_unavailable, Toast.LENGTH_LONG).show()
+            return
+        }
+        if (nfcAdapter?.isEnabled != true) {
+            Toast.makeText(this, R.string.nfc_disabled, Toast.LENGTH_LONG).show()
+            return
+        }
+        if (store.getAll().isEmpty()) {
+            Toast.makeText(this, R.string.nfc_nothing_to_send, Toast.LENGTH_LONG).show()
+            return
+        }
+        findViewById<TextView>(R.id.text_nfc_status).setText(R.string.scanning)
+        lifecycleScope.launch {
+            val nfcMsg = withContext(Dispatchers.IO) {
+                val all = store.getAll()
+                val last = all.maxByOrNull { it.date }!!
+                val full = AttuneSyncCodec.encodeFullHistory(all)
+                val oneDay = AttuneSyncCodec.encodeOneDayQr(last)
+                var lua: String? = null
+                val s = store.lastAttuneHelperLuaDocumentUri()
+                if (s != null) {
+                    try {
+                        val b = contentResolver.openInputStream(Uri.parse(s))?.use { st -> st.readBytes() }
+                        if (b != null) {
+                            lua = AttuneSyncCodec.encodeGzippedLuaFileOrNullForNfc(b)
+                        }
+                    } catch (e: Exception) {
+                    }
+                }
+                AhcNfcHelper.buildPushNdef(full, oneDay, lua)
+            }
+            nfcPrepared = nfcMsg
+            nfcAdapter?.setNdefPushMessage(nfcMsg, this@MainActivity, null)
+            findViewById<TextView>(R.id.text_nfc_status).setText(R.string.nfc_prepared)
+        }
+    }
+
+    private fun deliverNfcPayloads(incoming: Intent) {
+        val p = AhcNfcHelper.readTextPayloadsFromIntent(incoming)
+        if (p.isEmpty()) {
+            return
+        }
+        for (t in p) {
+            applyIncomingToken(t)
+        }
     }
 
     private fun updateTreeLabel() {
@@ -121,9 +245,10 @@ class MainActivity : AppCompatActivity() {
                 SynastriaFolder.findAttuneHelperSnapshot(this@MainActivity, u)
             }
             if (res.isSuccess) {
-                val sn = res.getOrNull()!!.snapshot
-                store.upsert(sn)
-                st.text = getString(R.string.scan_ok, sn.date)
+                val r = res.getOrNull()!!
+                store.upsert(r.snapshot)
+                store.setLastAttuneHelperLuaDocumentUri(r.attuneHelperLuaUri.toString())
+                st.text = getString(R.string.scan_ok, r.snapshot.date)
                 refreshAttuneText()
             } else {
                 st.text = res.exceptionOrNull()?.message ?: "Scan failed"
@@ -155,18 +280,25 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyIncomingToken(token: String) {
         val s = token.trim()
-        val qr = AttuneSyncCodec.decodeQrOrNull(s)
-        if (qr != null) {
-            store.upsert(qr)
-            refreshAttuneText()
-            Toast.makeText(this, "Imported snapshot for ${qr.date}.", Toast.LENGTH_LONG).show()
-            return
-        }
         val bulk = AttuneSyncCodec.decodeFullOrNull(s)
         if (bulk != null) {
             store.mergeIncoming(bulk)
             refreshAttuneText()
             Toast.makeText(this, "Merged ${bulk.size} day(s).", Toast.LENGTH_LONG).show()
+            return
+        }
+        val fromLua = AttuneSyncCodec.decodeGzippedLuaToSnapshotOrNull(s)
+        if (fromLua != null) {
+            store.upsert(fromLua)
+            refreshAttuneText()
+            Toast.makeText(this, "Imported snapshot from AttuneHelper.lua (NFC) — ${fromLua.date}.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val qr = AttuneSyncCodec.decodeQrOrNull(s)
+        if (qr != null) {
+            store.upsert(qr)
+            refreshAttuneText()
+            Toast.makeText(this, "Imported snapshot for ${qr.date}.", Toast.LENGTH_LONG).show()
             return
         }
         Toast.makeText(this, "Unrecognized code format.", Toast.LENGTH_LONG).show()
