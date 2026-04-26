@@ -10,6 +10,8 @@
 bool ahc_run_command_hidden(const char *command);
 bool ahc_open_url_hidden(const char *url);
 bool ahc_launch_file_hidden(const char *file, const char *parameters, const char *working_dir);
+unsigned int ahc_count_other_instances(void);
+unsigned int ahc_terminate_other_instances(void);
 
 #if defined(_WIN32)
 /**

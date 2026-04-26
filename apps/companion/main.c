@@ -162,6 +162,8 @@ typedef struct CompanionState {
     char process_action[AHC_STATUS_CAPACITY];
     double process_started_at;
     double process_until;
+    unsigned int other_instance_count;
+    double next_instance_poll_time;
     volatile int addon_job_running;
     volatile int addon_job_done;
     volatile int addon_job_success;
@@ -290,6 +292,7 @@ static void set_action_status(CompanionState *state, const char *status, const c
 static void set_process_action(CompanionState *state, const char *message);
 static void set_addon_job_progress(CompanionState *state, const char *message);
 static double app_time(void);
+static void poll_other_instances(CompanionState *state);
 static void path_join(char *out, size_t out_capacity, const char *left, const char *right);
 static void ahc_init_exe_dir_once(void);
 static bool validate_synastria_path(const char *path);
@@ -1851,6 +1854,16 @@ static void set_action_status(CompanionState *state, const char *status, const c
     set_process_action(state, action);
 }
 
+static void poll_other_instances(CompanionState *state)
+{
+    double now = app_time();
+    if (now < state->next_instance_poll_time) {
+        return;
+    }
+    state->other_instance_count = ahc_count_other_instances();
+    state->next_instance_poll_time = now + 3.0;
+}
+
 static void set_addon_job_progress(CompanionState *state, const char *message)
 {
     snprintf(state->addon_job_progress, sizeof(state->addon_job_progress), "%s", message);
@@ -3403,8 +3416,34 @@ static void draw_header(CompanionState *state)
     DrawRectangle(0, 70 + c, GetScreenWidth(), 2, (Color){ 88, 124, 166, 190 });
 
     draw_text("Addon installs, updates, and attune history", 26, 12 + c, 22, AHC_TEXT);
+    Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 14.0f + (float)c, 158.0f, 42.0f };
 
-    if (state->synastria_path[0]) {
+    if (state->other_instance_count > 0u) {
+        char instance_line[160];
+        snprintf(
+            instance_line,
+            sizeof(instance_line),
+            "%u other companion instance%s running. Close extras before continuing.",
+            state->other_instance_count,
+            state->other_instance_count == 1u ? " is" : "s are");
+        draw_text(instance_line, 28, 42 + c, 15, AHC_STATUS_WARNING);
+        int button_x = 28 + measure_text_width(instance_line, 15) + 18;
+        int button_max_x = (int)launch_button.x - 144;
+        if (button_x > button_max_x) {
+            button_x = button_max_x;
+        }
+        if (button_x < 28) {
+            button_x = 28;
+        }
+        if (draw_wow_button("Close Others", (Rectangle){ (float)button_x, 38.0f + (float)c, 132.0f, 28.0f }, false, 14)) {
+            unsigned int killed = ahc_terminate_other_instances();
+            state->other_instance_count = ahc_count_other_instances();
+            state->next_instance_poll_time = app_time() + 1.0;
+            char status[AHC_STATUS_CAPACITY];
+            snprintf(status, sizeof(status), "Requested close for %u other companion instance%s.", killed, killed == 1u ? "" : "s");
+            set_action_status(state, status, "Closed extra instances");
+        }
+    } else if (state->synastria_path[0]) {
         char path_line[AHC_PATH_CAPACITY + 32];
         snprintf(path_line, sizeof(path_line), "Synastria: %s", state->synastria_path);
         draw_text(path_line, 28, 42 + c, 15, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : AHC_STATUS_WARNING);
@@ -3412,7 +3451,6 @@ static void draw_header(CompanionState *state)
         draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 42 + c, 15, AHC_STATUS_WARNING);
     }
 
-    Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 14.0f + (float)c, 158.0f, 42.0f };
     bool can_launch = companion_can_launch(state);
     if (draw_wow_button("Play Game", launch_button, can_launch, 20)) {
         launch_game(state);
@@ -4897,6 +4935,7 @@ int main(void)
         }
 
         update_ui_scale(&state);
+        poll_other_instances(&state);
         poll_addon_install_job(&state);
         poll_attunehelper_snapshot(&state);
 

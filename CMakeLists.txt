@@ -183,7 +183,7 @@ if(AHC_BUILD_APP)
             Threads::Threads
     )
     if(WIN32)
-        target_link_libraries(attune_helper_companion PRIVATE shell32 user32 crypt32)
+        target_link_libraries(attune_helper_companion PRIVATE shell32 user32 crypt32 psapi)
     endif()
 
     add_custom_command(TARGET attune_helper_companion POST_BUILD
