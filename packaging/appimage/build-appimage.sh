@@ -30,19 +30,31 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-# Icon: pre-rendered, rsvg, or ImageMagick (same blue family as the UI).
-if [ -f "$ROOT/packaging/appimage/attune-helper-companion-256.png" ]; then
+# Icon: images/green_ahc_logo.png first, then pre-rendered, rsvg, or ImageMagick.
+if [ -f "$ROOT/images/green_ahc_logo.png" ]; then
+  if command -v magick &>/dev/null; then
+    magick "$ROOT/images/green_ahc_logo.png" -resize 256x256 "$ICON_RENDER" || true
+  elif command -v convert &>/dev/null; then
+    convert "$ROOT/images/green_ahc_logo.png" -resize 256x256 "$ICON_RENDER" || true
+  else
+    cp -f "$ROOT/images/green_ahc_logo.png" "$ICON_RENDER" || true
+  fi
+fi
+if [ ! -f "$ICON_RENDER" ] && [ -f "$ROOT/packaging/appimage/attune-helper-companion-256.png" ]; then
   cp -f "$ROOT/packaging/appimage/attune-helper-companion-256.png" "$ICON_RENDER"
-elif command -v rsvg-convert &>/dev/null; then
+fi
+if [ ! -f "$ICON_RENDER" ] && command -v rsvg-convert &>/dev/null; then
   rsvg-convert -w 256 -h 256 "$ROOT/packaging/appimage/attune-helper-companion.svg" -o "$ICON_RENDER"
-elif command -v magick &>/dev/null; then
+fi
+if [ ! -f "$ICON_RENDER" ] && command -v magick &>/dev/null; then
   magick -size 256x256 "xc:rgb(13,21,32)" -gravity center -pointsize 64 -fill "#c8d8f0" -font "DejaVu-Sans-Bold" -annotate 0 "AHC" "$ICON_RENDER" || true
 fi
 if [ ! -f "$ICON_RENDER" ] && command -v convert &>/dev/null; then
   convert -size 256x256 "xc:rgb(13,21,32)" -gravity center -pointsize 64 -fill "#c8d8f0" -font "DejaVu-Sans-Bold" -annotate 0 "AHC" "$ICON_RENDER" || true
 fi
 if [ ! -f "$ICON_RENDER" ]; then
-  echo "No icon. Add packaging/appimage/attune-helper-companion-256.png" >&2
+  echo "No icon. Ensure images/green_ahc_logo.png exists" >&2
+  echo "  and ImageMagick (magick or convert) is available to produce 256x256, or add packaging/appimage/attune-helper-companion-256.png" >&2
   echo "  or install rsvg-convert, imagemagick, or the ImageMagick 'convert' tool." >&2
   exit 1
 fi

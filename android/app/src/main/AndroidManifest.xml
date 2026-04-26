@@ -20,9 +20,9 @@
     <application
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
-        android:icon="@drawable/ic_launcher_monochrome"
+        android:icon="@drawable/ic_app_launcher"
         android:label="@string/app_name"
-        android:roundIcon="@drawable/ic_launcher_monochrome"
+        android:roundIcon="@drawable/ic_app_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.AttuneHelperCompanion"
         android:usesCleartextTraffic="false">

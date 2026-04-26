@@ -157,6 +157,13 @@ if(AHC_BUILD_APP)
         if(MSVC)
             target_link_options(attune_helper_companion PRIVATE /ENTRY:mainCRTStartup)
         endif()
+        set(AHC_WIN_ICON_RC "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/attune_helper_companion.rc")
+        set(AHC_WIN_ICON_ICO "${CMAKE_CURRENT_SOURCE_DIR}/images/green_ahc_logo.ico")
+        target_sources(attune_helper_companion PRIVATE "${AHC_WIN_ICON_RC}")
+        set_source_files_properties(
+            "${AHC_WIN_ICON_RC}" PROPERTIES
+            OBJECT_DEPENDS "${AHC_WIN_ICON_ICO}"
+        )
     endif()
 
     target_include_directories(attune_helper_companion

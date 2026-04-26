@@ -88,6 +88,14 @@ android {
     }
 }
 
+tasks.register<Copy>("copyRepoLauncherIcon") {
+    from(rootProject.file("../images/green_ahc_logo.png"))
+    into(layout.projectDirectory.dir("src/main/res/drawable-nodpi"))
+    rename { "ic_app_launcher.png" }
+}
+
+tasks.named("preBuild").configure { dependsOn("copyRepoLauncherIcon") }
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.6.1")
