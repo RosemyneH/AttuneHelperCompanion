@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.22)
 project(credentials_ndk C)
 
 add_library(credentials_ndk SHARED
