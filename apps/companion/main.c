@@ -4831,16 +4831,6 @@ static void init_state(CompanionState *state)
     }
 }
 
-static int ahc_display_fps_cap(const CompanionState *state)
-{
-    if (state->tab == COMPANION_TAB_ADDONS) {
-        return AHC_ADDON_STATIC_FPS;
-    }
-    int m = GetCurrentMonitor();
-    int rr = GetMonitorRefreshRate(m);
-    return (rr > 0) ? rr : 60;
-}
-
 static int monitor_for_window_center(void)
 {
     int fallback = GetCurrentMonitor();
@@ -4864,6 +4854,16 @@ static int monitor_for_window_center(void)
     }
 
     return fallback;
+}
+
+static int ahc_display_fps_cap(const CompanionState *state)
+{
+    if (state->tab == COMPANION_TAB_ADDONS) {
+        return AHC_ADDON_STATIC_FPS;
+    }
+    int m = monitor_for_window_center();
+    int rr = GetMonitorRefreshRate(m);
+    return (rr > 0) ? rr : 60;
 }
 
 static void target_window_size_for_monitor(int monitor, int *target_width, int *target_height)
