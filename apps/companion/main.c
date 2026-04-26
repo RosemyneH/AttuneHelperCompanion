@@ -3369,7 +3369,7 @@ static void draw_window_chrome(CompanionState *state)
     bool press_full = draw_wow_button(IsWindowFullscreen() ? "[]-" : "[]", rfull, IsWindowFullscreen(), 15);
     bool press_close = draw_wow_button("X", rclose, false, 16);
     if (press_min) {
-        MinimizeWindow();
+        ahc_tray_request_background();
     } else if (press_full) {
         ToggleFullscreen();
     } else if (press_close) {

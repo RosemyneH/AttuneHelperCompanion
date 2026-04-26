@@ -79,9 +79,17 @@ static LRESULT CALLBACK ahc_raylib_wndproc(HWND hwnd, UINT msg, WPARAM wparam, L
             ahc_tray_or_pending((LONG)AHC_TRAYA_BACKGROUND);
             return 0;
         }
+        if ((wparam & 0xfff0) == SC_MINIMIZE) {
+            ahc_tray_or_pending((LONG)AHC_TRAYA_BACKGROUND);
+            return 0;
+        }
     }
 
     if (msg == WM_CLOSE) {
+        ahc_tray_or_pending((LONG)AHC_TRAYA_BACKGROUND);
+        return 0;
+    }
+    if (msg == WM_SIZE && wparam == SIZE_MINIMIZED) {
         ahc_tray_or_pending((LONG)AHC_TRAYA_BACKGROUND);
         return 0;
     }
