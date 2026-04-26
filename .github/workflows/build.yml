@@ -1,10 +1,10 @@
-# One workflow, one matrix build, and (on version tags) a published GitHub Release.
-# Pushes/PRs only upload workflow artifacts; they do not create a Release. Push tag v* to release.
+# One workflow, one matrix build, and published GitHub Releases.
+# Pushes to master create an automatic build tag/release from the artifacts that were
+# just built. Version tags (v*) create official releases from the same build flow.
 #
 # Note: The GitHub Actions UI and workflow artifacts list do not show embedded app icons
 # (generic zip/file icons). The Windows .exe and Linux AppImage still carry their icons
-# (Explorer, desktop, file manager) after you download and extract; tag releases also attach
-# a PNG of the app icon for a visible brand asset on the Release page.
+# (Explorer, desktop, file manager) after you download and extract.
 name: build
 
 on:
@@ -46,8 +46,8 @@ jobs:
       - name: Assemble debug APK
         run: bash "$GITHUB_WORKSPACE/scripts/android-verify.sh"
 
-      - name: Assemble release APK (signed, tags with secrets)
-        if: success() && startsWith(github.ref, 'refs/tags/v')
+      - name: Assemble release APK (signed, release builds with secrets)
+        if: success() && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master')
         working-directory: android
         env:
           ANDROID_KEYSTORE_FILE: ${{ github.workspace }}/android/release-ci.keystore
@@ -72,7 +72,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload signed release APK
-        if: success() && startsWith(github.ref, 'refs/tags/v')
+        if: success() && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master')
         uses: actions/upload-artifact@v4
         with:
           name: attune_helper_companion_android_release
@@ -143,7 +143,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     needs: [build, build_apk]
     runs-on: ubuntu-22.04
     permissions:
@@ -159,12 +159,25 @@ jobs:
         with:
           path: release-assets
 
-      - name: Stage app icon for Release page
+      - name: Prepare release metadata
         shell: bash
         run: |
           set -euo pipefail
-          cp -f "$GITHUB_WORKSPACE/images/green_ahc_logo.png" \
-            "$GITHUB_WORKSPACE/AttuneHelperCompanion-app-icon.png"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+            name="Attune Helper Companion $GITHUB_REF_NAME"
+            prerelease=false
+          else
+            short="${GITHUB_SHA::7}"
+            tag="build-${GITHUB_RUN_NUMBER}-${short}"
+            name="Attune Helper Companion build ${GITHUB_RUN_NUMBER} (${short})"
+            prerelease=true
+          fi
+          {
+            echo "AHC_RELEASE_TAG=$tag"
+            echo "AHC_RELEASE_NAME=$name"
+            echo "AHC_RELEASE_PRERELEASE=$prerelease"
+          } >> "$GITHUB_ENV"
 
       - name: Choose Android release APK
         shell: bash
@@ -185,14 +198,14 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Attune Helper Companion ${{ github.ref_name }}
+          name: ${{ env.AHC_RELEASE_NAME }}
           generate_release_notes: true
           files: |
             release-assets/attune_helper_companion_windows/attune_helper_companion.exe
             release-assets/attune_helper_companion_linux/AttuneHelperCompanion-Linux-x86_64.AppImage
             release-assets/attune_helper_companion_android/AttuneHelperCompanion-android.apk
-            AttuneHelperCompanion-app-icon.png
           fail_on_unmatched_files: true
           draft: false
-          prerelease: false
-          tag_name: ${{ github.ref_name }}
+          prerelease: ${{ env.AHC_RELEASE_PRERELEASE == 'true' }}
+          tag_name: ${{ env.AHC_RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
