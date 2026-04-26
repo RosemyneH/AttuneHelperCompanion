@@ -1,5 +1,24 @@
 # Android release signing (GitHub)
 
+## Generate a keystore locally (outside the repo)
+
+The script [scripts/generate-android-keystore.ps1](../scripts/generate-android-keystore.ps1) creates:
+
+- `E:\Security\AttuneHelperCompanion\attune-release.jks`
+- `E:\Security\AttuneHelperCompanion\CREDENTIALS-READ-ONCE-STORE-SAFELY.txt` (passwords + Base64 for `ANDROID_KEYSTORE_B64`)
+
+**Requirements:** `keytool` on your `PATH` (install a JDK, or add Android Studio’s JBR, e.g. `C:\Program Files\Android\Android Studio\jbr\bin`).
+
+Run from the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\generate-android-keystore.ps1
+```
+
+This is not a “seed” in the crypto-wallet sense: Android uses a **Java keystore file** and passwords. Keep `E:\Security\…` off any git remote; back it up to something only you control.
+
+---
+
 Release builds use a keystore that **never** lives in the repository. Local and CI both read the same environment variable names as Gradle (see [android/app/build.gradle.kts](../android/app/build.gradle.kts)).
 
 ## Environment variables (Gradle / CI)
