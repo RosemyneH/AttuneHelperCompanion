@@ -3,9 +3,30 @@
 # Java keystore (.jks) + passwords. Back up the folder; restrict NTFS to your user.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\generate-android-keystore.ps1
-# Requires: JDK keytool on PATH (same as Android Studio / Android builds).
+# Requires: JDK keytool (Microsoft OpenJDK, Android Studio jbr, etc.). PATH optional;
+# this script searches common install locations if keytool is not on PATH.
 
 $ErrorActionPreference = "Stop"
+
+function Get-KeytoolPath {
+    $cmd = Get-Command keytool -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+    $candidates = @(
+        "${env:ProgramFiles}\Microsoft\jdk-*\bin\keytool.exe"
+        "${env:ProgramFiles}\Android\Android Studio\jbr\bin\keytool.exe"
+        "${env:ProgramFiles}\Eclipse Adoptium\jdk-*\bin\keytool.exe"
+        "${env:ProgramFiles}\Eclipse Foundation\jdk-*\bin\keytool.exe"
+    )
+    foreach ($pat in $candidates) {
+        $hit = Get-Item -Path $pat -ErrorAction SilentlyContinue | Sort-Object -Property FullName -Descending | Select-Object -First 1
+        if ($hit) {
+            return $hit.FullName
+        }
+    }
+    return $null
+}
 
 $DestRoot = "E:\Security\AttuneHelperCompanion"
 $KeystoreName = "attune-release.jks"
@@ -32,11 +53,16 @@ if (Test-Path -LiteralPath $KeystorePath) {
     exit 1
 }
 
-$kt = Get-Command keytool -ErrorAction SilentlyContinue
-if (-not $kt) {
-    Write-Error "keytool not found on PATH. Install a JDK (or add Android Studio's jbr\bin to PATH) and retry."
+$KeytoolExe = Get-KeytoolPath
+if (-not $KeytoolExe) {
+    Write-Error @"
+keytool not found. Install a JDK, then either:
+  winget install --id Microsoft.OpenJDK.17 -e
+or add Android Studio's jbr\bin to your user PATH, then open a new terminal.
+"@
     exit 1
 }
+Write-Host "Using: $KeytoolExe"
 
 $StorePass = New-SecurePassword
 $KeyPass = New-SecurePassword
@@ -44,7 +70,8 @@ $KeyPass = New-SecurePassword
 # Distinguished name: generic; you can re-generate with your own -dname if you prefer.
 $dname = "CN=Attune Helper Companion, OU=Release, O=Attune, C=US"
 
-& keytool -genkeypair -v `
+& $KeytoolExe -genkeypair -v `
+    -storetype JKS `
     -keystore $KeystorePath `
     -alias $Alias `
     -keyalg RSA -keysize 2048 -validity 10000 `

@@ -7,7 +7,15 @@ The script [scripts/generate-android-keystore.ps1](../scripts/generate-android-k
 - `E:\Security\AttuneHelperCompanion\attune-release.jks`
 - `E:\Security\AttuneHelperCompanion\CREDENTIALS-READ-ONCE-STORE-SAFELY.txt` (passwords + Base64 for `ANDROID_KEYSTORE_B64`)
 
-**Requirements:** `keytool` on your `PATH` (install a JDK, or add Android Studio’s JBR, e.g. `C:\Program Files\Android\Android Studio\jbr\bin`).
+**Requirements:** `keytool` from a JDK. If it is not on your `PATH`, the script still tries **Microsoft OpenJDK** and **Android Studio `jbr\bin`**.
+
+**Install OpenJDK 17 (includes `keytool`) with winget:**
+
+```powershell
+winget install --id Microsoft.OpenJDK.17 -e
+```
+
+(There is no separate `keytool` package: it ships inside the JDK.) Then either open a **new** terminal so `PATH` updates, or rely on the script’s path discovery.
 
 Run from the repo root:
 
