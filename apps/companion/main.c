@@ -803,7 +803,88 @@ static bool open_external_url(const char *url)
     return ahc_open_url_hidden(url);
 }
 
-static void draw_source_badge(Rectangle bounds, const AhcAddon *addon)
+static bool addon_url_for_author_link(const AhcAddon *addon, char *out, size_t out_capacity)
+{
+    if (!addon || !out || out_capacity == 0) {
+        return false;
+    }
+    char owner[128];
+    if (github_owner_from_repo(addon->repo, owner, sizeof(owner)) && owner[0]) {
+        snprintf(out, out_capacity, "https://github.com/%s", owner);
+        return true;
+    }
+    if (addon->page_url && addon->page_url[0]) {
+        snprintf(out, out_capacity, "%s", addon->page_url);
+        return true;
+    }
+    if (addon->repo && (strstr(addon->repo, "https://") || strstr(addon->repo, "http://"))) {
+        snprintf(out, out_capacity, "%s", addon->repo);
+        return true;
+    }
+    return false;
+}
+
+static bool addon_url_for_source_link(const AhcAddon *addon, char *out, size_t out_capacity)
+{
+    if (!addon || !out || out_capacity == 0) {
+        return false;
+    }
+    if (addon->page_url && addon->page_url[0]) {
+        snprintf(out, out_capacity, "%s", addon->page_url);
+        return true;
+    }
+    if (addon->repo && addon->repo[0] && (strstr(addon->repo, "https://") || strstr(addon->repo, "http://"))) {
+        if (addon_repo_is_zip_url(addon)) {
+            return false;
+        }
+        snprintf(out, out_capacity, "%s", addon->repo);
+        return true;
+    }
+    if (AHC_STRICMP(addon_source_label(addon), "Felbite") == 0) {
+        snprintf(out, out_capacity, "%s", "https://felbite.com/wow-3-3-5-addons/");
+        return true;
+    }
+    if (AHC_STRICMP(addon_source_label(addon), "Warperia") == 0) {
+        snprintf(out, out_capacity, "%s", "https://warperia.com/wotlk-addons/");
+        return true;
+    }
+    return false;
+}
+
+static void try_open_url_with_feedback(CompanionState *state, const char *url, const char *ok_action)
+{
+    if (open_external_url(url)) {
+        set_action_status(state, "Opened in browser.", ok_action ? ok_action : "Link opened");
+    } else {
+        set_action_status(state, "Could not open link in browser.", "Link failed");
+    }
+}
+
+static bool draw_interactive_text_link(int x, int y, int size, const char *text, const char *url)
+{
+    if (!text || !text[0] || !url || !url[0]) {
+        return false;
+    }
+    int tw = measure_text_width(text, size);
+    if (tw <= 0) {
+        return false;
+    }
+    Rectangle hit = { (float)x, (float)y, (float)tw, (float)size + 4.0f };
+    bool hovered = CheckCollisionPointRec(GetMousePosition(), hit);
+    Color base = (Color){ 150, 190, 240, 255 };
+    Color hi = (Color){ 200, 235, 255, 255 };
+    draw_text(text, x, y, size, hovered ? hi : base);
+    if (hovered) {
+        int ly = y + size;
+        DrawLine((int)hit.x, ly, (int)(hit.x + hit.width), ly, hi);
+    }
+    if (hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        return true;
+    }
+    return false;
+}
+
+static void draw_source_badge(CompanionState *state, Rectangle bounds, const AhcAddon *addon)
 {
     DrawRectangleRounded(bounds, 0.16f, 8, (Color){ 15, 25, 39, 255 });
     DrawRectangleRoundedLines(bounds, 0.16f, 8, (Color){ 98, 128, 166, 255 });
@@ -821,8 +902,31 @@ static void draw_source_badge(Rectangle bounds, const AhcAddon *addon)
         draw_text("GH", (int)bounds.x + 16, (int)bounds.y + 14, 14, (Color){ 22, 36, 54, 255 });
     }
 
-    draw_text(addon->author, (int)bounds.x + 44, (int)bounds.y + 8, 14, AHC_TEXT);
-    draw_text(addon_source_label(addon), (int)bounds.x + 44, (int)bounds.y + 27, 12, AHC_MUTED);
+    char author_url[AHC_PATH_CAPACITY];
+    char source_url[AHC_PATH_CAPACITY];
+    bool has_aurl = addon_url_for_author_link(addon, author_url, sizeof(author_url));
+    bool has_surl = addon_url_for_source_link(addon, source_url, sizeof(source_url));
+    int ax = (int)bounds.x + 44;
+    int auy = (int)bounds.y + 8;
+    int sx = (int)bounds.x + 44;
+    int suy = (int)bounds.y + 27;
+
+    if (has_aurl) {
+        if (draw_interactive_text_link(ax, auy, 14, addon->author, author_url)) {
+            try_open_url_with_feedback(state, author_url, "Author link");
+        }
+    } else {
+        draw_text(addon->author, ax, auy, 14, AHC_TEXT);
+    }
+
+    const char *slab = addon_source_label(addon);
+    if (has_surl) {
+        if (draw_interactive_text_link(sx, suy, 12, slab, source_url)) {
+            try_open_url_with_feedback(state, source_url, "Addon page");
+        }
+    } else {
+        draw_text(slab, sx, suy, 12, AHC_MUTED);
+    }
 }
 
 static bool addon_has_source_subdir(const AhcAddon *addon)
@@ -1332,10 +1436,65 @@ typedef struct AddonTocFolderList {
     size_t count;
 } AddonTocFolderList;
 
-static bool directory_contains_toc(const char *path, char *toc_name, size_t toc_name_capacity)
+static void toc_stem_from_file(const char *filename, char *out, size_t out_cap)
 {
+    const char *base = GetFileName(filename);
+    const char *dot = strrchr(base, '.');
+    if (dot) {
+        size_t len = (size_t)(dot - base);
+        if (len >= out_cap) {
+            len = out_cap - 1u;
+        }
+        memcpy(out, base, len);
+        out[len] = '\0';
+    } else {
+        out[0] = '\0';
+    }
+}
+
+static bool is_embedded_dependency_folder_name(const char *name)
+{
+    if (AHC_STRICMP(name, "libs") == 0) {
+        return true;
+    }
+    if (AHC_STRICMP(name, "lib") == 0) {
+        return true;
+    }
+    if (AHC_STRICMP(name, "libraries") == 0) {
+        return true;
+    }
+    if (AHC_STRICMP(name, "externals") == 0) {
+        return true;
+    }
+    if (AHC_STRICMP(name, "external") == 0) {
+        return true;
+    }
+    return false;
+}
+
+static bool pick_addon_basename_for_toc_folder(const char *path, char *basename, size_t basename_cap)
+{
+    if (!path || !basename || basename_cap == 0u) {
+        return false;
+    }
+
+    const char *dname = GetFileName(path);
+    char dname_toc_path[AHC_PATH_CAPACITY];
+    path_join(dname_toc_path, sizeof(dname_toc_path), path, dname);
+    {
+        size_t m = strlen(dname_toc_path);
+        if (m + 5u < sizeof(dname_toc_path)) {
+            snprintf(dname_toc_path + m, sizeof(dname_toc_path) - m, "%s", ".toc");
+        }
+    }
+    if (FileExists(dname_toc_path)) {
+        snprintf(basename, basename_cap, "%s", dname);
+        return true;
+    }
+
     FilePathList entries = LoadDirectoryFiles(path);
-    bool found = false;
+    char stems[32][128];
+    size_t stem_count = 0u;
     for (unsigned int i = 0; i < entries.count; i++) {
         const char *entry = entries.paths[i];
         if (DirectoryExists(entry)) {
@@ -1343,21 +1502,33 @@ static bool directory_contains_toc(const char *path, char *toc_name, size_t toc_
         }
         const char *name = GetFileName(entry);
         const char *dot = strrchr(name, '.');
-        if (dot && AHC_STRICMP(dot, ".toc") == 0) {
-            if (toc_name && toc_name_capacity > 0u) {
-                size_t len = (size_t)(dot - name);
-                if (len >= toc_name_capacity) {
-                    len = toc_name_capacity - 1u;
-                }
-                memcpy(toc_name, name, len);
-                toc_name[len] = '\0';
-            }
-            found = true;
-            break;
+        if (!dot || AHC_STRICMP(dot, ".toc") != 0) {
+            continue;
+        }
+        if (stem_count < 32u) {
+            toc_stem_from_file(name, stems[stem_count], sizeof(stems[stem_count]));
+            stem_count++;
         }
     }
     UnloadDirectoryFiles(entries);
-    return found;
+
+    if (stem_count == 0u) {
+        return false;
+    }
+    if (stem_count == 1u) {
+        snprintf(basename, basename_cap, "%s", stems[0]);
+        return true;
+    }
+
+    for (size_t s = 0; s < stem_count; s++) {
+        if (AHC_STRICMP(stems[s], dname) == 0) {
+            snprintf(basename, basename_cap, "%s", stems[s]);
+            return true;
+        }
+    }
+
+    snprintf(basename, basename_cap, "%s", stems[0]);
+    return true;
 }
 
 static void find_toc_folders_recursive(const char *root, AddonTocFolderList *folders, int depth)
@@ -1366,11 +1537,25 @@ static void find_toc_folders_recursive(const char *root, AddonTocFolderList *fol
         return;
     }
 
-    char toc_name[128];
-    if (directory_contains_toc(root, toc_name, sizeof(toc_name))) {
+    char base_name[128];
+    if (pick_addon_basename_for_toc_folder(root, base_name, sizeof(base_name))) {
         snprintf(folders->paths[folders->count], sizeof(folders->paths[folders->count]), "%s", root);
-        snprintf(folders->names[folders->count], sizeof(folders->names[folders->count]), "%s", toc_name[0] ? toc_name : GetFileName(root));
+        snprintf(folders->names[folders->count], sizeof(folders->names[folders->count]), "%s", base_name[0] ? base_name : GetFileName(root));
         folders->count++;
+
+        FilePathList sub = LoadDirectoryFiles(root);
+        for (unsigned int j = 0; j < sub.count && folders->count < 32u; j++) {
+            const char *entry = sub.paths[j];
+            const char *name = GetFileName(entry);
+            if (!DirectoryExists(entry) || AHC_STRICMP(name, ".git") == 0 || AHC_STRICMP(name, ".github") == 0) {
+                continue;
+            }
+            if (is_embedded_dependency_folder_name(name)) {
+                continue;
+            }
+            find_toc_folders_recursive(entry, folders, depth + 1);
+        }
+        UnloadDirectoryFiles(sub);
         return;
     }
 
@@ -2899,6 +3084,16 @@ static void draw_window_chrome(CompanionState *state)
     Rectangle rmin = { (float)sw - 148.0f, 4.0f, 40.0f, 28.0f };
     Rectangle rfull = { (float)sw - 100.0f, 4.0f, 40.0f, 28.0f };
     Rectangle rclose = { (float)sw - 52.0f, 4.0f, 40.0f, 28.0f };
+    Vector2 chrome_mouse = GetMousePosition();
+    if (CheckCollisionPointRec(chrome_mouse, rmin)) {
+        DrawRectangleRoundedLinesEx(rmin, 0.2f, 6, 2.0f, (Color){ 150, 200, 255, 200 });
+    }
+    if (CheckCollisionPointRec(chrome_mouse, rfull)) {
+        DrawRectangleRoundedLinesEx(rfull, 0.2f, 6, 2.0f, (Color){ 150, 200, 255, 200 });
+    }
+    if (CheckCollisionPointRec(chrome_mouse, rclose)) {
+        DrawRectangleRoundedLinesEx(rclose, 0.2f, 6, 2.0f, (Color){ 150, 200, 255, 200 });
+    }
     bool press_min = draw_wow_button("_", rmin, false, 16);
     bool press_full = draw_wow_button(IsWindowFullscreen() ? "[]-" : "[]", rfull, IsWindowFullscreen(), 15);
     bool press_close = draw_wow_button("X", rclose, false, 16);
@@ -3570,7 +3765,19 @@ static void draw_tooltip_box(const char *text, Rectangle anchor)
 
 static void draw_status_icon(Rectangle bounds, bool installed, bool managed)
 {
+    bool hovered = CheckCollisionPointRec(GetMousePosition(), bounds);
+    if (hovered) {
+        float cx = bounds.x + bounds.width * 0.5f;
+        float cy = bounds.y + bounds.height * 0.5f;
+        DrawCircleLines((int)cx, (int)cy, bounds.width * 0.5f, (Color){ 200, 224, 255, 200 });
+    }
     Color color = !installed ? (Color){ 210, 72, 78, 255 } : (managed ? (Color){ 92, 214, 143, 255 } : (Color){ 232, 194, 83, 255 });
+    if (hovered) {
+        int rr = (int)color.r + 28;
+        int gg = (int)color.g + 28;
+        int bb = (int)color.b + 22;
+        color = (Color){ (unsigned char)(rr > 255 ? 255 : rr), (unsigned char)(gg > 255 ? 255 : gg), (unsigned char)(bb > 255 ? 255 : bb), 255 };
+    }
     const char *label = !installed ? "X" : (managed ? "OK" : "!");
     DrawCircle((int)(bounds.x + bounds.width * 0.5f), (int)(bounds.y + bounds.height * 0.5f), bounds.width * 0.42f, color);
     draw_centered_text(label, bounds, 12, (Color){ 10, 18, 28, 255 });
@@ -3588,12 +3795,41 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_
     Rectangle badge = { bounds.x + bounds.width - 178.0f, bounds.y + 8.0f, 166.0f, 46.0f };
     DrawRectangleRounded(bounds, 0.035f, 8, hovered ? AHC_PANEL_HOVER : AHC_PANEL);
     DrawRectangleRoundedLines(bounds, 0.035f, 8, hovered ? AHC_BORDER_BRIGHT : AHC_BORDER);
-    draw_source_badge(badge, addon);
+    draw_source_badge(state, badge, addon);
     draw_text(addon->name, (int)bounds.x + 16, (int)bounds.y + 10, 21, AHC_TEXT);
 
-    char meta[320];
-    snprintf(meta, sizeof(meta), "%s  |  By %s  |  Folder: %s", addon_source_label(addon), addon->author, addon->folder);
-    draw_text(meta, (int)bounds.x + 48, (int)bounds.y + 39, 15, AHC_MUTED);
+    {
+        int mx = (int)bounds.x + 48;
+        int my = (int)bounds.y + 39;
+        int ms = 15;
+        const char *sep0 = "  |  By ";
+        const char *sep1 = "  |  Folder: ";
+        char aurlb[AHC_PATH_CAPACITY];
+        char surlb[AHC_PATH_CAPACITY];
+        bool a_link = addon_url_for_author_link(addon, aurlb, sizeof(aurlb));
+        const char *src = addon_source_label(addon);
+        if (addon_url_for_source_link(addon, surlb, sizeof(surlb))) {
+            if (draw_interactive_text_link(mx, my, ms, src, surlb)) {
+                try_open_url_with_feedback(state, surlb, "Addon page");
+            }
+        } else {
+            draw_text(src, mx, my, ms, AHC_MUTED);
+        }
+        mx += measure_text_width(src, ms);
+        draw_text(sep0, mx, my, ms, AHC_MUTED);
+        mx += measure_text_width(sep0, ms);
+        if (a_link) {
+            if (draw_interactive_text_link(mx, my, ms, addon->author, aurlb)) {
+                try_open_url_with_feedback(state, aurlb, "Author link");
+            }
+        } else {
+            draw_text(addon->author, mx, my, ms, AHC_MUTED);
+        }
+        mx += measure_text_width(addon->author, ms);
+        draw_text(sep1, mx, my, ms, AHC_MUTED);
+        mx += measure_text_width(sep1, ms);
+        draw_text(addon->folder, mx, my, ms, AHC_MUTED);
+    }
     char category_line[128];
     addon_category_line(addon, category_line, sizeof(category_line));
     Rectangle category_icon = { bounds.x + 16.0f, bounds.y + 36.0f, 24.0f, 24.0f };
@@ -3668,9 +3904,19 @@ static void draw_community_favorite_card(CompanionState *state, const AhcAddon *
     DrawRectangleRoundedLines(bounds, 0.08f, 8, AHC_BORDER);
     draw_wrapped_text(addon->name, (int)bounds.x + 12, (int)bounds.y + 10, 17, (int)bounds.width - 86, 1, AHC_TEXT);
     draw_status_icon((Rectangle){ bounds.x + bounds.width - 32.0f, bounds.y + 10.0f, 22.0f, 22.0f }, install_status.installed, install_status.managed);
-    char byline[96];
-    snprintf(byline, sizeof(byline), "By %s", addon->author);
-    draw_text(byline, (int)bounds.x + 12, (int)bounds.y + 34, 13, AHC_MUTED);
+    int byx = (int)bounds.x + 12;
+    int byy = (int)bounds.y + 34;
+    const char *byp = "By ";
+    draw_text(byp, byx, byy, 13, AHC_MUTED);
+    byx += measure_text_width(byp, 13);
+    char ahref[AHC_PATH_CAPACITY];
+    if (addon_url_for_author_link(addon, ahref, sizeof(ahref))) {
+        if (draw_interactive_text_link(byx, byy, 13, addon->author, ahref)) {
+            try_open_url_with_feedback(state, ahref, "Author link");
+        }
+    } else {
+        draw_text(addon->author, byx, byy, 13, AHC_MUTED);
+    }
     draw_wrapped_text(description, (int)bounds.x + 12, (int)bounds.y + 56, 13, (int)bounds.width - 24, 2, AHC_ACCENT);
     const char *label = install_status.installed ? (install_status.managed ? "Update" : "Replace") : "Install";
     if (draw_wow_button(label, (Rectangle){ bounds.x + bounds.width - 82.0f, bounds.y + bounds.height - 34.0f, 70.0f, 26.0f }, state->addon_job_running != 0, 13)) {

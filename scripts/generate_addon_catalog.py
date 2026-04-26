@@ -8,7 +8,7 @@ from typing import Any
 
 
 REQUIRED_STRING_FIELDS = ("name", "author", "category", "folder", "repo", "description")
-OPTIONAL_STRING_FIELDS = ("source_subdir", "avatar_url", "version", "source")
+OPTIONAL_STRING_FIELDS = ("source_subdir", "avatar_url", "version", "source", "page_url")
 
 
 class ManifestError(Exception):
@@ -127,6 +127,7 @@ def generate_c(addons: list[dict[str, Any]]) -> str:
             optional_string(addon, "avatar_url"),
             optional_string(addon, "version"),
             optional_string(addon, "source"),
+            optional_string(addon, "page_url"),
         ]
         rendered = ", ".join(c_string(value) for value in fields)
         category_count = len(addon_categories(addon, index))

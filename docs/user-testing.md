@@ -1,5 +1,7 @@
 # User Testing Checklist
 
+**Automated coverage:** Core and library behavior is exercised by CTest in CI and locally (`build-test.bat`, `build-app.bat`, or `bash scripts/ci-build.sh`). **This document** is for manual, production-style checks the automated suite does not cover (tray, fullscreen, catalog UX, and real game folder integration).
+
 Use a Release build of `attune_helper_companion.exe` from `build/` or a GitHub Actions artifact.
 
 ## Startup

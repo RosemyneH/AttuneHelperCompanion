@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .cursor/hooks/after-c-edit-test.ps1",
+        "timeout": 600,
+        "failClosed": false
+      }
+    ]
+  }
+}

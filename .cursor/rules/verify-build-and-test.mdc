@@ -1,0 +1,15 @@
+---
+description: After native or build changes, verify with build + ctest
+alwaysApply: true
+---
+
+# Build and test verification
+
+- **Incremental (Windows)**: from repo root, `verify-incremental.bat` (uses `build` or `%AHC_BUILD_DIR%`). Needs an existing configure (`CMakeCache.txt`); otherwise run `build-test.bat` or `build-app.bat` once.
+- **Full local**: `build-test.bat` (core + tests) or `build-app.bat` (app, tests, starts the exe after a successful test run).
+- **CI parity (Linux/macOS/Git Bash)**: `bash scripts/ci-build.sh` (Release + LTO, app on, ctest, `generate_addon_catalog.py --check`).
+- **Manifest or generator**: `python scripts/generate_addon_catalog.py --check` before merging anything that changes `manifest/addons.json` or the script.
+
+**Cursor**: `.cursor/hooks.json` runs the incremental test flow on `.c`/`.h` edits (see `AGENTS.md`). Failing ctest does not block the save; fix failures before finishing the task.
+
+**UI / tray / app behavior** is not covered by CTest; use [docs/user-testing.md](docs/user-testing.md) for manual production checks.

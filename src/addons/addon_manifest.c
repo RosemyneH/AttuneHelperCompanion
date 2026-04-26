@@ -25,6 +25,7 @@ typedef struct AddonFields {
     char *source_subdir;
     char *avatar_url;
     char *version;
+    char *page_url;
     char *install_url;
 } AddonFields;
 
@@ -135,6 +136,7 @@ static void ahc_compact_manifest_string_arena(
         rebase_string_ptr(&x->avatar_url, ob, new_block, u);
         rebase_string_ptr(&x->version, ob, new_block, u);
         rebase_string_ptr(&x->source, ob, new_block, u);
+        rebase_string_ptr(&x->page_url, ob, new_block, u);
         rebase_ptr((const void **)&x->categories, ob, new_block, u);
         for (size_t j = 0; j < x->category_count; j++) {
             rebase_string_ptr(&x->categories[j], ob, new_block, u);
@@ -698,6 +700,14 @@ static const char *parse_addon_object(
                 return NULL;
             }
             set_field_arena(arena, &fields.version, value);
+        } else if (strcmp(key, "page_url") == 0) {
+            char *value = NULL;
+            if (!parse_json_string(&cursor, &value)) {
+                free(key);
+                clear_addon_fields(&fields);
+                return NULL;
+            }
+            set_field_arena(arena, &fields.page_url, value);
         } else if (strcmp(key, "install") == 0) {
             cursor = parse_install_object(arena, cursor, &fields);
             if (!cursor) {
@@ -772,6 +782,7 @@ static const char *parse_addon_object(
     addon.source_subdir = fields.source_subdir;
     addon.avatar_url = fields.avatar_url;
     addon.version = fields.version;
+    addon.page_url = fields.page_url;
     addon.categories = fields.categories;
     addon.category_count = fields.category_count;
     fields.source = NULL;

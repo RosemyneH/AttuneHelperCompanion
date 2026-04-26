@@ -49,6 +49,10 @@ echo Building app and tests.
 cmake --build "%BUILD_DIR%"
 if errorlevel 1 exit /b 1
 
+echo Running ctest.
+ctest --test-dir "%BUILD_DIR%" --output-on-failure
+if errorlevel 1 exit /b 1
+
 echo App build completed successfully.
 if not exist "%APP_EXE%" (
     echo Expected app executable was not found: %APP_EXE%

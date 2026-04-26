@@ -198,12 +198,26 @@ if(AHC_BUILD_TESTS)
     add_executable(addon_manifest_test
         tests/addon_manifest_test.c
     )
+    add_executable(ahc_arena_test
+        tests/ahc_arena_test.c
+    )
+    add_executable(ahc_find_literal_test
+        tests/ahc_find_literal_test.c
+    )
 
     target_link_libraries(attune_snapshot_test
         PRIVATE
             ahc_core
     )
     target_link_libraries(addon_manifest_test
+        PRIVATE
+            ahc_core
+    )
+    target_link_libraries(ahc_arena_test
+        PRIVATE
+            ahc_core
+    )
+    target_link_libraries(ahc_find_literal_test
         PRIVATE
             ahc_core
     )
@@ -220,9 +234,13 @@ if(AHC_BUILD_TESTS)
     if(MSVC)
         target_compile_options(attune_snapshot_test PRIVATE /W4)
         target_compile_options(addon_manifest_test PRIVATE /W4)
+        target_compile_options(ahc_arena_test PRIVATE /W4)
+        target_compile_options(ahc_find_literal_test PRIVATE /W4)
     else()
         target_compile_options(attune_snapshot_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(addon_manifest_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(ahc_arena_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(ahc_find_literal_test PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     if(AHC_OPT_PROFILE STREQUAL "sanitize" AND NOT MSVC)
@@ -230,8 +248,14 @@ if(AHC_BUILD_TESTS)
         target_link_options(attune_snapshot_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(addon_manifest_test PRIVATE -fsanitize=address,undefined -g)
         target_link_options(addon_manifest_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(ahc_arena_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(ahc_arena_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(ahc_find_literal_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(ahc_find_literal_test PRIVATE -fsanitize=address,undefined)
     endif()
 
     add_test(NAME attune_snapshot_test COMMAND attune_snapshot_test)
     add_test(NAME addon_manifest_test COMMAND addon_manifest_test)
+    add_test(NAME ahc_arena_test COMMAND ahc_arena_test)
+    add_test(NAME ahc_find_literal_test COMMAND ahc_find_literal_test)
 endif()

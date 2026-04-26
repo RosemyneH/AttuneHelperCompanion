@@ -14,6 +14,7 @@
       "author": "Scoots",
       "category": "Inventory",
       "folder": "ArkInventory",
+      "source_subdir": "src",
       "description": "Adds support for attunements.",
       "repo": "https://github.com/SynScoots/ArkInventory-modified-for-attunements-.git",
       "install": {
@@ -609,7 +610,7 @@
       "id": "qtrunner",
       "name": "qtRunner",
       "author": "RosemyneH",
-      "category": "Dungeon",
+      "category": "Map",
       "folder": "qtRunner",
       "source_subdir": "qtRunner",
       "description": "Dungeon runner helper with bindings and run tracking.",
@@ -626,7 +627,12 @@
       },
       "direct_zip": null,
       "avatar_url": "https://github.com/RosemyneH.png?size=96",
-      "version": "banana"
+      "version": "banana",
+      "categories": [
+        "Map",
+        "Quality of Life",
+        "Utility"
+      ]
     },
     {
       "id": "questie-335",
