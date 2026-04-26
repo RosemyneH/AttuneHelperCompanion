@@ -32,7 +32,9 @@ The workflow [`.github/workflows/build.yml`](../.github/workflows/build.yml) inc
 
 - Checks out the repository
 - Sets up JDK 17 and the Android SDK (`android-actions/setup-android`)
-- Runs `assembleDebug` in `android/`
+- Uses **`gradle/actions/setup-gradle`** (Gradle user home + caching), then runs `./gradlew assembleDebug` with `working-directory: android` (not the deprecated `gradle-build-action` + `arguments` pattern)
 - Uploads the artifact **`attune_helper_companion_android`** (the debug APK)
+
+If **cache save** steps occasionally warn with GitHub’s “services aren’t available right now”, that is an infrastructure outage on the runner side, not a misconfiguration of this repo.
 
 Releases for tags `v*` also attach the same debug APK to the GitHub Release. The plan [`.cursor/plans/android_pipeline_and_autologin_5f53a863.plan.md`](../.cursor/plans/android_pipeline_and_autologin_5f53a863.plan.md) keeps a short summary of the job name, trigger, and artifact for discoverability.
