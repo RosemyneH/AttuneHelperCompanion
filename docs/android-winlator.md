@@ -18,7 +18,7 @@ Use the **Windows** or **Linux** build in the same environment that can run **Wo
 
 ## Path B — Android host, game in a guest (split worlds)
 
-1. The **Android** build in this repo is currently a **stub** (no full companion UI on device).
+1. The **Android** build in this repo is currently a **stub** (no full raylib UI; the main screen explains that WoW is not run natively and points to **Winlator’s official project** for users who need a Windows-in-a-box layer). Forks and other emulators are not wired in; users choose their own trusted source.
 2. A typical future shape is: **read-only** catalog / docs on the phone + **sideloaded** Windows/Linux companion, or a **remote** session (VNC, Steam Remote Play, or your own) where the real launcher runs.
 
 Risks: no shared DPAPI between Android and a random guest Windows user; do not expect **wow_autologin.cred** from the desktop to “just work” across that boundary.

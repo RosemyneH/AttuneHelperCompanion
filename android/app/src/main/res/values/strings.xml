@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Attune Helper</string>
+    <string name="android_winlator_title">Run WoW on this device?</string>
+    <string name="android_winlator_body">This app does not bundle a Windows or Wine environment. If you want Classic WoW on Android, you need something like Winlator (or another trusted project you choose), then run the Windows build of the companion and the game inside that guest. If you do not have such an app yet, install one from a source you trust (for many users, that is the official Winlator project).</string>
+    <string name="android_open_winlator_project">Open Winlator (official)</string>
+    <string name="android_see_docs">The project docs list other paths and caveats (forks, guests, and credentials).</string>
 </resources>
