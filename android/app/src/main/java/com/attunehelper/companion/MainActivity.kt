@@ -25,6 +25,7 @@ import androidx.lifecycle.lifecycleScope
 import com.attunehelper.companion.addon.AddonInstall
 import com.attunehelper.companion.data.AttuneHistoryStore
 import com.attunehelper.companion.nfc.AhcNfcHelper
+import com.attunehelper.companion.nfc.NfcNdefPushCompat
 import com.attunehelper.companion.saf.SynastriaFolder
 import com.attunehelper.companion.sync.AttuneSyncCodec
 import com.attunehelper.companion.util.QrBitmaps
@@ -131,7 +132,7 @@ class MainActivity : AppCompatActivity() {
         if (nfcAdapter == null) {
             return
         }
-        nfcAdapter?.setNdefPushMessage(nfcPrepared, this, null)
+        NfcNdefPushCompat.set(nfcAdapter, nfcPrepared, this)
         if (nfcAdapter?.isEnabled != true) {
             return
         }
@@ -159,7 +160,7 @@ class MainActivity : AppCompatActivity() {
             nfcAdapter?.disableForegroundDispatch(this)
         } catch (e: Exception) {
         }
-        nfcAdapter?.setNdefPushMessage(null, this, null)
+        NfcNdefPushCompat.set(nfcAdapter, null, this)
     }
 
     private fun configureNfcSection() {
@@ -208,7 +209,7 @@ class MainActivity : AppCompatActivity() {
                 AhcNfcHelper.buildPushNdef(full, oneDay, lua)
             }
             nfcPrepared = nfcMsg
-            nfcAdapter?.setNdefPushMessage(nfcMsg, this@MainActivity, null)
+            NfcNdefPushCompat.set(nfcAdapter, nfcMsg, this@MainActivity)
             findViewById<TextView>(R.id.text_nfc_status).setText(R.string.nfc_prepared)
         }
     }

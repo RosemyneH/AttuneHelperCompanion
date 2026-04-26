@@ -76,8 +76,7 @@ object AhcNfcHelper {
             if (n !is NdefMessage) {
                 continue
             }
-            for (i in 0 until n.getNdefRecordCount()) {
-                val r = n.getNdefAt(i)
+            for (r in n.records) {
                 if (r.tnf != NdefRecord.TNF_MIME_MEDIA) {
                     continue
                 }

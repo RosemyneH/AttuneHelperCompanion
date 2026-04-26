@@ -90,8 +90,9 @@ object AttuneHelperLuaParser {
         if (!found || date == null) {
             return null
         }
+        val d = requireNotNull(date)
         return AttuneSnapshot(
-            date = date,
+            date = d,
             account = account,
             warforged = war,
             lightforged = light,
