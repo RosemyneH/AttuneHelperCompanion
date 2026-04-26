@@ -8,6 +8,8 @@
 #include "addons/addon_catalog.h"
 #include "addons/addon_manifest.h"
 #include "attune/attune_snapshot.h"
+#include "attune/attune_sync_codec.h"
+#include "qrcodegen.h"
 #include "ahc/ahc_wow_autologin.h"
 #include "ahc_process.h"
 #include "ahc_credentials.h"
@@ -191,7 +193,11 @@ typedef struct CompanionState {
     bool wow_windowed;
     bool wow_borderless;
     int ui_scale_index;
+    Texture2D phone_qr_tx;
+    bool phone_qr_valid;
 } CompanionState;
+
+static void companion_dispose_phone_qr(CompanionState *state);
 
 static const Color AHC_BACKGROUND = { 7, 12, 20, 255 };
 static const Color AHC_BACKGROUND_TOP = { 19, 31, 48, 255 };
@@ -3279,6 +3285,7 @@ static void clear_companion_data(CompanionState *state)
     memset(&state->snapshot, 0, sizeof(state->snapshot));
     reset_wow_config_fields(state);
     state->clear_data_confirming = false;
+    companion_dispose_phone_qr(state);
     set_action_status(state, "Cleared local companion settings and attune history.", "Companion data cleared");
 }
 
@@ -3419,7 +3426,7 @@ static void draw_tabs(CompanionState *state)
     const float width = sf(128.0f);
     const float height = sf(34.0f);
     const float gap = sf(10.0f);
-    if (draw_tab_button("Attunes", (Rectangle){ x, y, width, height }, state->tab == COMPANION_TAB_ATTUNES)) {
+    if (draw_tab_button("Attune chart", (Rectangle){ x, y, width, height }, state->tab == COMPANION_TAB_ATTUNES)) {
         state->tab = COMPANION_TAB_ATTUNES;
     }
     if (draw_tab_button("Addons", (Rectangle){ x + width + gap, y, width, height }, state->tab == COMPANION_TAB_ADDONS)) {
@@ -3638,7 +3645,7 @@ static bool draw_metric_chip(const char *label, Rectangle bounds, bool active)
 
 static void draw_graph_card(CompanionState *state, Rectangle bounds)
 {
-    draw_card(bounds, "Daily attune history");
+    draw_card(bounds, "Attune chart");
 
     const float chip_gap = 8.0f;
     const float total_chip_width = 92.0f + 52.0f + 52.0f + 52.0f + chip_gap * 3.0f;
@@ -3806,6 +3813,114 @@ static void draw_graph_card(CompanionState *state, Rectangle bounds)
     }
 }
 
+static void companion_dispose_phone_qr(CompanionState *state)
+{
+    if (state->phone_qr_valid) {
+        UnloadTexture(state->phone_qr_tx);
+        state->phone_qr_valid = false;
+    }
+}
+
+static void companion_refresh_phone_qr(CompanionState *state)
+{
+    if (state->history_count == 0) {
+        set_action_status(state, "No attune history yet. Scan a snapshot first.", "No history");
+        return;
+    }
+    const AhcDailyAttuneSnapshot *last = &state->history[state->history_count - 1U];
+    char text[256];
+    if (ahc_sync_encode_one_day_qr(last, text, sizeof text) < 0) {
+        set_action_status(state, "Could not build QR payload.", "QR build failed");
+        return;
+    }
+    size_t bmax = (size_t)qrcodegen_BUFFER_LEN_MAX;
+    uint8_t *tempb = (uint8_t *)malloc(bmax);
+    uint8_t *qrcodeb = (uint8_t *)malloc(bmax);
+    if (tempb == NULL || qrcodeb == NULL) {
+        free(tempb);
+        free(qrcodeb);
+        set_action_status(state, "Out of memory for QR.", "QR failed");
+        return;
+    }
+    if (!qrcodegen_encodeText(
+            text,
+            tempb,
+            qrcodeb,
+            qrcodegen_Ecc_MEDIUM,
+            qrcodegen_VERSION_MIN,
+            qrcodegen_VERSION_MAX,
+            qrcodegen_Mask_AUTO,
+            true)) {
+        free(tempb);
+        free(qrcodeb);
+        set_action_status(state, "QR is too large for the encoder (unexpected).", "QR failed");
+        return;
+    }
+    int qsize = qrcodegen_getSize(qrcodeb);
+    if (qsize <= 0) {
+        free(tempb);
+        free(qrcodeb);
+        return;
+    }
+    int scale = 5;
+    int px = qsize * scale;
+    Image im = GenImageColor(px, px, (Color){ 255, 255, 255, 255 });
+    for (int y = 0; y < qsize; y++) {
+        for (int x = 0; x < qsize; x++) {
+            Color c = qrcodegen_getModule(qrcodeb, x, y) ? (Color){ 0, 0, 0, 255 } : (Color){ 255, 255, 255, 255 };
+            for (int dy = 0; dy < scale; dy++) {
+                for (int dx = 0; dx < scale; dx++) {
+                    ImageDrawPixel(&im, x * scale + dx, y * scale + dy, c);
+                }
+            }
+        }
+    }
+    free(tempb);
+    free(qrcodeb);
+    companion_dispose_phone_qr(state);
+    state->phone_qr_tx = LoadTextureFromImage(im);
+    UnloadImage(im);
+    if (!IsTextureValid(state->phone_qr_tx)) {
+        set_action_status(state, "Could not create QR image.", "QR failed");
+        return;
+    }
+    state->phone_qr_valid = true;
+    set_action_status(
+        state,
+        "Scan with Attune Helper on your phone. QR is latest day only; use Copy for full AHC1 history.",
+        "QR ready");
+}
+
+static void companion_copy_full_sync(CompanionState *state)
+{
+    if (state->history_count == 0) {
+        set_action_status(state, "No attune history to export.", "Nothing to copy");
+        return;
+    }
+    size_t cap = 2U * 1024U * 1024U + 64U;
+    char *buf = (char *)malloc(cap);
+    if (buf == NULL) {
+        set_action_status(state, "Out of memory for full sync string.", "Copy failed");
+        return;
+    }
+    int n = ahc_sync_encode_full_history(state->history, state->history_count, buf, cap);
+    if (n < 0) {
+        free(buf);
+        set_action_status(
+            state,
+            "Full sync string is too large. Reduce how much history the companion keeps, then retry.",
+            "Copy failed");
+        return;
+    }
+    buf[n] = '\0';
+    SetClipboardText(buf);
+    free(buf);
+    set_action_status(
+        state,
+        "Full sync (AHC1) copied. Paste in Android or another device’s companion to merge.",
+        "Copied AHC1");
+}
+
 static void draw_attunes_tab(CompanionState *state)
 {
     Rectangle content = content_rect();
@@ -3831,11 +3946,22 @@ static void draw_attunes_tab(CompanionState *state)
     draw_graph_card(state, graph_bounds);
 
     float button_y = content.y + card_height + button_gap;
-    if (draw_wow_button("Scan now", (Rectangle){ content.x, button_y, 166.0f, button_height }, false, 18)) {
+    if (draw_wow_button("Scan now", (Rectangle){ content.x, button_y, 150.0f, button_height }, false, 18)) {
         scan_attunehelper_snapshot(state);
     }
-    if (draw_wow_button("Seed test data", (Rectangle){ content.x + 180.0f, button_y, 180.0f, button_height }, false, 18)) {
+    if (draw_wow_button("Show QR (phone)", (Rectangle){ content.x + 168.0f, button_y, 196.0f, button_height }, false, 16)) {
+        companion_refresh_phone_qr(state);
+    }
+    if (draw_wow_button("Copy AHC1", (Rectangle){ content.x + 380.0f, button_y, 150.0f, button_height }, false, 16)) {
+        companion_copy_full_sync(state);
+    }
+    if (draw_wow_button("Seed test data", (Rectangle){ content.x + 546.0f, button_y, 180.0f, button_height }, false, 18)) {
         seed_test_history(state);
+    }
+    if (state->phone_qr_valid && IsTextureValid(state->phone_qr_tx)) {
+        float qy = button_y + button_height + 12.0f;
+        float qscale = 1.5f;
+        DrawTextureEx(state->phone_qr_tx, (Vector2){ content.x, qy }, 0.0f, qscale, WHITE);
     }
 }
 
@@ -4766,6 +4892,7 @@ int main(void)
         }
     }
     CloseWindow();
+    companion_dispose_phone_qr(&state);
     ahc_addon_manifest_free(&state.addon_manifest);
     if (g_has_ui_font) {
         UnloadFont(g_ui_font);

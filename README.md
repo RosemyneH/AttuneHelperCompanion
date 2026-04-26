@@ -127,10 +127,22 @@ Tray behavior, fullscreen, add-ons tab UX, and real Synastria folder integration
 | [docs/android-winlator.md](docs/android-winlator.md) | Android + Winlator integration paths (A / B / C) |
 | [docs/android-signing.md](docs/android-signing.md) | Release keystore and GitHub Actions secrets |
 | [AGENTS.md](AGENTS.md) | Contributor/agent notes (hooks, verify commands) |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute, what to run before a PR, license |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community code of conduct |
+| [SECURITY.md](SECURITY.md) | How to report security issues responsibly |
 
 ---
 
 ## Contributing
 
-- Validate the add-on catalog when you change [manifest/addons.json](manifest/addons.json) or the generator: `python scripts/generate_addon_catalog.py --check`.
-- Follow the build commands above before merging C/CMake/manifest or Android resource changes; see [.cursor/rules/verify-build-and-test.mdc](.cursor/rules/verify-build-and-test.mdc) and [AGENTS.md](AGENTS.md) for the project’s verification expectations.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, the [code of conduct](CODE_OF_CONDUCT.md), and PR/issue expectations. Quick checks: add-on catalog `python scripts/generate_addon_catalog.py --check` when the manifest or generator changes; [verify build and test](.cursor/rules/verify-build-and-test.mdc) and [AGENTS.md](AGENTS.md) for local verification.
+
+---
+
+## GitHub metadata (for maintainers)
+
+The [description](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-settings-for-your-repository#adding-a-repository-description) is set in **Settings → General** (not in git). Suggested one-liner for **About**:
+
+*Native C + Android companion for Synastria: local add-on management, AttuneHelper daily snapshots, optional autologin; data stays on your machine. GPL-3.0.*
+
+Optional [topics](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings#adding-topics) for search: e.g. `synastria`, `wow`, `attune`, `raylib`, `android`, `cmake`, `game-addon`. Issue forms and the PR template are under [`.github/`](.github/). In **Settings → [Code security]**, enable [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability) so [SECURITY.md](SECURITY.md) can be fully effective on GitHub.

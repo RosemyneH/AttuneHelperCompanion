@@ -49,6 +49,7 @@ import com.google.android.material.navigationrail.NavigationRailView
 import com.google.android.material.textfield.TextInputEditText
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanIntentResult
+import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -112,7 +113,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { ok: Boolean ->
         if (ok) {
-            scanQr.launch(null)
+            launchQrScan()
         } else {
             Toast.makeText(this, "Camera permission is needed to scan a QR code.", Toast.LENGTH_LONG).show()
         }
@@ -154,7 +155,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_play_winlator).setOnClickListener { openWinlator() }
         findViewById<MaterialButton>(R.id.btn_nfc_prepare).setOnClickListener { prepareNfcPush() }
 
-        showSection(R.id.section_catalog)
+        showSection(R.id.section_sync)
         updateTreeLabel()
         refreshAttuneText()
         loadAddonCatalog()
@@ -210,7 +211,7 @@ class MainActivity : AppCompatActivity() {
             R.id.section_sync -> R.id.nav_menu_sync
             R.id.section_transfer -> R.id.nav_menu_transfer
             R.id.section_play -> R.id.nav_menu_play
-            else -> R.id.nav_menu_catalog
+            else -> R.id.nav_menu_sync
         }
         val rail = findViewById<NavigationRailView>(R.id.navigation_rail)
         if (rail.selectedItemId != menuId) {
@@ -484,9 +485,32 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "QR encodes the latest day only: ${last.date}.", Toast.LENGTH_LONG).show()
     }
 
+    private fun buildScanOptions(): ScanOptions {
+        return ScanOptions()
+            .setBeepEnabled(false)
+            .setOrientationLocked(false)
+    }
+
+    private fun launchQrScan() {
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+            Toast.makeText(this, "This device has no camera.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val opts = buildScanOptions()
+        try {
+            scanQr.launch(opts)
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Could not open the scanner: ${e.message ?: e.javaClass.simpleName}",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
     private fun onScanQrClicked() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            scanQr.launch(null)
+            launchQrScan()
         } else {
             requestCamera.launch(Manifest.permission.CAMERA)
         }

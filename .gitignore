@@ -31,3 +31,5 @@ android/captures/
 *.jks
 *.keystore
 android/keystore.properties
+# Local Android SDK path (per-machine; never commit)
+android/local.properties

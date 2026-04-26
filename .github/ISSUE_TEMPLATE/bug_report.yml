@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a defect in the desktop app, core library, build, or Android app
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security:** if you are reporting a vulnerability, do not use this form. Open **SECURITY.md** in the repository root and follow the reporting steps there.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong, in one short paragraph.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop (raylib)
+        - Core C library (ahc_c) / tests
+        - Add-on catalog / manifest
+        - Android (Kotlin)
+        - Build / CI
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: Version / context
+      description: OS, app or commit, Android version if applicable.
+      placeholder: e.g. Windows 11, built from `main` @ abc123, or v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true

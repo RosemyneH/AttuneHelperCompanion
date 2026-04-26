@@ -56,6 +56,8 @@ add_library(ahc_core
     "${AHC_GENERATED_ADDON_CATALOG}"
     src/addons/addon_manifest.c
     src/attune/attune_snapshot.c
+    src/attune/attune_sync_codec.c
+    third_party/miniz/miniz.c
     src/ahc/ahc_arena.c
     src/ahc/ahc_mem_telemetry.c
     src/ahc/ahc_find_literal.c
@@ -70,6 +72,8 @@ endif()
 target_include_directories(ahc_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz
 )
 
 if(WIN32)
@@ -146,6 +150,7 @@ if(AHC_BUILD_APP)
         apps/companion/ahc_process.c
         apps/companion/ahc_subprocess.c
         apps/companion/ahc_credentials.c
+        third_party/qrcodegen/qrcodegen.c
     )
     if(WIN32)
         set_target_properties(attune_helper_companion PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -157,6 +162,7 @@ if(AHC_BUILD_APP)
     target_include_directories(attune_helper_companion
         PRIVATE
             ${raygui_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/qrcodegen
     )
     target_compile_definitions(attune_helper_companion
         PRIVATE
@@ -218,6 +224,9 @@ if(AHC_BUILD_TESTS)
     add_executable(ahc_safe_url_test
         tests/ahc_safe_url_test.c
     )
+    add_executable(attune_sync_codec_test
+        tests/attune_sync_codec_test.c
+    )
 
     target_link_libraries(attune_snapshot_test
         PRIVATE
@@ -243,6 +252,14 @@ if(AHC_BUILD_TESTS)
         PRIVATE
             ahc_core
     )
+    target_link_libraries(attune_sync_codec_test
+        PRIVATE
+            ahc_core
+    )
+    target_include_directories(attune_sync_codec_test
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz
+    )
 
     target_compile_definitions(attune_snapshot_test
         PRIVATE
@@ -260,6 +277,7 @@ if(AHC_BUILD_TESTS)
         target_compile_options(ahc_find_literal_test PRIVATE /W4)
         target_compile_options(ahc_wow_autologin_test PRIVATE /W4)
         target_compile_options(ahc_safe_url_test PRIVATE /W4)
+        target_compile_options(attune_sync_codec_test PRIVATE /W4)
     else()
         target_compile_options(attune_snapshot_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(addon_manifest_test PRIVATE -Wall -Wextra -Wpedantic)
@@ -267,6 +285,7 @@ if(AHC_BUILD_TESTS)
         target_compile_options(ahc_find_literal_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_wow_autologin_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_safe_url_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(attune_sync_codec_test PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     if(AHC_OPT_PROFILE STREQUAL "sanitize" AND NOT MSVC)
@@ -282,6 +301,8 @@ if(AHC_BUILD_TESTS)
         target_link_options(ahc_wow_autologin_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(ahc_safe_url_test PRIVATE -fsanitize=address,undefined -g)
         target_link_options(ahc_safe_url_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(attune_sync_codec_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(attune_sync_codec_test PRIVATE -fsanitize=address,undefined)
     endif()
 
     add_test(NAME attune_snapshot_test COMMAND attune_snapshot_test)
@@ -290,6 +311,7 @@ if(AHC_BUILD_TESTS)
     add_test(NAME ahc_find_literal_test COMMAND ahc_find_literal_test)
     add_test(NAME ahc_wow_autologin_test COMMAND ahc_wow_autologin_test)
     add_test(NAME ahc_safe_url_test COMMAND ahc_safe_url_test)
+    add_test(NAME attune_sync_codec_test COMMAND attune_sync_codec_test)
 endif()
 
 if(AHC_BUILD_ANDROID)

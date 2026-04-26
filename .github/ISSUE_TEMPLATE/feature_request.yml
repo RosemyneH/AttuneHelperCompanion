@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an improvement or a new capability (keeps the project in scope; see scope docs)
+labels: [enhancement, triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or goal
+      description: What user or maintainer need does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: How should it work, at a high level?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope fit
+      description: How does this fit `docs/scope.md` and the local-first / threat-model goals? Short justification.
+  - type: checkboxes
+    id: read-docs
+    attributes:
+      label: Checklist
+      options:
+        - label: I read README / scope and believe this is in project scope
+          required: false
+        - label: I am not asking to store user credentials on a project-operated server by default
+          required: true
