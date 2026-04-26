@@ -164,6 +164,10 @@ typedef struct CompanionState {
     double process_until;
     unsigned int other_instance_count;
     double next_instance_poll_time;
+    bool windowed_maximized;
+    bool restore_rect_valid;
+    Rectangle restore_rect;
+    int windowed_monitor;
     volatile int addon_job_running;
     volatile int addon_job_done;
     volatile int addon_job_success;
@@ -303,6 +307,8 @@ static bool ahc_posix_wine_or_proton_ready(void);
 #endif
 static void apply_monitor_defaults(CompanionState *state);
 static void constrain_window_to_current_monitor(void);
+static void settle_window_after_drag(CompanionState *state);
+static void toggle_windowed_maximize(CompanionState *state);
 static void draw_window_chrome(CompanionState *state);
 
 static void draw_text(const char *text, int x, int y, int size, Color color)
@@ -3358,7 +3364,6 @@ static bool draw_tab_button(const char *label, Rectangle bounds, bool active)
 
 static void draw_window_chrome(CompanionState *state)
 {
-    (void)state;
     int sw = GetScreenWidth();
     int h = AHC_CHROME_H;
     Vector2 mouse = GetMousePosition();
@@ -3380,20 +3385,32 @@ static void draw_window_chrome(CompanionState *state)
         DrawRectangleRoundedLinesEx(rclose, 0.2f, 6, 2.0f, (Color){ 150, 200, 255, 200 });
     }
     bool press_min = draw_wow_button("_", rmin, false, 16);
-    bool press_full = draw_wow_button(IsWindowFullscreen() ? "[]-" : "[]", rfull, IsWindowFullscreen(), 15);
+    bool is_windowed_maximized = state->windowed_maximized || IsWindowMaximized();
+    bool press_full = draw_wow_button(is_windowed_maximized ? "[]-" : "[]", rfull, is_windowed_maximized, 15);
     bool press_close = draw_wow_button("X", rclose, false, 16);
     if (press_min) {
         ahc_tray_request_background();
     } else if (press_full) {
-        ToggleFullscreen();
+        toggle_windowed_maximize(state);
     } else if (press_close) {
         ahc_tray_request_background();
     } else {
         Rectangle rdrag = { 0, 0, (float)(sw - 156), (float)h };
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(mouse, rdrag)
             && !CheckCollisionPointRec(mouse, rmin) && !CheckCollisionPointRec(mouse, rfull) && !CheckCollisionPointRec(mouse, rclose)) {
+            if (is_windowed_maximized && state->restore_rect_valid) {
+                Vector2 window_pos = GetWindowPosition();
+                Rectangle restore = state->restore_rect;
+                float screen_x = window_pos.x + mouse.x;
+                state->windowed_maximized = false;
+                RestoreWindow();
+                SetWindowSize((int)restore.width, (int)restore.height);
+                SetWindowPosition((int)(screen_x - restore.width * 0.5f), (int)window_pos.y);
+                g_chrome_grab = (Vector2){ restore.width * 0.5f, mouse.y };
+            } else {
+                g_chrome_grab = mouse;
+            }
             g_chrome_drag = true;
-            g_chrome_grab = mouse;
         }
     }
     if (g_chrome_drag) {
@@ -3403,10 +3420,9 @@ static void draw_window_chrome(CompanionState *state)
             float sx = w.x + m.x;
             float sy = w.y + m.y;
             SetWindowPosition((int)(sx - g_chrome_grab.x), (int)(sy - g_chrome_grab.y));
-            constrain_window_to_current_monitor();
         } else {
             g_chrome_drag = false;
-            constrain_window_to_current_monitor();
+            settle_window_after_drag(state);
         }
     }
 }
@@ -4972,6 +4988,55 @@ static void constrain_window_to_current_monitor(void)
     constrain_window_to_monitor(monitor_for_window_center(), false);
 }
 
+static Rectangle current_window_rect(void)
+{
+    Vector2 pos = GetWindowPosition();
+    return (Rectangle){ pos.x, pos.y, (float)GetScreenWidth(), (float)GetScreenHeight() };
+}
+
+static void restore_window_rect(Rectangle rect)
+{
+    int width = (int)rect.width;
+    int height = (int)rect.height;
+    if (width < 1120) {
+        width = 1120;
+    }
+    if (height < 720) {
+        height = 720;
+    }
+    SetWindowSize(width, height);
+    SetWindowPosition((int)rect.x, (int)rect.y);
+    constrain_window_to_current_monitor();
+}
+
+static void toggle_windowed_maximize(CompanionState *state)
+{
+    if (state->windowed_maximized || IsWindowMaximized()) {
+        RestoreWindow();
+        state->windowed_maximized = false;
+        if (state->restore_rect_valid) {
+            restore_window_rect(state->restore_rect);
+        } else {
+            constrain_window_to_current_monitor();
+        }
+        return;
+    }
+
+    state->restore_rect = current_window_rect();
+    state->restore_rect_valid = true;
+    state->windowed_monitor = monitor_for_window_center();
+    MaximizeWindow();
+    state->windowed_maximized = true;
+}
+
+static void settle_window_after_drag(CompanionState *state)
+{
+    state->windowed_maximized = IsWindowMaximized();
+    if (!state->windowed_maximized) {
+        constrain_window_to_current_monitor();
+    }
+}
+
 static void apply_window_defaults(void)
 {
     int monitor = GetCurrentMonitor();
@@ -5038,6 +5103,7 @@ int main(void)
         if (acts & AHC_TRAYA_SHOW) {
             ClearWindowState(FLAG_WINDOW_HIDDEN);
             RestoreWindow();
+            state.windowed_maximized = false;
             SetWindowFocused();
         }
         if (g_quit) {
@@ -5045,11 +5111,12 @@ int main(void)
         }
 
         if (IsKeyPressed(KEY_F11) || ((IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT)) && IsKeyPressed(KEY_ENTER))) {
+            state.windowed_maximized = false;
             ToggleFullscreen();
         }
 
         update_ui_scale(&state);
-        if (!IsWindowHidden() && !IsWindowMinimized()) {
+        if (!IsWindowHidden() && !IsWindowMinimized() && !g_chrome_drag && !state.windowed_maximized && !IsWindowMaximized()) {
             constrain_window_to_current_monitor();
         }
         poll_other_instances(&state);
