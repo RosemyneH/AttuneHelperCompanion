@@ -67,7 +67,6 @@
                         android:layout_height="wrap_content"
                         app:chipSpacingHorizontal="@dimen/catalog_filter_chip_spacing_h"
                         app:chipSpacingVertical="0dp"
-                        app:lineSpacing="0dp"
                         app:selectionRequired="true"
                         app:singleLine="true"
                         app:singleSelection="true" />
