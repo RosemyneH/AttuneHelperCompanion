@@ -1,10 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ahc_bg">#070C14</color>
-    <color name="ahc_surface">#16202E</color>
-    <color name="ahc_surface_high">#1F2D3E</color>
-    <color name="ahc_surface_variant">#2A3C52</color>
+    <color name="ahc_bg_top">#111B2B</color>
+    <color name="ahc_bg_bottom">#050910</color>
+    <color name="ahc_rail_top">#17122E</color>
+    <color name="ahc_rail_bottom">#0D1A2C</color>
+    <color name="ahc_surface">#182338</color>
+    <color name="ahc_surface_high">#243653</color>
+    <color name="ahc_surface_variant">#304664</color>
+    <color name="ahc_surface_variant_bright">#3A5F8B</color>
     <color name="ahc_accent">#53A7EF</color>
+    <color name="ahc_accent_dim">#335EA7EF</color>
+    <color name="ahc_cyan">#65E4FF</color>
+    <color name="ahc_purple">#B98CFF</color>
+    <color name="ahc_pink">#FF7AC8</color>
+    <color name="ahc_gold">#FFD36E</color>
     <color name="ahc_on_accent">#0A111A</color>
     <color name="ahc_text">#E9EFFB</color>
     <color name="ahc_text_muted">#A7B6CE</color>
@@ -15,6 +25,9 @@
     <color name="ahc_tf">#8F8BFF</color>
     <color name="ahc_wf">#FF9656</color>
     <color name="ahc_lf">#FFE273</color>
-    <color name="ahc_graph_grid">#467A98BE</color>
-    <color name="ahc_graph_select">#2253A7EF</color>
+    <color name="ahc_chip_bg">#26344E</color>
+    <color name="ahc_chip_checked_bg">#6850D8</color>
+    <color name="ahc_chip_stroke">#58769D</color>
+    <color name="ahc_graph_grid">#4C65E4FF</color>
+    <color name="ahc_graph_select">#33B98CFF</color>
 </resources>

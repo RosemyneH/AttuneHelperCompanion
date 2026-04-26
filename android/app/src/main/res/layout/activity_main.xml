@@ -3,14 +3,14 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/ahc_bg"
+    android:background="@drawable/ahc_mobile_bg"
     android:orientation="horizontal">
 
     <com.google.android.material.navigationrail.NavigationRailView
         android:id="@+id/navigation_rail"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
-        android:background="@color/ahc_surface"
+        android:background="@drawable/ahc_rail_bg"
         android:minWidth="72dp"
         android:paddingTop="@dimen/space_sm"
         app:itemActiveIndicatorStyle="@style/Widget.Ahc.Rail.ActiveIndicator"
@@ -144,7 +144,7 @@
                 android:visibility="gone">
 
                 <com.google.android.material.card.MaterialCardView
-                    style="@style/Widget.Ahc.Card"
+                    style="@style/Widget.Ahc.Card.Highlight"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     app:cardUseCompatPadding="true">
@@ -160,7 +160,7 @@
                             android:layout_height="wrap_content"
                             android:text="@string/section_sync"
                             android:textAppearance="?attr/textAppearanceTitleLarge"
-                            android:textColor="@color/ahc_text" />
+                            android:textColor="@color/ahc_cyan" />
 
                         <TextView
                             android:layout_width="match_parent"
@@ -168,7 +168,7 @@
                             android:layout_marginTop="@dimen/space_xs"
                             android:text="@string/section_sync_help"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/ahc_text_muted" />
+                            android:textColor="@color/ahc_text" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_scan_qr"
@@ -209,7 +209,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_sm"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/ahc_text_muted" />
+                            android:textColor="@color/ahc_gold" />
 
                         <EditText
                             android:id="@+id/edit_sync_code"
@@ -431,7 +431,7 @@
 
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/card_attunes_graph"
-                style="@style/Widget.Ahc.Card"
+                style="@style/Widget.Ahc.Card.Highlight"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
@@ -449,7 +449,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/section_attunes_history"
                         android:textAppearance="?attr/textAppearanceTitleMedium"
-                        android:textColor="@color/ahc_text" />
+                        android:textColor="@color/ahc_cyan" />
 
                     <HorizontalScrollView
                         android:layout_width="match_parent"
@@ -547,7 +547,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_xs"
                         android:gravity="center"
-                        android:textColor="@color/ahc_text"
+                        android:textColor="@color/ahc_gold"
                         android:textSize="16sp" />
 
                     <com.attunehelper.companion.attune.graph.AttuneGraphView

@@ -31,7 +31,7 @@
     <style name="Widget.Ahc.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
         <item name="cornerRadius">@dimen/corner_control</item>
         <item name="android:minHeight">48dp</item>
-        <item name="backgroundTint">@color/ahc_surface_variant</item>
+        <item name="backgroundTint">@color/ahc_button_tonal_bg</item>
         <item name="android:textColor">@color/ahc_text</item>
     </style>
 
@@ -55,7 +55,7 @@
         <item name="cardCornerRadius">@dimen/corner_card</item>
         <item name="cardElevation">6dp</item>
         <item name="cardMaxElevation">8dp</item>
-        <item name="strokeColor">@color/ahc_accent</item>
+        <item name="strokeColor">@color/ahc_purple</item>
         <item name="strokeWidth">1dp</item>
     </style>
 
@@ -64,7 +64,7 @@
     </style>
 
     <style name="Widget.Ahc.Rail.ActiveIndicator" parent="Widget.Material3.NavigationRailView.ActiveIndicator">
-        <item name="android:color">@color/ahc_surface_variant</item>
+        <item name="android:color">@color/ahc_accent_dim</item>
     </style>
 
     <style name="Widget.Ahc.Chip.Filter" parent="Widget.Material3.Chip.Filter">
@@ -76,6 +76,11 @@
         <item name="textStartPadding">@dimen/catalog_filter_chip_padding_h</item>
         <item name="textEndPadding">@dimen/catalog_filter_chip_padding_h</item>
         <item name="ensureMinTouchTargetSize">false</item>
+        <item name="chipBackgroundColor">@color/ahc_chip_bg</item>
+        <item name="chipStrokeColor">@color/ahc_chip_stroke</item>
+        <item name="chipStrokeWidth">1dp</item>
+        <item name="checkedIconTint">@color/ahc_cyan</item>
+        <item name="android:textColor">@color/ahc_chip_text</item>
     </style>
 
     <style name="Widget.Ahc.TextField" parent="Widget.Material3.TextInputLayout.OutlinedBox.Dense">
