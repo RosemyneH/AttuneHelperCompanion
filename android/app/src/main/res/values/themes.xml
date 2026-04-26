@@ -57,4 +57,8 @@
         <item name="strokeColor">@color/ahc_accent</item>
         <item name="strokeWidth">1dp</item>
     </style>
+
+    <style name="Widget.Ahc.BottomNav.ActiveIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">@color/ahc_surface_variant</item>
+    </style>
 </resources>

@@ -114,7 +114,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_md"
                             android:textAppearance="?attr/textAppearanceLabelLarge"
-                            android:textColor="@color/ahc_primary" />
+                            android:textColor="@color/ahc_accent" />
 
                         <LinearLayout
                             android:id="@+id/layout_addon_catalog"
@@ -501,7 +501,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/ahc_surface"
-        app:itemActiveIndicatorColor="@color/ahc_surface_variant"
+        app:itemActiveIndicatorStyle="@style/Widget.Ahc.BottomNav.ActiveIndicator"
         app:itemIconSize="26dp"
         app:itemIconTint="@color/bottom_nav_item_tint"
         app:itemTextColor="@color/bottom_nav_item_tint"

@@ -39,8 +39,7 @@ jobs:
           build-root-directory: android
 
       - name: Assemble debug APK
-        working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: bash "$GITHUB_WORKSPACE/scripts/android-verify.sh"
 
       - name: Assemble release APK (signed, tags with secrets)
         if: success() && startsWith(github.ref, 'refs/tags/v')
