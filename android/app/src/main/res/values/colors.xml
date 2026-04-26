@@ -25,9 +25,9 @@
     <color name="ahc_tf">#8F8BFF</color>
     <color name="ahc_wf">#FF9656</color>
     <color name="ahc_lf">#FFE273</color>
-    <color name="ahc_chip_bg">#26344E</color>
+    <color name="ahc_chip_bg_base">#26344E</color>
     <color name="ahc_chip_checked_bg">#6850D8</color>
-    <color name="ahc_chip_stroke">#58769D</color>
+    <color name="ahc_chip_stroke_base">#58769D</color>
     <color name="ahc_graph_grid">#4C65E4FF</color>
     <color name="ahc_graph_select">#33B98CFF</color>
 </resources>
