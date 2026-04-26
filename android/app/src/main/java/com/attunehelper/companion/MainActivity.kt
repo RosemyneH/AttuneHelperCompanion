@@ -19,7 +19,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
 import android.view.View
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
@@ -466,20 +469,74 @@ class MainActivity : AppCompatActivity() {
     private fun updateAttuneGraphDetail() {
         val idx = attuneGraph.selectedIndex
         val rows = attuneGraph.getDisplayRows()
-        if (idx == null || idx !in rows.indices) {
-            textAttuneGraphDetail.text = attuneGraphLatestDetailText(rows, attuneGraph.graphMetric)
+        val detail = if (idx == null || idx !in rows.indices) {
+            attuneGraphLatestDetailText(rows, attuneGraph.graphMetric)
         } else {
-            textAttuneGraphDetail.text = attuneGraphDetailText(rows, idx, attuneGraph.graphMetric)
+            attuneGraphDetailText(rows, idx, attuneGraph.graphMetric)
         }
+        textAttuneGraphDetail.text = colorAttuneSummary(detail)
         textAttuneGraphAverage.text = attuneGraphAverageText(rows)
     }
 
     private fun refreshAttuneText() {
         val all = store.getAll()
         attuneGraph.setSnapshots(all)
-        textSyncLatest.text = attuneSyncLatestText(all)
+        textSyncLatest.text = colorSyncLatestSummary(attuneSyncLatestText(all))
         updateAttuneGraphDetail()
         updateAttunesIntroCardVisibility()
+    }
+
+    private fun colorAttuneSummary(raw: String): SpannableString {
+        val span = SpannableString(raw)
+        var start = 0
+        while (start <= raw.length) {
+            val end = raw.indexOf('\n', start).let { if (it >= 0) it else raw.length }
+            val line = raw.substring(start, end)
+            val color = when {
+                line == "Latest snapshot" -> R.color.ahc_gold
+                line.firstOrNull()?.isDigit() == true -> R.color.ahc_cyan
+                line.startsWith("New account") || line.startsWith("Account:") -> R.color.ahc_accent
+                line.startsWith("New TF") || line.startsWith("TF") -> R.color.ahc_tf
+                line.startsWith("New WF") || line.startsWith("WF") -> R.color.ahc_wf
+                line.startsWith("New LF") || line.startsWith("LF") -> R.color.ahc_lf
+                else -> 0
+            }
+            if (color != 0 && end > start) {
+                span.setSpan(ForegroundColorSpan(getColor(color)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            if (end == raw.length) {
+                break
+            }
+            start = end + 1
+        }
+        return span
+    }
+
+    private fun colorSyncLatestSummary(raw: String): SpannableString {
+        val span = SpannableString(raw)
+        colorRange(span, raw, "Latest snapshot", R.color.ahc_cyan)
+        colorDelimitedSegment(span, raw, "Account ", R.color.ahc_accent)
+        colorDelimitedSegment(span, raw, "TF ", R.color.ahc_tf)
+        colorDelimitedSegment(span, raw, "WF ", R.color.ahc_wf)
+        colorDelimitedSegment(span, raw, "LF ", R.color.ahc_lf)
+        return span
+    }
+
+    private fun colorDelimitedSegment(span: SpannableString, raw: String, marker: String, color: Int) {
+        val start = raw.indexOf(marker)
+        if (start < 0) {
+            return
+        }
+        val end = raw.indexOf(" \u00b7 ", start).let { if (it >= 0) it else raw.length }
+        span.setSpan(ForegroundColorSpan(getColor(color)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+
+    private fun colorRange(span: SpannableString, raw: String, marker: String, color: Int) {
+        val start = raw.indexOf(marker)
+        if (start < 0) {
+            return
+        }
+        span.setSpan(ForegroundColorSpan(getColor(color)), start, start + marker.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
     private fun localDateYmdUs(): String {

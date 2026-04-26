@@ -208,8 +208,11 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_sm"
+                            android:fontFamily="sans-serif-condensed"
+                            android:textStyle="bold"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/ahc_gold" />
+                            android:textColor="@color/ahc_gold"
+                            android:textSize="14sp" />
 
                         <EditText
                             android:id="@+id/edit_sync_code"
@@ -536,10 +539,11 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_xs"
-                        android:fontFamily="monospace"
+                        android:fontFamily="sans-serif-condensed"
                         android:textColor="@color/ahc_text"
                         android:textIsSelectable="true"
-                        android:textSize="12sp" />
+                        android:textStyle="bold"
+                        android:textSize="14sp" />
 
                     <TextView
                         android:id="@+id/text_attune_graph_average"
