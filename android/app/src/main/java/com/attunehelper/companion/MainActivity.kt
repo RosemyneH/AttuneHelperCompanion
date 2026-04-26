@@ -513,12 +513,8 @@ class MainActivity : AppCompatActivity() {
         val allCategories = listOf("") + categories
         var checkId = View.NO_ID
         for (category in allCategories) {
-            val chip = Chip(
-                this,
-                null,
-                com.google.android.material.R.attr.chipStyle,
-                R.style.Widget_Ahc_Chip_Filter,
-            )
+            val chip = Chip(this, null, com.google.android.material.R.attr.chipStyle)
+            chip.minHeight = dp(48)
             chip.text = if (category.isEmpty()) getString(R.string.catalog_all) else category
             chip.tag = category
             chip.isCheckable = true
@@ -591,7 +587,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun precomputedSearchBlobForAddon(e: AddonInstall.Entry): String {
-        return buildString(e.name.length + e.author.length + e.description.length + 32) {
+        return buildString {
             append(e.name)
             append('\u0000')
             append(e.author)
