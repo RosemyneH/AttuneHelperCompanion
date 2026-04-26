@@ -36,4 +36,8 @@
     <string name="nfc_prepared">Ready to send. If the message is too large, only the latest day is sent. AttuneHelper.lua is included when it still fits after gzip.</string>
     <string name="nfc_nothing_to_send">Nothing to send yet. Scan a snapshot or import a code first.</string>
     <string name="nfc_imported">Received over NFC.</string>
+    <string name="nfc_import_dialog_title">Import from NFC?</string>
+    <string name="nfc_import_dialog_message">Another device sent attune data. Merging it can add or change rows in this device’s history, the same as pasting a sync code.</string>
+    <string name="nfc_import_dialog_import">Import</string>
+    <string name="nfc_import_dialog_cancel">Cancel</string>
 </resources>

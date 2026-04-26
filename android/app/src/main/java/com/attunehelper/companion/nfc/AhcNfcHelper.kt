@@ -63,7 +63,8 @@ object AhcNfcHelper {
 
     private fun byteLenUtf8(s: String) = s.toByteArray(StandardCharsets.UTF_8).size
 
-    fun readTextPayloadsFromIntent(intent: Intent): List<String> {
+    @Suppress("DEPRECATION")
+    fun readAhcMimePayloadsFromIntent(intent: Intent): List<String> {
         if (intent.action != NfcAdapter.ACTION_NDEF_DISCOVERED) {
             return emptyList()
         }
@@ -75,25 +76,18 @@ object AhcNfcHelper {
             if (n !is NdefMessage) {
                 continue
             }
-            for (i in 0 until n.size) {
-                out.addAll(decodeToStrings(n.get(i)))
+            for (i in 0 until n.getNdefRecordCount()) {
+                val r = n.getNdefAt(i)
+                if (r.tnf != NdefRecord.TNF_MIME_MEDIA) {
+                    continue
+                }
+                val mime = r.toMimeType() ?: continue
+                if (!mime.equals(MIME_AHC, ignoreCase = true) && !mime.equals(MIME_LUA, ignoreCase = true)) {
+                    continue
+                }
+                out.add(String(r.payload, StandardCharsets.UTF_8))
             }
         }
         return out
-    }
-
-    @Suppress("DEPRECATION")
-    private fun decodeToStrings(r: NdefRecord): List<String> {
-        if (r.tnf == NdefRecord.TNF_MIME_MEDIA) {
-            return listOf(String(r.payload, StandardCharsets.UTF_8))
-        }
-        if (r.tnf == NdefRecord.TNF_WELL_KNOWN && r.type contentEquals NdefRecord.RTD_TEXT) {
-            val p = r.payload
-            if (p.isEmpty()) {
-                return emptyList()
-            }
-            return listOf(String(p, 1, p.size - 1, StandardCharsets.UTF_8))
-        }
-        return emptyList()
     }
 }

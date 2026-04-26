@@ -31,6 +31,7 @@ import com.attunehelper.companion.util.QrBitmaps
 import com.attunehelper.companion.util.WinlatorIntents
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanIntentResult
 import kotlinx.coroutines.Dispatchers
@@ -213,13 +214,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun deliverNfcPayloads(incoming: Intent) {
-        val p = AhcNfcHelper.readTextPayloadsFromIntent(incoming)
-        if (p.isEmpty()) {
+        val p = AhcNfcHelper.readAhcMimePayloadsFromIntent(incoming)
+        if (p.isEmpty() || isFinishing || isDestroyed) {
             return
         }
-        for (t in p) {
-            applyIncomingToken(t)
-        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.nfc_import_dialog_title)
+            .setMessage(R.string.nfc_import_dialog_message)
+            .setNegativeButton(R.string.nfc_import_dialog_cancel, null)
+            .setPositiveButton(R.string.nfc_import_dialog_import) { _, _ ->
+                for (t in p) {
+                    applyIncomingToken(t)
+                }
+            }
+            .show()
     }
 
     private fun updateTreeLabel() {

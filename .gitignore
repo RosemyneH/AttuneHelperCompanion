@@ -23,3 +23,6 @@ android/.gradle/
 android/**/build/
 android/local.properties
 **/*.iml
+*.jks
+*.keystore
+android/keystore.properties

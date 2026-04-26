@@ -6,6 +6,35 @@ plugins {
 android {
     namespace = "com.attunehelper.companion"
     compileSdk = 34
+    val canSignRelease: Boolean = run {
+        val path = System.getenv("ANDROID_KEYSTORE_FILE")?.trim()
+        if (path.isNullOrEmpty()) {
+            return@run false
+        }
+        if (!file(path).isFile) {
+            return@run false
+        }
+        if (System.getenv("ANDROID_KEYSTORE_PASSWORD").isNullOrEmpty()) {
+            return@run false
+        }
+        if (System.getenv("ANDROID_KEY_ALIAS").isNullOrEmpty()) {
+            return@run false
+        }
+        if (System.getenv("ANDROID_KEY_PASSWORD").isNullOrEmpty()) {
+            return@run false
+        }
+        true
+    }
+    signingConfigs {
+        if (canSignRelease) {
+            create("release") {
+                storeFile = file(System.getenv("ANDROID_KEYSTORE_FILE")!!.trim())
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
     buildFeatures {
         buildConfig = true
     }
@@ -29,6 +58,9 @@ android {
         getByName("debug") { }
         getByName("release") {
             isMinifyEnabled = false
+            if (canSignRelease) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {

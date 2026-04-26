@@ -18,6 +18,14 @@ object AttuneSyncCodec {
 
     private const val MAX_NFC_LUA_UTF8 = 6 * 1024
 
+    private const val MAX_BULK_B64_CHARS = 2_000_000
+    private const val MAX_BULK_GZIP_BYTES = 1 shl 20
+    private const val MAX_BULK_JSON_UNCOMPRESSED = 1024 * 1024
+
+    private const val MAX_LUA_B64_CHARS = 2_000_000
+    private const val MAX_LUA_GZIP_BYTES = 1 shl 20
+    private const val MAX_LUA_UNCOMPRESSED = 512 * 1024
+
     fun encodeFullHistory(snapshots: List<AttuneSnapshot>): String {
         val a = jsonArray(snapshots)
         val o = JSONObject()
@@ -35,9 +43,14 @@ object AttuneSyncCodec {
             return null
         }
         s = s.removePrefix(BULK_PREFIX).filter { !it.isWhitespace() }
+        if (s.length > MAX_BULK_B64_CHARS) {
+            return null
+        }
         return try {
             val gz = Base64.decode(s, Base64.NO_WRAP or Base64.URL_SAFE)
-            val json = ungzip(gz).toString(StandardCharsets.UTF_8)
+            val un = ungzipWithLimit(gz, maxDecompressed = MAX_BULK_JSON_UNCOMPRESSED, maxCompressed = MAX_BULK_GZIP_BYTES)
+                ?: return null
+            val json = un.toString(StandardCharsets.UTF_8)
             val o = JSONObject(json)
             if (o.optInt("v") != 1) {
                 return null
@@ -70,9 +83,13 @@ object AttuneSyncCodec {
             return null
         }
         t = t.removePrefix(LUA_PREFIX).filter { !it.isWhitespace() }
+        if (t.length > MAX_LUA_B64_CHARS) {
+            return null
+        }
         return try {
             val raw = Base64.decode(t, Base64.NO_WRAP or Base64.URL_SAFE)
-            val lua = ungzip(raw)
+            val lua = ungzipWithLimit(raw, maxDecompressed = MAX_LUA_UNCOMPRESSED, maxCompressed = MAX_LUA_GZIP_BYTES)
+                ?: return null
             AttuneHelperLuaParser.parse(lua) ?: return null
         } catch (e: Exception) {
             null
@@ -138,10 +155,33 @@ object AttuneSyncCodec {
         return bos.toByteArray()
     }
 
-    private fun ungzip(data: ByteArray): ByteArray {
-        val b = ByteArrayInputStream(data)
-        GZIPInputStream(b).use { g ->
-            return g.readBytes()
+    private fun ungzipWithLimit(data: ByteArray, maxDecompressed: Int, maxCompressed: Int): ByteArray? {
+        if (data.isEmpty() || data.size > maxCompressed) {
+            return null
+        }
+        return try {
+            GZIPInputStream(ByteArrayInputStream(data)).use { g ->
+                val out = ByteArrayOutputStream(8192)
+                val buf = ByteArray(8192)
+                var total = 0
+                while (true) {
+                    val n = g.read(buf)
+                    if (n == -1) {
+                        break
+                    }
+                    if (n == 0) {
+                        continue
+                    }
+                    if (total + n > maxDecompressed) {
+                        return null
+                    }
+                    out.write(buf, 0, n)
+                    total += n
+                }
+                out.toByteArray()
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 }

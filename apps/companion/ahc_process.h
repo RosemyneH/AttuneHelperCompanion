@@ -23,4 +23,8 @@ bool ahc_win_launch_wcmdline_in_dir(const wchar_t *cmdline, const char *workdir_
 bool ahc_posix_run_detached_shell(const char *command);
 #endif
 
+bool ahc_curl_download_file(const char *url, const char *file_path);
+bool ahc_git_shallow_clone(const char *url, const char *dest_path);
+bool ahc_preflight_zip_safe(const char *zip_path);
+
 #endif

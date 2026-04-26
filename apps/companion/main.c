@@ -672,13 +672,6 @@ static void ensure_avatar_cache_dir(char *out, size_t out_capacity)
     }
 }
 
-static bool download_avatar_to_file(const char *url, const char *file_path)
-{
-    char command[AHC_PATH_CAPACITY * 3];
-    snprintf(command, sizeof(command), "curl -L --fail --silent --show-error \"%s\" --output \"%s\"", url, file_path);
-    return ahc_run_command_hidden(command) && FileExists(file_path);
-}
-
 static bool ahc_complete_avatar_entry(AvatarCacheEntry *entry)
 {
     if (entry->loaded) {
@@ -701,7 +694,7 @@ static bool ahc_complete_avatar_entry(AvatarCacheEntry *entry)
     path_join(cache_path, sizeof(cache_path), cache_dir, cache_name);
     strncat(cache_path, ".png", sizeof(cache_path) - strlen(cache_path) - 1);
 
-    if (!FileExists(cache_path) && !download_avatar_to_file(entry->fetch_url, cache_path)) {
+    if (!FileExists(cache_path) && !ahc_curl_download_file(entry->fetch_url, cache_path)) {
         entry->failed = true;
         entry->load_pending = false;
         return true;
@@ -1357,23 +1350,12 @@ static bool move_addon_folder_to_backup(CompanionState *state, const char *folde
     return true;
 }
 
-static bool git_clone_to_path(const AhcAddon *addon, const char *path)
-{
-    char command[AHC_PATH_CAPACITY * 3];
-    snprintf(command, sizeof(command), "git clone --depth 1 \"%s\" \"%s\"", addon->repo, path);
-    return ahc_run_command_hidden(command);
-}
-
-static bool curl_download_to_path(const char *url, const char *path)
-{
-    char command[AHC_PATH_CAPACITY * 3];
-    snprintf(command, sizeof(command), "curl -L --fail --silent --show-error \"%s\" --output \"%s\"", url, path);
-    return ahc_run_command_hidden(command);
-}
-
 static bool extract_zip_to_path(const char *zip_path, const char *destination)
 {
     if (!ensure_directory(destination)) {
+        return false;
+    }
+    if (!ahc_preflight_zip_safe(zip_path)) {
         return false;
     }
 
@@ -1620,7 +1602,7 @@ static bool stage_addon_source(CompanionState *state, const AhcAddon *addon, cha
         path_join(extract_path, sizeof(extract_path), staging_root, stage_name);
         remove(zip_path);
         remove_directory_tree(extract_path);
-        if (!curl_download_to_path(addon->repo, zip_path)) {
+        if (!ahc_curl_download_file(addon->repo, zip_path)) {
             remove(zip_path);
             remove_directory_tree(extract_path);
             return false;
@@ -1637,7 +1619,7 @@ static bool stage_addon_source(CompanionState *state, const AhcAddon *addon, cha
     }
 
     set_addon_job_progress(state, "Cloning addon repository");
-    if (!git_clone_to_path(addon, package_root)) {
+    if (!ahc_git_shallow_clone(addon->repo, package_root)) {
         remove_directory_tree(package_root);
         return false;
     }

@@ -60,6 +60,7 @@ add_library(ahc_core
     src/ahc/ahc_mem_telemetry.c
     src/ahc/ahc_find_literal.c
     src/ahc/ahc_wow_autologin.c
+    src/ahc/ahc_safe_url.c
     ${AHC_MEMCHR_SRC}
 )
 if(WIN32)
@@ -143,6 +144,7 @@ if(AHC_BUILD_APP)
         apps/companion/main.c
         apps/companion/ahc_tray.c
         apps/companion/ahc_process.c
+        apps/companion/ahc_subprocess.c
         apps/companion/ahc_credentials.c
     )
     if(WIN32)
@@ -213,6 +215,9 @@ if(AHC_BUILD_TESTS)
     add_executable(ahc_wow_autologin_test
         tests/ahc_wow_autologin_test.c
     )
+    add_executable(ahc_safe_url_test
+        tests/ahc_safe_url_test.c
+    )
 
     target_link_libraries(attune_snapshot_test
         PRIVATE
@@ -234,6 +239,10 @@ if(AHC_BUILD_TESTS)
         PRIVATE
             ahc_core
     )
+    target_link_libraries(ahc_safe_url_test
+        PRIVATE
+            ahc_core
+    )
 
     target_compile_definitions(attune_snapshot_test
         PRIVATE
@@ -250,12 +259,14 @@ if(AHC_BUILD_TESTS)
         target_compile_options(ahc_arena_test PRIVATE /W4)
         target_compile_options(ahc_find_literal_test PRIVATE /W4)
         target_compile_options(ahc_wow_autologin_test PRIVATE /W4)
+        target_compile_options(ahc_safe_url_test PRIVATE /W4)
     else()
         target_compile_options(attune_snapshot_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(addon_manifest_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_arena_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_find_literal_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_wow_autologin_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(ahc_safe_url_test PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     if(AHC_OPT_PROFILE STREQUAL "sanitize" AND NOT MSVC)
@@ -269,6 +280,8 @@ if(AHC_BUILD_TESTS)
         target_link_options(ahc_find_literal_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(ahc_wow_autologin_test PRIVATE -fsanitize=address,undefined -g)
         target_link_options(ahc_wow_autologin_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(ahc_safe_url_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(ahc_safe_url_test PRIVATE -fsanitize=address,undefined)
     endif()
 
     add_test(NAME attune_snapshot_test COMMAND attune_snapshot_test)
@@ -276,6 +289,7 @@ if(AHC_BUILD_TESTS)
     add_test(NAME ahc_arena_test COMMAND ahc_arena_test)
     add_test(NAME ahc_find_literal_test COMMAND ahc_find_literal_test)
     add_test(NAME ahc_wow_autologin_test COMMAND ahc_wow_autologin_test)
+    add_test(NAME ahc_safe_url_test COMMAND ahc_safe_url_test)
 endif()
 
 if(AHC_BUILD_ANDROID)

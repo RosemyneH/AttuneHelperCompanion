@@ -26,7 +26,12 @@ object WinlatorIntents {
 }
 
 object QrBitmaps {
+    private const val MAX_QR_TEXT_CHARS = 4000
+
     fun fromText(text: String, size: Int = 600): android.graphics.Bitmap {
+        if (text.length > MAX_QR_TEXT_CHARS) {
+            throw IllegalArgumentException("QR text too long (max $MAX_QR_TEXT_CHARS).")
+        }
         val hints = mapOf(
             EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
             EncodeHintType.MARGIN to 1
