@@ -62,4 +62,25 @@ class AttuneDisplayMathTest {
         val avg = accountAttunesPerTrackedDay(d, c)
         assertEquals(3.0, avg, 0.001)
     }
+
+    @Test
+    fun `plot is default display`() {
+        assertEquals(GraphDisplay.PLOT, GraphDisplay.DEFAULT)
+    }
+
+    @Test
+    fun `attune summaries use commas`() {
+        val d = buildDisplayHistory(
+            listOf(
+                AttuneSnapshot("2024-01-01", 0, 0, 0, 0),
+                AttuneSnapshot("2024-01-03", 2469, 12, 34, 56),
+            ),
+            400,
+        )
+        assertEquals("Account Attunes per Day\n1,234.5", attuneGraphAverageText(d))
+        assertEquals(
+            "Latest snapshot: 2024-01-03 \u00b7 Account 2,469 \u00b7 TF 56 \u00b7 WF 12 \u00b7 LF 34",
+            attuneSyncLatestText(d.map { it.snapshot }),
+        )
+    }
 }

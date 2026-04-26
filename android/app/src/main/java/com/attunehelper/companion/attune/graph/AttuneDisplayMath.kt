@@ -1,6 +1,8 @@
 package com.attunehelper.companion.attune.graph
 
 import com.attunehelper.companion.attune.AttuneSnapshot
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 import java.util.Locale
 
 const val AHC_DISPLAY_HISTORY_CAPACITY: Int = 400
@@ -28,7 +30,7 @@ enum class GraphDisplay {
     ;
 
     companion object {
-        val DEFAULT: GraphDisplay = BARS
+        val DEFAULT: GraphDisplay = PLOT
     }
 }
 
@@ -200,6 +202,11 @@ fun formatCountWithDelta(label: String, value: Int, delta: Int): String {
 
 fun formatIntWithCommas(n: Int): String = String.format(Locale.US, "%,d", n)
 
+fun formatOneDecimalWithCommas(n: Double): String {
+    val symbols = DecimalFormatSymbols(Locale.US)
+    return DecimalFormat("#,##0.0", symbols).format(n)
+}
+
 /** Metric name for the selected line in the tooltip. */
 fun graphMetricGainLabel(metric: GraphMetric): String = when (metric) {
     GraphMetric.ACCOUNT -> "New account attunes"
@@ -255,4 +262,29 @@ fun attuneGraphDetailText(rows: List<DisplayRow>, index: Int, metric: GraphMetri
         ),
     )
     return sb.toString()
+}
+
+fun attuneGraphLatestDetailText(rows: List<DisplayRow>, metric: GraphMetric): String {
+    val index = rows.indexOfLast { !it.synthetic }.let { if (it >= 0) it else rows.lastIndex }
+    if (index !in rows.indices) {
+        return ""
+    }
+    return "Latest snapshot\n" + attuneGraphDetailText(rows, index, metric)
+}
+
+fun attuneGraphAverageText(rows: List<DisplayRow>): String {
+    val value = if (rows.size >= 2) {
+        accountAttunesPerTrackedDay(rows, rows.size)
+    } else {
+        0.0
+    }
+    return "Account Attunes per Day\n${formatOneDecimalWithCommas(value)}"
+}
+
+fun attuneSyncLatestText(snapshots: List<AttuneSnapshot>): String {
+    val latest = snapshots.maxByOrNull { it.date } ?: return "Latest snapshot: no attunes on this device yet."
+    return "Latest snapshot: ${latest.date} \u00b7 Account ${formatIntWithCommas(latest.account)} \u00b7 " +
+        "TF ${formatIntWithCommas(latest.titanforged)} \u00b7 " +
+        "WF ${formatIntWithCommas(latest.warforged)} \u00b7 " +
+        "LF ${formatIntWithCommas(latest.lightforged)}"
 }

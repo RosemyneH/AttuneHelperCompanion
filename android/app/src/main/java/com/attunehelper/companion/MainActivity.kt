@@ -43,7 +43,10 @@ import com.attunehelper.companion.sync.AttuneSyncCodec
 import com.attunehelper.companion.attune.graph.AttuneGraphView
 import com.attunehelper.companion.attune.graph.GraphDisplay
 import com.attunehelper.companion.attune.graph.GraphMetric
+import com.attunehelper.companion.attune.graph.attuneGraphAverageText
 import com.attunehelper.companion.attune.graph.attuneGraphDetailText
+import com.attunehelper.companion.attune.graph.attuneGraphLatestDetailText
+import com.attunehelper.companion.attune.graph.attuneSyncLatestText
 import com.attunehelper.companion.util.QrBitmaps
 import com.attunehelper.companion.util.WinlatorIntents
 import com.google.android.material.button.MaterialButton
@@ -72,6 +75,8 @@ class MainActivity : AppCompatActivity() {
     private var addonSearchBlobByEntryIndex: List<String> = emptyList()
     private lateinit var attuneGraph: AttuneGraphView
     private lateinit var textAttuneGraphDetail: TextView
+    private lateinit var textAttuneGraphAverage: TextView
+    private lateinit var textSyncLatest: TextView
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
     private val debouncedRenderAddonCatalog: Runnable = Runnable {
         if (isFinishing) {
@@ -158,12 +163,15 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_export_code).setOnClickListener { exportToField() }
         findViewById<MaterialButton>(R.id.btn_copy_code).setOnClickListener { copyField() }
         findViewById<MaterialButton>(R.id.btn_qr_today).setOnClickListener { showTodayQr() }
+        findViewById<MaterialButton>(R.id.btn_qr_multi).setOnClickListener { showMultiDayQr() }
         findViewById<MaterialButton>(R.id.btn_scan_qr).setOnClickListener { onScanQrClicked() }
         findViewById<MaterialButton>(R.id.btn_play_winlator).setOnClickListener { openWinlator() }
         findViewById<MaterialButton>(R.id.btn_nfc_prepare).setOnClickListener { prepareNfcPush() }
         findViewById<MaterialButton>(R.id.btn_attunes_open_sync).setOnClickListener { showSection(R.id.section_sync) }
         attuneGraph = findViewById(R.id.attune_graph)
         textAttuneGraphDetail = findViewById(R.id.text_attune_graph_detail)
+        textAttuneGraphAverage = findViewById(R.id.text_attune_graph_average)
+        textSyncLatest = findViewById(R.id.text_sync_latest)
         setupAttuneGraphChips()
         attuneGraph.setOnAttuneGraphSelectionListener { _: Int? -> updateAttuneGraphDetail() }
 
@@ -459,14 +467,17 @@ class MainActivity : AppCompatActivity() {
         val idx = attuneGraph.selectedIndex
         val rows = attuneGraph.getDisplayRows()
         if (idx == null || idx !in rows.indices) {
-            textAttuneGraphDetail.text = ""
+            textAttuneGraphDetail.text = attuneGraphLatestDetailText(rows, attuneGraph.graphMetric)
         } else {
             textAttuneGraphDetail.text = attuneGraphDetailText(rows, idx, attuneGraph.graphMetric)
         }
+        textAttuneGraphAverage.text = attuneGraphAverageText(rows)
     }
 
     private fun refreshAttuneText() {
-        attuneGraph.setSnapshots(store.getAll())
+        val all = store.getAll()
+        attuneGraph.setSnapshots(all)
+        textSyncLatest.text = attuneSyncLatestText(all)
         updateAttuneGraphDetail()
         updateAttunesIntroCardVisibility()
     }
@@ -511,6 +522,13 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Imported snapshot for ${fromQr.date} (AHC-Q1).", Toast.LENGTH_LONG).show()
             return
         }
+        val denseQr = AttuneSyncCodec.decodeMultiDayQrOrNull(s)
+        if (denseQr != null) {
+            store.mergeIncoming(denseQr)
+            refreshAttuneText()
+            Toast.makeText(this, "Merged ${denseQr.size} day(s) from dense AHC-Q2 QR.", Toast.LENGTH_LONG).show()
+            return
+        }
         val bulk = AttuneSyncCodec.decodeFullOrNull(s)
         if (bulk != null) {
             store.mergeIncoming(bulk)
@@ -531,7 +549,7 @@ class MainActivity : AppCompatActivity() {
     private fun exportToField() {
         val e = AttuneSyncCodec.encodeFullHistory(store.getAll())
         findViewById<android.widget.EditText>(R.id.edit_sync_code).setText(e)
-        Toast.makeText(this, "Full log encoded. Use Copy, or a QR is only for one day (button below).", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Full AHC1 log encoded for paste/import. QR buttons are 1-day easy scan or dense multi-day.", Toast.LENGTH_LONG).show()
     }
 
     private fun copyField() {
@@ -558,7 +576,27 @@ class MainActivity : AppCompatActivity() {
         val bmp = QrBitmaps.fromText(token, 512)
         iv.setImageBitmap(bmp)
         iv.setMaxHeight(dp(360))
-        Toast.makeText(this, "QR encodes the latest day only: ${last.date}.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "AHC-Q1 ready: one easy-scan day (${last.date}).", Toast.LENGTH_LONG).show()
+    }
+
+    private fun showMultiDayQr() {
+        val all = store.getAll()
+        if (all.isEmpty()) {
+            Toast.makeText(this, "No data yet. Scan a snapshot or import a code.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val token = AttuneSyncCodec.encodeMultiDayQr(all)
+        if (token == null) {
+            Toast.makeText(this, "Could not build dense multi-day QR from this history.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val days = AttuneSyncCodec.decodeMultiDayQrOrNull(token)?.size ?: 0
+        val iv = findViewById<ImageView>(R.id.image_qr)
+        iv.setImageDrawable(null)
+        val bmp = QrBitmaps.fromText(token, 768)
+        iv.setImageBitmap(bmp)
+        iv.setMaxHeight(dp(420))
+        Toast.makeText(this, "AHC-Q2 ready: $days day(s), dense QR. Use good light and a steady hand.", Toast.LENGTH_LONG).show()
     }
 
     private fun buildScanOptions(): ScanOptions {

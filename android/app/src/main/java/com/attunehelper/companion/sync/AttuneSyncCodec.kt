@@ -3,6 +3,8 @@ package com.attunehelper.companion.sync
 import android.util.Base64
 import com.attunehelper.companion.attune.AttuneHelperLuaParser
 import com.attunehelper.companion.attune.AttuneSnapshot
+import com.attunehelper.companion.attune.graph.dateToOrdinalOut
+import com.attunehelper.companion.attune.graph.ordinalToIsoDate
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -15,6 +17,11 @@ object AttuneSyncCodec {
     const val BULK_PREFIX = "AHC1:"
     const val LUA_PREFIX = "AHC-LUA1:"
     private const val QR_PREFIX = "AHC-Q1:"
+    private const val MULTI_QR_PREFIX = "AHC-Q2:"
+    private const val MULTI_QR_VERSION = 1
+    private const val MULTI_QR_MAX_DAYS = 30
+    private const val MULTI_QR_MAX_RAW_BYTES = 1024
+    private const val MULTI_QR_MAX_B64_CHARS = 1800
 
     private const val MAX_NFC_LUA_UTF8 = 6 * 1024
 
@@ -63,6 +70,47 @@ object AttuneSyncCodec {
 
     fun encodeOneDayQr(s: AttuneSnapshot): String =
         "$QR_PREFIX${s.date}|${s.account}|${s.warforged}|${s.lightforged}|${s.titanforged}"
+
+    fun encodeMultiDayQr(snapshots: List<AttuneSnapshot>, maxDays: Int = MULTI_QR_MAX_DAYS): String? {
+        val picked = snapshots
+            .sortedBy { it.date }
+            .filter { isMultiQrEligible(it) }
+            .takeLast(maxDays.coerceIn(1, MULTI_QR_MAX_DAYS))
+        if (picked.isEmpty()) {
+            return null
+        }
+        val out = ByteArrayOutputStream()
+        out.write(MULTI_QR_VERSION)
+        out.write(picked.size)
+        var previousOrdinal = 0
+        for ((i, snapshot) in picked.withIndex()) {
+            val ord = intArrayOf(0)
+            if (!dateToOrdinalOut(snapshot.date, ord)) {
+                return null
+            }
+            if (i == 0) {
+                writeIntBe(out, ord[0])
+                writeUVarInt(out, 0)
+            } else {
+                val delta = ord[0] - previousOrdinal
+                if (delta < 0) {
+                    return null
+                }
+                writeUVarInt(out, delta)
+            }
+            previousOrdinal = ord[0]
+            writeUVarInt(out, snapshot.account)
+            writeUVarInt(out, snapshot.warforged)
+            writeUVarInt(out, snapshot.lightforged)
+            writeUVarInt(out, snapshot.titanforged)
+        }
+        val body = out.toByteArray()
+        if (body.size > MULTI_QR_MAX_RAW_BYTES) {
+            return null
+        }
+        val b64 = Base64.encodeToString(body, Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE)
+        return MULTI_QR_PREFIX + b64
+    }
 
     fun encodeGzippedLuaFileOrNullForNfc(fileBytes: ByteArray): String? {
         if (fileBytes.isEmpty() || fileBytes.size > 512 * 1024) {
@@ -119,6 +167,132 @@ object AttuneSyncCodec {
             lightforged = parts[3].toIntOrNull() ?: return null,
             titanforged = parts[4].toIntOrNull() ?: return null,
         )
+    }
+
+    fun decodeMultiDayQrOrNull(s: String): List<AttuneSnapshot>? {
+        var t = s.trim()
+        if (t.startsWith("\uFEFF")) {
+            t = t.substring(1).trim()
+        }
+        if (!t.startsWith(MULTI_QR_PREFIX)) {
+            return null
+        }
+        t = t.removePrefix(MULTI_QR_PREFIX).filter { !it.isWhitespace() }
+        if (t.isEmpty() || t.length > MULTI_QR_MAX_B64_CHARS) {
+            return null
+        }
+        return try {
+            val raw = Base64.decode(t, Base64.NO_WRAP or Base64.URL_SAFE)
+            decodeMultiQrRaw(raw)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun decodeMultiQrRaw(raw: ByteArray): List<AttuneSnapshot>? {
+        if (raw.size < 7 || raw.size > MULTI_QR_MAX_RAW_BYTES) {
+            return null
+        }
+        var off = 0
+        val version = raw[off++].toInt() and 0xff
+        if (version != MULTI_QR_VERSION) {
+            return null
+        }
+        val count = raw[off++].toInt() and 0xff
+        if (count < 1 || count > MULTI_QR_MAX_DAYS) {
+            return null
+        }
+        var ordinal = readIntBe(raw, off)
+        off += 4
+        val out = ArrayList<AttuneSnapshot>(count)
+        for (i in 0 until count) {
+            val delta = readUVarInt(raw, off) ?: return null
+            off = delta.nextOffset
+            if (i == 0) {
+                if (delta.value != 0) {
+                    return null
+                }
+            } else {
+                ordinal += delta.value
+            }
+            val account = readUVarInt(raw, off) ?: return null
+            off = account.nextOffset
+            val warforged = readUVarInt(raw, off) ?: return null
+            off = warforged.nextOffset
+            val lightforged = readUVarInt(raw, off) ?: return null
+            off = lightforged.nextOffset
+            val titanforged = readUVarInt(raw, off) ?: return null
+            off = titanforged.nextOffset
+            out.add(
+                AttuneSnapshot(
+                    date = ordinalToIsoDate(ordinal),
+                    account = account.value,
+                    warforged = warforged.value,
+                    lightforged = lightforged.value,
+                    titanforged = titanforged.value,
+                )
+            )
+        }
+        if (off != raw.size) {
+            return null
+        }
+        return out
+    }
+
+    private fun isMultiQrEligible(snapshot: AttuneSnapshot): Boolean {
+        val ord = intArrayOf(0)
+        return snapshot.account >= 0 &&
+            snapshot.warforged >= 0 &&
+            snapshot.lightforged >= 0 &&
+            snapshot.titanforged >= 0 &&
+            dateToOrdinalOut(snapshot.date, ord)
+    }
+
+    private fun writeIntBe(out: ByteArrayOutputStream, value: Int) {
+        out.write((value ushr 24) and 0xff)
+        out.write((value ushr 16) and 0xff)
+        out.write((value ushr 8) and 0xff)
+        out.write(value and 0xff)
+    }
+
+    private fun readIntBe(raw: ByteArray, offset: Int): Int {
+        return ((raw[offset].toInt() and 0xff) shl 24) or
+            ((raw[offset + 1].toInt() and 0xff) shl 16) or
+            ((raw[offset + 2].toInt() and 0xff) shl 8) or
+            (raw[offset + 3].toInt() and 0xff)
+    }
+
+    private fun writeUVarInt(out: ByteArrayOutputStream, value: Int) {
+        require(value >= 0) { "negative varint" }
+        var v = value
+        do {
+            var b = v and 0x7f
+            v = v ushr 7
+            if (v != 0) {
+                b = b or 0x80
+            }
+            out.write(b)
+        } while (v != 0)
+    }
+
+    private data class VarIntRead(
+        val value: Int,
+        val nextOffset: Int,
+    )
+
+    private fun readUVarInt(raw: ByteArray, offset: Int): VarIntRead? {
+        var off = offset
+        var value = 0
+        var shift = 0
+        while (off < raw.size && shift <= 28) {
+            val b = raw[off++].toInt() and 0xff
+            value = value or ((b and 0x7f) shl shift)
+            if ((b and 0x80) == 0) {
+                return VarIntRead(value, off)
+            }
+            shift += 7
+        }
+        return null
     }
 
     private fun fromJsonArray(a: JSONArray): List<AttuneSnapshot> {

@@ -3850,15 +3850,15 @@ static void companion_dispose_phone_qr(CompanionState *state)
     }
 }
 
-static void companion_refresh_phone_qr(CompanionState *state)
+static void companion_show_phone_qr_text(
+    CompanionState *state,
+    const char *text,
+    enum qrcodegen_Ecc ecl,
+    bool boost_ecl,
+    const char *ready_message,
+    const char *ready_title)
 {
-    if (state->history_count == 0) {
-        set_action_status(state, "No attune history yet. Scan a snapshot first.", "No history");
-        return;
-    }
-    const AhcDailyAttuneSnapshot *last = &state->history[state->history_count - 1U];
-    char text[256];
-    if (ahc_sync_encode_one_day_qr(last, text, sizeof text) < 0) {
+    if (text == NULL || text[0] == '\0') {
         set_action_status(state, "Could not build QR payload.", "QR build failed");
         return;
     }
@@ -3875,11 +3875,11 @@ static void companion_refresh_phone_qr(CompanionState *state)
             text,
             tempb,
             qrcodeb,
-            qrcodegen_Ecc_MEDIUM,
+            ecl,
             qrcodegen_VERSION_MIN,
             qrcodegen_VERSION_MAX,
             qrcodegen_Mask_AUTO,
-            true)) {
+            boost_ecl)) {
         free(tempb);
         free(qrcodeb);
         set_action_status(state, "QR is too large for the encoder (unexpected).", "QR failed");
@@ -3918,10 +3918,48 @@ static void companion_refresh_phone_qr(CompanionState *state)
         return;
     }
     state->phone_qr_valid = true;
-    set_action_status(
+    set_action_status(state, ready_message, ready_title);
+}
+
+static void companion_refresh_phone_qr(CompanionState *state)
+{
+    if (state->history_count == 0) {
+        set_action_status(state, "No attune history yet. Scan a snapshot first.", "No history");
+        return;
+    }
+    const AhcDailyAttuneSnapshot *last = &state->history[state->history_count - 1U];
+    char text[256];
+    if (ahc_sync_encode_one_day_qr(last, text, sizeof text) < 0) {
+        set_action_status(state, "Could not build one-day QR payload.", "QR build failed");
+        return;
+    }
+    companion_show_phone_qr_text(
         state,
-        "Scan with Attune Helper on your phone. QR is latest day only; use Copy for full AHC1 history.",
-        "QR ready");
+        text,
+        qrcodegen_Ecc_MEDIUM,
+        true,
+        "Scan with Attune Helper on your phone. This AHC-Q1 QR sends one easy-scan day.",
+        "AHC-Q1 ready");
+}
+
+static void companion_refresh_phone_multi_qr(CompanionState *state)
+{
+    if (state->history_count == 0) {
+        set_action_status(state, "No attune history yet. Scan a snapshot first.", "No history");
+        return;
+    }
+    char text[2048];
+    if (ahc_sync_encode_multi_day_qr(state->history, state->history_count, text, sizeof text) < 0) {
+        set_action_status(state, "Could not build dense multi-day QR payload.", "QR build failed");
+        return;
+    }
+    companion_show_phone_qr_text(
+        state,
+        text,
+        qrcodegen_Ecc_LOW,
+        false,
+        "Dense AHC-Q2 QR ready. Use good light and a steady camera; paste AHC1 for the full log.",
+        "AHC-Q2 ready");
 }
 
 static void companion_copy_full_sync(CompanionState *state)
@@ -3982,13 +4020,16 @@ static void draw_attunes_tab(CompanionState *state)
     if (draw_wow_button("Scan now", (Rectangle){ content.x, button_y, 150.0f, button_height }, false, 18)) {
         scan_attunehelper_snapshot(state);
     }
-    if (draw_wow_button("Show QR (phone)", (Rectangle){ content.x + 168.0f, button_y, 196.0f, button_height }, false, 16)) {
+    if (draw_wow_button("QR day", (Rectangle){ content.x + 168.0f, button_y, 116.0f, button_height }, false, 16)) {
         companion_refresh_phone_qr(state);
     }
-    if (draw_wow_button("Copy AHC1", (Rectangle){ content.x + 380.0f, button_y, 150.0f, button_height }, false, 16)) {
+    if (draw_wow_button("QR multi", (Rectangle){ content.x + 302.0f, button_y, 130.0f, button_height }, false, 16)) {
+        companion_refresh_phone_multi_qr(state);
+    }
+    if (draw_wow_button("Copy AHC1", (Rectangle){ content.x + 450.0f, button_y, 140.0f, button_height }, false, 16)) {
         companion_copy_full_sync(state);
     }
-    if (draw_wow_button("Seed test data", (Rectangle){ content.x + 546.0f, button_y, 180.0f, button_height }, false, 18)) {
+    if (draw_wow_button("Seed test data", (Rectangle){ content.x + 606.0f, button_y, 180.0f, button_height }, false, 18)) {
         seed_test_history(state);
     }
 }

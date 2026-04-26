@@ -1,3 +1,7 @@
+#if defined(_MSC_VER)
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "attune/attune_sync_codec.h"
 
 #include "miniz.h"
@@ -9,6 +13,98 @@
 #include <string.h>
 
 #define AHC_SYNC_JSON_MAX (1024U * 1024U)
+#define AHC_SYNC_MULTI_RAW_MAX 1024U
+
+static bool ahc_parse_iso_date(const char *date, int *year, int *month, int *day)
+{
+    int parsed_year = 0;
+    int parsed_month = 0;
+    int parsed_day = 0;
+    if (date == NULL || sscanf(date, "%d-%d-%d", &parsed_year, &parsed_month, &parsed_day) != 3) {
+        return false;
+    }
+    if (parsed_month < 1 || parsed_month > 12 || parsed_day < 1 || parsed_day > 31) {
+        return false;
+    }
+
+    *year = parsed_year;
+    *month = parsed_month;
+    *day = parsed_day;
+    return true;
+}
+
+static int ahc_days_from_civil(int year, int month, int day)
+{
+    year -= month <= 2;
+    const int era = (year >= 0 ? year : year - 399) / 400;
+    const unsigned yoe = (unsigned)(year - era * 400);
+    const unsigned doy = (153u * (unsigned)(month + (month > 2 ? -3 : 9)) + 2u) / 5u + (unsigned)day - 1u;
+    const unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+    return era * 146097 + (int)doe - 719468;
+}
+
+static bool ahc_date_to_ordinal(const char *date, int *ordinal)
+{
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    if (!ahc_parse_iso_date(date, &year, &month, &day)) {
+        return false;
+    }
+
+    *ordinal = ahc_days_from_civil(year, month, day);
+    return true;
+}
+
+static int ahc_put_u8(unsigned char *buf, size_t cap, size_t *len, unsigned int value)
+{
+    if (*len >= cap || value > 0xffU) {
+        return -1;
+    }
+    buf[(*len)++] = (unsigned char)value;
+    return 0;
+}
+
+static int ahc_put_i32_be(unsigned char *buf, size_t cap, size_t *len, int value)
+{
+    if (*len + 4U > cap) {
+        return -1;
+    }
+    uint32_t u = (uint32_t)value;
+    buf[(*len)++] = (unsigned char)((u >> 24) & 0xffU);
+    buf[(*len)++] = (unsigned char)((u >> 16) & 0xffU);
+    buf[(*len)++] = (unsigned char)((u >> 8) & 0xffU);
+    buf[(*len)++] = (unsigned char)(u & 0xffU);
+    return 0;
+}
+
+static int ahc_put_uvarint(unsigned char *buf, size_t cap, size_t *len, uint32_t value)
+{
+    do {
+        unsigned char b = (unsigned char)(value & 0x7fU);
+        value >>= 7;
+        if (value != 0U) {
+            b |= 0x80U;
+        }
+        if (ahc_put_u8(buf, cap, len, b) != 0) {
+            return -1;
+        }
+    } while (value != 0U);
+    return 0;
+}
+
+static bool ahc_snapshot_is_qr2_eligible(const AhcDailyAttuneSnapshot *s)
+{
+    int ordinal = 0;
+    return s != NULL
+        && s->found
+        && s->date[0] != '\0'
+        && s->account >= 0
+        && s->warforged >= 0
+        && s->lightforged >= 0
+        && s->titanforged >= 0
+        && ahc_date_to_ordinal(s->date, &ordinal);
+}
 
 static int ahc_append_json_char(char *buf, size_t cap, size_t *len, char c)
 {
@@ -152,6 +248,75 @@ int ahc_sync_encode_one_day_qr(const AhcDailyAttuneSnapshot *s, char *out, size_
         return -1;
     }
     return n;
+}
+
+int ahc_sync_encode_multi_day_qr(const AhcDailyAttuneSnapshot *snapshots, size_t count, char *out, size_t out_cap)
+{
+    if (out == NULL || snapshots == NULL || count == 0U) {
+        return -1;
+    }
+
+    const AhcDailyAttuneSnapshot *selected[AHC_SYNC_MULTI_QR_MAX_DAYS];
+    size_t selected_count = 0;
+    for (size_t i = count; i > 0U && selected_count < AHC_SYNC_MULTI_QR_MAX_DAYS; i--) {
+        const AhcDailyAttuneSnapshot *s = &snapshots[i - 1U];
+        if (ahc_snapshot_is_qr2_eligible(s)) {
+            selected[selected_count++] = s;
+        }
+    }
+    if (selected_count == 0U || selected_count > 255U) {
+        return -1;
+    }
+
+    unsigned char raw[AHC_SYNC_MULTI_RAW_MAX];
+    size_t raw_len = 0;
+    if (ahc_put_u8(raw, sizeof raw, &raw_len, 1U) != 0
+        || ahc_put_u8(raw, sizeof raw, &raw_len, (unsigned int)selected_count) != 0) {
+        return -1;
+    }
+
+    int previous_ordinal = 0;
+    for (size_t reverse_i = selected_count; reverse_i > 0U; reverse_i--) {
+        const AhcDailyAttuneSnapshot *s = selected[reverse_i - 1U];
+        int ordinal = 0;
+        if (!ahc_date_to_ordinal(s->date, &ordinal)) {
+            return -1;
+        }
+        if (reverse_i == selected_count) {
+            if (ahc_put_i32_be(raw, sizeof raw, &raw_len, ordinal) != 0
+                || ahc_put_uvarint(raw, sizeof raw, &raw_len, 0U) != 0) {
+                return -1;
+            }
+        } else {
+            int delta_days = ordinal - previous_ordinal;
+            if (delta_days < 0) {
+                return -1;
+            }
+            if (ahc_put_uvarint(raw, sizeof raw, &raw_len, (uint32_t)delta_days) != 0) {
+                return -1;
+            }
+        }
+        previous_ordinal = ordinal;
+
+        if (ahc_put_uvarint(raw, sizeof raw, &raw_len, (uint32_t)s->account) != 0
+            || ahc_put_uvarint(raw, sizeof raw, &raw_len, (uint32_t)s->warforged) != 0
+            || ahc_put_uvarint(raw, sizeof raw, &raw_len, (uint32_t)s->lightforged) != 0
+            || ahc_put_uvarint(raw, sizeof raw, &raw_len, (uint32_t)s->titanforged) != 0) {
+            return -1;
+        }
+    }
+
+    size_t pre = sizeof(AHC_SYNC_MULTI_QR_PREFIX) - 1U;
+    if (out_cap <= pre) {
+        return -1;
+    }
+    memcpy(out, AHC_SYNC_MULTI_QR_PREFIX, pre);
+    size_t b64o = 0;
+    if (ahc_b64url_encode(raw, raw_len, out + pre, out_cap - pre, &b64o) != 0) {
+        return -1;
+    }
+    out[pre + b64o] = '\0';
+    return (int)(pre + b64o);
 }
 
 int ahc_sync_encode_full_history(const AhcDailyAttuneSnapshot *snapshots, size_t count, char *out, size_t out_cap)

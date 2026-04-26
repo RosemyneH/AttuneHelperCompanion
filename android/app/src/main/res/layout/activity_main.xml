@@ -186,6 +186,14 @@
                             android:layout_marginTop="@dimen/space_sm"
                             android:text="@string/show_qr_today" />
 
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_qr_multi"
+                            style="@style/Widget.Ahc.Button.Tonal"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_sm"
+                            android:text="@string/show_qr_multi" />
+
                         <ImageView
                             android:id="@+id/image_qr"
                             android:layout_width="match_parent"
@@ -194,6 +202,14 @@
                             android:layout_marginTop="@dimen/space_md"
                             android:adjustViewBounds="true"
                             android:contentDescription="@string/qr_code" />
+
+                        <TextView
+                            android:id="@+id/text_sync_latest"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_sm"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="@color/ahc_text_muted" />
 
                         <EditText
                             android:id="@+id/edit_sync_code"
@@ -503,7 +519,6 @@
                                 style="@style/Widget.Ahc.Chip.Filter"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:checked="true"
                                 android:text="@string/graph_display_bars" />
 
                             <com.google.android.material.chip.Chip
@@ -511,17 +526,10 @@
                                 style="@style/Widget.Ahc.Chip.Filter"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
+                                android:checked="true"
                                 android:text="@string/graph_display_plot" />
                         </com.google.android.material.chip.ChipGroup>
                     </HorizontalScrollView>
-
-                    <com.attunehelper.companion.attune.graph.AttuneGraphView
-                        android:id="@+id/attune_graph"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1"
-                        android:layout_marginTop="@dimen/space_xs"
-                        android:minHeight="120dp" />
 
                     <TextView
                         android:id="@+id/text_attune_graph_detail"
@@ -532,6 +540,23 @@
                         android:textColor="@color/ahc_text"
                         android:textIsSelectable="true"
                         android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/text_attune_graph_average"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:gravity="center"
+                        android:textColor="@color/ahc_text"
+                        android:textSize="16sp" />
+
+                    <com.attunehelper.companion.attune.graph.AttuneGraphView
+                        android:id="@+id/attune_graph"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:minHeight="120dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

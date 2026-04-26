@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.util.TypedValue
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import androidx.core.content.ContextCompat
@@ -133,11 +134,11 @@ class AttuneGraphView @JvmOverloads constructor(
         val leftIn = paddingLeft + pad + dp(40f)
         val rightIn = w - (paddingRight + pad + dp(20f))
         val topIn = (paddingTop + pad + text14 * 1.2f)
-        val bottomIn = h - (paddingBottom + pad + text12 * 2.4f + text16 * 1.2f)
+        val bottomIn = h - (paddingBottom + pad + text12 * 1.8f)
         plotLeft = leftIn
         plotRight = rightIn
         plotTop = topIn
-        baseY = min(bottomIn, topIn + dp(120f)) // ensure at least 120dp plot
+        baseY = bottomIn
         if (baseY < plotTop + dp(80f)) {
             baseY = (plotTop + dp(80f)).coerceAtMost(bottomIn)
         }
@@ -162,7 +163,7 @@ class AttuneGraphView @JvmOverloads constructor(
         val maxD = maxDeltaForMetric(displayRows, count, graphMetric)
         val axis = context.getString(
             R.string.attune_graph_axis,
-            maxD,
+            formatIntWithCommas(maxD),
             displayRows.first().snapshot.date,
             displayRows.last().snapshot.date,
         )
@@ -260,14 +261,6 @@ class AttuneGraphView @JvmOverloads constructor(
                 )
             }
         }
-        val apd = if (count >= 2) {
-            accountAttunesPerTrackedDay(displayRows, count)
-        } else {
-            0.0
-        }
-        pMuted.textSize = text16
-        val foot = context.getString(R.string.attune_graph_footer, apd)
-        canvas.drawText(foot, plotLeft, height - paddingBottom - pad - text12 * 0.2f, pMuted)
     }
 
     private fun drawEmpty(canvas: Canvas) {
@@ -303,6 +296,7 @@ class AttuneGraphView @JvmOverloads constructor(
                     setSelectedInternal(null)
                 } else {
                     setSelectedInternal(i)
+                    performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 }
             } else {
                 setSelectedInternal(null)

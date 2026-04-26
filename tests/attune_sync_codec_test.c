@@ -78,6 +78,22 @@ static int b64url_decode(const char *in, size_t in_len, unsigned char *out, size
     return 0;
 }
 
+static int read_uvarint(const unsigned char *in, size_t in_len, size_t *offset, unsigned int *out)
+{
+    unsigned int value = 0;
+    unsigned int shift = 0;
+    while (*offset < in_len && shift <= 28U) {
+        unsigned char b = in[(*offset)++];
+        value |= (unsigned int)(b & 0x7fU) << shift;
+        if ((b & 0x80U) == 0U) {
+            *out = value;
+            return 0;
+        }
+        shift += 7U;
+    }
+    return -1;
+}
+
 int main(void)
 {
     AhcDailyAttuneSnapshot s = { 0 };
@@ -97,6 +113,59 @@ int main(void)
     const char *exp = AHC_SYNC_QR_PREFIX "2020-12-25|10|1|2|3";
     if (strcmp(line, exp) != 0) {
         fprintf(stderr, "one day line mismatch: %s\n", line);
+        return 1;
+    }
+
+    AhcDailyAttuneSnapshot many[3] = { 0 };
+    many[0] = s;
+    many[1].found = true;
+    snprintf(many[1].date, sizeof many[1].date, "%s", "2020-12-27");
+    many[1].account = 25;
+    many[1].warforged = 3;
+    many[1].lightforged = 4;
+    many[1].titanforged = 8;
+    many[2].found = true;
+    snprintf(many[2].date, sizeof many[2].date, "%s", "2020-12-28");
+    many[2].account = 28;
+    many[2].warforged = 4;
+    many[2].lightforged = 4;
+    many[2].titanforged = 9;
+    char multi_line[512];
+    int q2 = ahc_sync_encode_multi_day_qr(many, 3, multi_line, sizeof multi_line);
+    if (q2 < 0) {
+        fprintf(stderr, "encode multi-day failed\n");
+        return 1;
+    }
+    if (strncmp(multi_line, AHC_SYNC_MULTI_QR_PREFIX, sizeof AHC_SYNC_MULTI_QR_PREFIX - 1U) != 0) {
+        fprintf(stderr, "multi-day missing prefix: %s\n", multi_line);
+        return 1;
+    }
+    unsigned char raw[512];
+    size_t raw_len = 0;
+    const char *multi_b64 = multi_line + (sizeof AHC_SYNC_MULTI_QR_PREFIX - 1U);
+    if (b64url_decode(multi_b64, strlen(multi_b64), raw, sizeof raw, &raw_len) != 0 || raw_len < 8U) {
+        fprintf(stderr, "multi-day b64 decode failed\n");
+        return 1;
+    }
+    if (raw[0] != 1U || raw[1] != 3U) {
+        fprintf(stderr, "multi-day header mismatch\n");
+        return 1;
+    }
+    size_t off = 6U;
+    const unsigned int expected[] = {
+        0U, 10U, 1U, 2U, 3U,
+        2U, 25U, 3U, 4U, 8U,
+        1U, 28U, 4U, 4U, 9U,
+    };
+    for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
+        unsigned int got = 0;
+        if (read_uvarint(raw, raw_len, &off, &got) != 0 || got != expected[i]) {
+            fprintf(stderr, "multi-day varint mismatch at %zu\n", i);
+            return 1;
+        }
+    }
+    if (off != raw_len) {
+        fprintf(stderr, "multi-day trailing bytes\n");
         return 1;
     }
 
