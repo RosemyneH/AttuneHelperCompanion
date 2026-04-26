@@ -1,0 +1,14 @@
+---
+description: Commit and push completed work by default
+alwaysApply: true
+---
+
+# Commit And Push Default
+
+The user wants completed work in this repository committed and pushed by default.
+
+- After finishing requested edits and relevant verification, commit all relevant non-secret changes and push the current branch.
+- Include new files that are part of the work; leave unrelated generated artifacts or local noise uncommitted.
+- Never commit likely secrets, credentials, private keys, `.env` files, or local machine-only config.
+- Do not use destructive git operations or force-push unless the user explicitly asks for that in the current conversation.
+- If verification cannot run, still commit and push when the changes are otherwise complete, and clearly state what was blocked.
