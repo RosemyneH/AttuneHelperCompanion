@@ -5,7 +5,8 @@
     <dimen name="space_md">12dp</dimen>
     <dimen name="space_lg">16dp</dimen>
     <dimen name="space_xl">24dp</dimen>
-    <dimen name="corner_card">28dp</dimen>
-    <dimen name="corner_control">18dp</dimen>
-    <dimen name="bottom_bar_height">84dp</dimen>
+    <dimen name="corner_card">20dp</dimen>
+    <dimen name="corner_control">12dp</dimen>
+    <dimen name="content_padding_horizontal">20dp</dimen>
+    <dimen name="elevation_card">4dp</dimen>
 </resources>

@@ -36,6 +36,7 @@ import com.attunehelper.companion.saf.SynastriaFolder
 import com.attunehelper.companion.sync.AttuneSyncCodec
 import com.attunehelper.companion.util.QrBitmaps
 import com.attunehelper.companion.util.WinlatorIntents
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -122,10 +123,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupBottomNavigation() {
-        findViewById<MaterialButton>(R.id.btn_nav_catalog).setOnClickListener { showSection(R.id.section_catalog) }
-        findViewById<MaterialButton>(R.id.btn_nav_sync).setOnClickListener { showSection(R.id.section_sync) }
-        findViewById<MaterialButton>(R.id.btn_nav_transfer).setOnClickListener { showSection(R.id.section_transfer) }
-        findViewById<MaterialButton>(R.id.btn_nav_play).setOnClickListener { showSection(R.id.section_play) }
+        findViewById<BottomNavigationView>(R.id.bottom_navigation).setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_menu_catalog -> {
+                    showSection(R.id.section_catalog)
+                    true
+                }
+                R.id.nav_menu_sync -> {
+                    showSection(R.id.section_sync)
+                    true
+                }
+                R.id.nav_menu_transfer -> {
+                    showSection(R.id.section_transfer)
+                    true
+                }
+                R.id.nav_menu_play -> {
+                    showSection(R.id.section_play)
+                    true
+                }
+                else -> false
+            }
+        }
     }
 
     private fun showSection(sectionId: Int) {
@@ -138,25 +156,20 @@ class MainActivity : AppCompatActivity() {
         for (id in sections) {
             findViewById<View>(id).visibility = if (id == sectionId) View.VISIBLE else View.GONE
         }
-        val nav = mapOf(
-            R.id.btn_nav_catalog to R.id.section_catalog,
-            R.id.btn_nav_sync to R.id.section_sync,
-            R.id.btn_nav_transfer to R.id.section_transfer,
-            R.id.btn_nav_play to R.id.section_play,
-        )
-        for ((buttonId, targetId) in nav) {
-            setNavButtonSelected(findViewById(buttonId), targetId == sectionId)
+        val menuId = when (sectionId) {
+            R.id.section_catalog -> R.id.nav_menu_catalog
+            R.id.section_sync -> R.id.nav_menu_sync
+            R.id.section_transfer -> R.id.nav_menu_transfer
+            R.id.section_play -> R.id.nav_menu_play
+            else -> R.id.nav_menu_catalog
+        }
+        val bottomNav = findViewById<BottomNavigationView>(R.id.bottom_navigation)
+        if (bottomNav.selectedItemId != menuId) {
+            bottomNav.selectedItemId = menuId
         }
         findViewById<ScrollView>(R.id.main_scroll).post {
             findViewById<ScrollView>(R.id.main_scroll).smoothScrollTo(0, 0)
         }
-    }
-
-    private fun setNavButtonSelected(button: MaterialButton, selected: Boolean) {
-        val bg = if (selected) R.color.pumpkin_primary else R.color.pumpkin_surface_high
-        val fg = if (selected) R.color.pumpkin_on_primary else R.color.pumpkin_secondary_soft
-        button.backgroundTintList = ColorStateList.valueOf(getColor(bg))
-        button.setTextColor(getColor(fg))
     }
 
     private fun setupAddonSearch() {
@@ -457,10 +470,10 @@ class MainActivity : AppCompatActivity() {
             button.cornerRadius = dp(18)
             button.isAllCaps = false
             button.backgroundTintList = ColorStateList.valueOf(
-                getColor(if (selectedAddonCategory == category) R.color.pumpkin_primary else R.color.pumpkin_surface_variant)
+                getColor(if (selectedAddonCategory == category) R.color.ahc_accent else R.color.ahc_surface_variant)
             )
             button.setTextColor(
-                getColor(if (selectedAddonCategory == category) R.color.pumpkin_on_primary else R.color.pumpkin_text)
+                getColor(if (selectedAddonCategory == category) R.color.ahc_on_accent else R.color.ahc_text)
             )
             button.setOnClickListener {
                 selectedAddonCategory = category
@@ -505,6 +518,8 @@ class MainActivity : AppCompatActivity() {
             val queryMatch = query.isEmpty() || listOf(
                 entry.name,
                 entry.author,
+                entry.source,
+                entry.id,
                 entry.category,
                 entry.description,
                 entry.folder,
@@ -517,10 +532,11 @@ class MainActivity : AppCompatActivity() {
     private fun createAddonCard(entry: AddonInstall.Entry): View {
         val selected = selectedAddonEntry?.id == entry.id
         val card = MaterialCardView(this)
-        card.radius = dp(22).toFloat()
+        card.radius = resources.getDimension(R.dimen.corner_card)
+        card.cardElevation = resources.getDimension(R.dimen.elevation_card)
         card.strokeWidth = dp(if (selected) 2 else 1)
-        card.strokeColor = getColor(if (selected) R.color.pumpkin_primary else R.color.pumpkin_outline)
-        card.setCardBackgroundColor(getColor(if (selected) R.color.pumpkin_surface_high else R.color.pumpkin_surface))
+        card.strokeColor = getColor(if (selected) R.color.ahc_accent else R.color.ahc_outline)
+        card.setCardBackgroundColor(getColor(if (selected) R.color.ahc_surface_high else R.color.ahc_surface))
         card.isClickable = true
         card.isFocusable = true
         card.setOnClickListener {
@@ -529,16 +545,36 @@ class MainActivity : AppCompatActivity() {
             renderAddonCatalog()
         }
 
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.setPadding(dp(18), dp(16), dp(18), dp(16))
+
+        val icon = ImageView(this)
+        icon.setImageResource(R.drawable.ic_addon_plugin)
+        icon.setPadding(0, 0, dp(14), 0)
+        icon.contentDescription = entry.name
+        icon.imageTintList = ColorStateList.valueOf(getColor(R.color.ahc_accent))
+        row.addView(
+            icon,
+            LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                gravity = android.view.Gravity.TOP
+            }
+        )
+
         val body = LinearLayout(this)
         body.orientation = LinearLayout.VERTICAL
-        body.setPadding(dp(16), dp(14), dp(16), dp(14))
-
-        body.addView(textView(entry.name, 18f, R.color.pumpkin_text, true))
+        val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        body.addView(textView(entry.name, 18f, R.color.ahc_text, true))
         body.addView(
             textView(
-                getString(R.string.addon_meta, displayAuthor(entry), displayCategory(entry)),
-                13f,
-                R.color.pumpkin_primary,
+                getString(
+                    R.string.addon_meta_line,
+                    displayAuthor(entry),
+                    displaySource(entry),
+                    displayCategory(entry),
+                ),
+                12.5f,
+                R.color.ahc_accent,
             ).apply {
                 setPadding(0, dp(4), 0, 0)
             }
@@ -547,22 +583,27 @@ class MainActivity : AppCompatActivity() {
             textView(
                 entry.description.ifBlank { getString(R.string.addon_description_empty) },
                 14f,
-                R.color.pumpkin_text_muted,
+                R.color.ahc_text_muted,
             ).apply {
-                maxLines = 2
+                maxLines = 3
                 setPadding(0, dp(6), 0, 0)
             }
         )
+        row.addView(body, lp)
 
-        card.addView(body)
+        card.addView(row)
         return card.apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).apply {
-                topMargin = dp(8)
+                topMargin = dp(10)
             }
         }
+    }
+
+    private fun displaySource(entry: AddonInstall.Entry): String {
+        return entry.source.ifBlank { getString(R.string.addon_source_unknown) }
     }
 
     private fun updateSelectedAddonPanel() {
@@ -580,8 +621,12 @@ class MainActivity : AppCompatActivity() {
         }
         name.text = getString(R.string.catalog_selected, entry.name)
         val version = if (entry.version.isBlank()) "" else " - " + getString(R.string.addon_version, entry.version)
-        meta.text = getString(R.string.addon_meta, displayAuthor(entry), displayCategory(entry)) +
-            version + "\n" + getString(R.string.addon_folder, entry.folder)
+        meta.text = getString(
+            R.string.addon_meta_line,
+            displayAuthor(entry),
+            displaySource(entry),
+            displayCategory(entry),
+        ) + version + "\n" + getString(R.string.addon_folder, entry.folder)
         description.text = entry.description.ifBlank { getString(R.string.addon_description_empty) }
         button.isEnabled = !addonInstalling
     }
@@ -602,19 +647,19 @@ class MainActivity : AppCompatActivity() {
         val button = findViewById<MaterialButton>(R.id.btn_install_addon)
         addonInstalling = true
         button.isEnabled = false
-        status.setTextColor(getColor(R.color.pumpkin_primary))
+        status.setTextColor(getColor(R.color.ahc_accent))
         status.text = getString(R.string.catalog_installing, e.name)
         lifecycleScope.launch {
-            val r = withContext(Dispatchers.IO) { AddonInstall.installGitAddon(this@MainActivity, u, e) }
+            val r = withContext(Dispatchers.IO) { AddonInstall.installAddon(this@MainActivity, u, e) }
             addonInstalling = false
             button.isEnabled = true
             if (r.isSuccess) {
-                status.setTextColor(getColor(R.color.pumpkin_success))
+                status.setTextColor(getColor(R.color.ahc_success))
                 status.text = r.getOrNull()
                 Toast.makeText(this@MainActivity, r.getOrNull(), Toast.LENGTH_LONG).show()
             } else {
                 val message = r.exceptionOrNull()?.message ?: "Install failed"
-                status.setTextColor(getColor(R.color.pumpkin_error))
+                status.setTextColor(getColor(R.color.ahc_error))
                 status.text = message
                 Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
             }

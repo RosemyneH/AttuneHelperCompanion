@@ -40,8 +40,12 @@ static int baked_catalog_has_source(const char *source)
 
 int main(void)
 {
-    if (ahc_addon_catalog_count() < 1000u || !baked_catalog_has_source("Felbite")) {
-        fprintf(stderr, "Baked addon catalog does not include the full website catalog.\n");
+    if (ahc_addon_catalog_count() < 400u || !baked_catalog_has_source("Felbite")) {
+        fprintf(stderr, "Baked addon catalog is missing expected Felbite entries or is too small.\n");
+        return 1;
+    }
+    if (baked_catalog_has_source("Warperia")) {
+        fprintf(stderr, "Baked catalog should not include Warperia entries.\n");
         return 1;
     }
 

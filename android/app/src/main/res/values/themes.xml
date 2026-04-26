@@ -1,21 +1,21 @@
 <resources>
     <style name="Theme.AttuneHelperCompanion" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowBackground">@color/pumpkin_bg</item>
-        <item name="android:statusBarColor">@color/pumpkin_bg</item>
-        <item name="android:navigationBarColor">@color/pumpkin_bg</item>
+        <item name="android:windowBackground">@color/ahc_bg</item>
+        <item name="android:statusBarColor">@color/ahc_bg</item>
+        <item name="android:navigationBarColor">@color/ahc_bg</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <item name="colorPrimary">@color/pumpkin_primary</item>
-        <item name="colorOnPrimary">@color/pumpkin_on_primary</item>
-        <item name="colorSecondary">@color/pumpkin_secondary_soft</item>
-        <item name="colorOnSecondary">@color/pumpkin_bg</item>
-        <item name="colorSurface">@color/pumpkin_surface</item>
-        <item name="colorOnSurface">@color/pumpkin_text</item>
-        <item name="colorSurfaceVariant">@color/pumpkin_surface_variant</item>
-        <item name="colorOnSurfaceVariant">@color/pumpkin_text_muted</item>
-        <item name="colorOutline">@color/pumpkin_outline</item>
-        <item name="colorError">@color/pumpkin_error</item>
+        <item name="colorPrimary">@color/ahc_accent</item>
+        <item name="colorOnPrimary">@color/ahc_on_accent</item>
+        <item name="colorSecondary">@color/ahc_outline_bright</item>
+        <item name="colorOnSecondary">@color/ahc_bg</item>
+        <item name="colorSurface">@color/ahc_surface</item>
+        <item name="colorOnSurface">@color/ahc_text</item>
+        <item name="colorSurfaceVariant">@color/ahc_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/ahc_text_muted</item>
+        <item name="colorOutline">@color/ahc_outline</item>
+        <item name="colorError">@color/ahc_error</item>
         <item name="materialButtonStyle">@style/Widget.Ahc.Button</item>
         <item name="materialCardViewStyle">@style/Widget.Ahc.Card</item>
     </style>
@@ -23,34 +23,38 @@
     <style name="Widget.Ahc.Button" parent="Widget.Material3.Button">
         <item name="cornerRadius">@dimen/corner_control</item>
         <item name="android:minHeight">48dp</item>
-        <item name="backgroundTint">@color/pumpkin_primary</item>
-        <item name="android:textColor">@color/pumpkin_on_primary</item>
+        <item name="backgroundTint">@color/ahc_accent</item>
+        <item name="android:textColor">@color/ahc_on_accent</item>
     </style>
 
     <style name="Widget.Ahc.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
         <item name="cornerRadius">@dimen/corner_control</item>
         <item name="android:minHeight">48dp</item>
-        <item name="backgroundTint">@color/pumpkin_surface_variant</item>
-        <item name="android:textColor">@color/pumpkin_text</item>
+        <item name="backgroundTint">@color/ahc_surface_variant</item>
+        <item name="android:textColor">@color/ahc_text</item>
     </style>
 
     <style name="Widget.Ahc.Button.Text" parent="Widget.Material3.Button.TextButton">
         <item name="cornerRadius">@dimen/corner_control</item>
         <item name="android:minHeight">48dp</item>
-        <item name="android:textColor">@color/pumpkin_secondary_soft</item>
+        <item name="android:textColor">@color/ahc_accent</item>
     </style>
 
     <style name="Widget.Ahc.Card" parent="Widget.Material3.CardView.Elevated">
-        <item name="cardBackgroundColor">@color/pumpkin_surface</item>
+        <item name="cardBackgroundColor">@color/ahc_surface</item>
         <item name="cardCornerRadius">@dimen/corner_card</item>
-        <item name="strokeColor">@color/pumpkin_outline</item>
+        <item name="cardElevation">@dimen/elevation_card</item>
+        <item name="cardMaxElevation">8dp</item>
+        <item name="strokeColor">@color/ahc_outline</item>
         <item name="strokeWidth">1dp</item>
     </style>
 
     <style name="Widget.Ahc.Card.Highlight" parent="Widget.Material3.CardView.Elevated">
-        <item name="cardBackgroundColor">@color/pumpkin_surface_high</item>
+        <item name="cardBackgroundColor">@color/ahc_surface_high</item>
         <item name="cardCornerRadius">@dimen/corner_card</item>
-        <item name="strokeColor">@color/pumpkin_primary</item>
+        <item name="cardElevation">6dp</item>
+        <item name="cardMaxElevation">8dp</item>
+        <item name="strokeColor">@color/ahc_accent</item>
         <item name="strokeWidth">1dp</item>
     </style>
 </resources>

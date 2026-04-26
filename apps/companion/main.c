@@ -864,10 +864,6 @@ static bool addon_url_for_source_link(const AhcAddon *addon, char *out, size_t o
         snprintf(out, out_capacity, "%s", "https://felbite.com/wow-3-3-5-addons/");
         return true;
     }
-    if (AHC_STRICMP(addon_source_label(addon), "Warperia") == 0) {
-        snprintf(out, out_capacity, "%s", "https://warperia.com/wotlk-addons/");
-        return true;
-    }
     return false;
 }
 

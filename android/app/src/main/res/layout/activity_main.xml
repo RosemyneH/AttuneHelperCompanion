@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/pumpkin_bg"
+    android:background="@color/ahc_bg"
     android:orientation="vertical">
 
     <ScrollView
@@ -13,8 +13,8 @@
         android:layout_weight="1"
         android:clipToPadding="false"
         android:fillViewport="true"
-        android:paddingStart="@dimen/space_lg"
-        android:paddingEnd="@dimen/space_lg">
+        android:paddingStart="@dimen/content_padding_horizontal"
+        android:paddingEnd="@dimen/content_padding_horizontal">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -23,53 +23,29 @@
             android:paddingTop="@dimen/space_lg"
             android:paddingBottom="@dimen/space_lg">
 
-            <com.google.android.material.card.MaterialCardView
-                style="@style/Widget.Ahc.Card.Highlight"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardUseCompatPadding="true">
+                android:orientation="vertical"
+                android:paddingTop="@dimen/space_sm"
+                android:paddingBottom="@dimen/space_xs">
 
-                <LinearLayout
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="@dimen/space_xl">
+                    android:text="@string/home_title"
+                    android:textAppearance="?attr/textAppearanceTitleLarge"
+                    android:textColor="@color/ahc_text" />
 
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:letterSpacing="0.08"
-                        android:text="@string/home_eyebrow"
-                        android:textAllCaps="true"
-                        android:textAppearance="?attr/textAppearanceLabelMedium"
-                        android:textColor="@color/pumpkin_primary" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/space_sm"
-                        android:text="@string/home_title"
-                        android:textAppearance="?attr/textAppearanceHeadlineMedium"
-                        android:textColor="@color/pumpkin_text" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/space_sm"
-                        android:text="@string/home_subtitle"
-                        android:textAppearance="?attr/textAppearanceBodyMedium"
-                        android:textColor="@color/pumpkin_text_muted" />
-
-                    <TextView
-                        android:id="@+id/text_tree_badge"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/space_lg"
-                        android:text="@string/no_tree_yet"
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:textColor="@color/pumpkin_text" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                <TextView
+                    android:id="@+id/text_tree_badge"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:text="@string/no_tree_yet"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="@color/ahc_text_muted" />
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/section_catalog"
@@ -95,7 +71,7 @@
                             android:layout_height="wrap_content"
                             android:text="@string/section_catalog"
                             android:textAppearance="?attr/textAppearanceTitleLarge"
-                            android:textColor="@color/pumpkin_text" />
+                            android:textColor="@color/ahc_text" />
 
                         <TextView
                             android:layout_width="match_parent"
@@ -103,21 +79,21 @@
                             android:layout_marginTop="@dimen/space_xs"
                             android:text="@string/section_catalog_help"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
 
                         <EditText
                             android:id="@+id/edit_addon_search"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_md"
-                            android:backgroundTint="@color/pumpkin_outline"
+                            android:backgroundTint="@color/ahc_outline"
                             android:hint="@string/catalog_search_hint"
                             android:importantForAutofill="no"
                             android:inputType="text|textNoSuggestions"
                             android:minHeight="48dp"
                             android:singleLine="true"
-                            android:textColor="@color/pumpkin_text"
-                            android:textColorHint="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text"
+                            android:textColorHint="@color/ahc_text_muted" />
 
                         <HorizontalScrollView
                             android:layout_width="match_parent"
@@ -138,7 +114,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_md"
                             android:textAppearance="?attr/textAppearanceLabelLarge"
-                            android:textColor="@color/pumpkin_primary" />
+                            android:textColor="@color/ahc_primary" />
 
                         <LinearLayout
                             android:id="@+id/layout_addon_catalog"
@@ -154,7 +130,7 @@
                             android:layout_marginTop="@dimen/space_md"
                             android:text="@string/catalog_empty"
                             android:textAppearance="?attr/textAppearanceBodyMedium"
-                            android:textColor="@color/pumpkin_text_muted"
+                            android:textColor="@color/ahc_text_muted"
                             android:visibility="gone" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
@@ -178,7 +154,7 @@
                             android:layout_height="wrap_content"
                             android:text="@string/catalog_install_ready"
                             android:textAppearance="?attr/textAppearanceTitleMedium"
-                            android:textColor="@color/pumpkin_text" />
+                            android:textColor="@color/ahc_text" />
 
                         <TextView
                             android:id="@+id/text_addon_selected_meta"
@@ -186,7 +162,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_xs"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
 
                         <TextView
                             android:id="@+id/text_addon_selected_description"
@@ -194,7 +170,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_sm"
                             android:textAppearance="?attr/textAppearanceBodyMedium"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
 
                         <TextView
                             android:id="@+id/text_addon_status"
@@ -202,7 +178,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_sm"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_success" />
+                            android:textColor="@color/ahc_success" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_install_addon"
@@ -240,7 +216,7 @@
                             android:layout_height="wrap_content"
                             android:text="@string/section_library"
                             android:textAppearance="?attr/textAppearanceTitleLarge"
-                            android:textColor="@color/pumpkin_text" />
+                            android:textColor="@color/ahc_text" />
 
                         <TextView
                             android:id="@+id/text_tree_uri"
@@ -249,7 +225,7 @@
                             android:layout_marginTop="@dimen/space_xs"
                             android:text="@string/no_tree_yet"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_pick_tree"
@@ -273,7 +249,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_sm"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -295,7 +271,7 @@
                             android:layout_height="wrap_content"
                             android:text="@string/section_attunes"
                             android:textAppearance="?attr/textAppearanceTitleMedium"
-                            android:textColor="@color/pumpkin_text" />
+                            android:textColor="@color/ahc_text" />
 
                         <TextView
                             android:id="@+id/text_attune_line"
@@ -303,7 +279,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_sm"
                             android:fontFamily="monospace"
-                            android:textColor="@color/pumpkin_text_muted"
+                            android:textColor="@color/ahc_text_muted"
                             android:textSize="13sp" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
@@ -326,7 +302,7 @@
                             android:layout_height="wrap_content"
                             android:text="@string/section_sync"
                             android:textAppearance="?attr/textAppearanceTitleMedium"
-                            android:textColor="@color/pumpkin_text" />
+                            android:textColor="@color/ahc_text" />
 
                         <TextView
                             android:layout_width="match_parent"
@@ -334,21 +310,21 @@
                             android:layout_marginTop="@dimen/space_xs"
                             android:text="@string/section_sync_help"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
 
                         <EditText
                             android:id="@+id/edit_sync_code"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_md"
-                            android:backgroundTint="@color/pumpkin_outline"
+                            android:backgroundTint="@color/ahc_outline"
                             android:gravity="top|start"
                             android:hint="@string/paste_code_hint"
                             android:importantForAutofill="no"
                             android:inputType="text|textMultiLine|textNoSuggestions"
                             android:minLines="3"
-                            android:textColor="@color/pumpkin_text"
-                            android:textColorHint="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text"
+                            android:textColorHint="@color/ahc_text_muted" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_import_code"
@@ -427,7 +403,7 @@
                             android:layout_height="wrap_content"
                             android:text="@string/section_nfc"
                             android:textAppearance="?attr/textAppearanceTitleLarge"
-                            android:textColor="@color/pumpkin_text" />
+                            android:textColor="@color/ahc_text" />
 
                         <TextView
                             android:layout_width="match_parent"
@@ -435,7 +411,7 @@
                             android:layout_marginTop="@dimen/space_xs"
                             android:text="@string/section_nfc_help"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_nfc_prepare"
@@ -451,7 +427,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_sm"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
@@ -481,7 +457,7 @@
                             android:layout_height="wrap_content"
                             android:text="@string/section_play"
                             android:textAppearance="?attr/textAppearanceTitleLarge"
-                            android:textColor="@color/pumpkin_text" />
+                            android:textColor="@color/ahc_text" />
 
                         <TextView
                             android:layout_width="match_parent"
@@ -489,7 +465,7 @@
                             android:layout_marginTop="@dimen/space_xs"
                             android:text="@string/section_play_help"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_play_winlator"
@@ -513,57 +489,22 @@
                             android:layout_marginTop="@dimen/space_sm"
                             android:text="@string/android_see_docs"
                             android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="@color/pumpkin_text_muted" />
+                            android:textColor="@color/ahc_text_muted" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
         </LinearLayout>
     </ScrollView>
 
-    <LinearLayout
-        android:id="@+id/bottom_nav"
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottom_navigation"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/bottom_bar_height"
-        android:background="@color/pumpkin_surface_high"
-        android:gravity="center"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/space_sm"
-        android:paddingEnd="@dimen/space_sm">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_nav_catalog"
-            style="@style/Widget.Ahc.Button"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_margin="@dimen/space_xs"
-            android:layout_weight="1"
-            android:text="@string/bottom_catalog" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_nav_sync"
-            style="@style/Widget.Ahc.Button.Text"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_margin="@dimen/space_xs"
-            android:layout_weight="1"
-            android:text="@string/bottom_sync" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_nav_transfer"
-            style="@style/Widget.Ahc.Button.Text"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_margin="@dimen/space_xs"
-            android:layout_weight="1"
-            android:text="@string/bottom_transfer" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_nav_play"
-            style="@style/Widget.Ahc.Button.Text"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_margin="@dimen/space_xs"
-            android:layout_weight="1"
-            android:text="@string/bottom_play" />
-    </LinearLayout>
+        android:layout_height="wrap_content"
+        android:background="@color/ahc_surface"
+        app:itemActiveIndicatorColor="@color/ahc_surface_variant"
+        app:itemIconSize="26dp"
+        app:itemIconTint="@color/bottom_nav_item_tint"
+        app:itemTextColor="@color/bottom_nav_item_tint"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/bottom_nav_menu" />
 </LinearLayout>

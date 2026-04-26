@@ -23,11 +23,18 @@ object AddonInstall {
     private const val MAX_EXTRACTED_TOTAL_BYTES = 256L * 1024 * 1024
     private const val MAX_SINGLE_ZIP_FILE_BYTES = 32L * 1024 * 1024
     private const val MOBILE_CONTROLLER_CATEGORY = "Mobile & Controller"
+    private const val HTTP_USER_AGENT = "AttuneHelperCompanion-Android/1.0"
+
+    enum class InstallKind {
+        GIT,
+        DIRECT_ZIP,
+    }
 
     data class Entry(
         val id: String,
         val name: String,
         val author: String,
+        val source: String,
         val category: String,
         val categories: List<String>,
         val description: String,
@@ -35,7 +42,8 @@ object AddonInstall {
         val avatarUrl: String,
         val folder: String,
         val sourceSubdir: String,
-        val gitUrl: String,
+        val installKind: InstallKind,
+        val installUrl: String,
     )
 
     @Volatile
@@ -58,18 +66,33 @@ object AddonInstall {
         for (i in 0 until arr.length()) {
             val a = arr.optJSONObject(i) ?: continue
             val inst = a.optJSONObject("install") ?: continue
-            if (inst.optString("type", "") != "git") {
+            val type = inst.optString("type", "")
+            val u = inst.optString("url", "").trim()
+            if (u.isEmpty()) {
                 continue
             }
-            val u = inst.optString("url", "")
-            if (u.isEmpty() || !u.contains("github.com")) {
-                continue
+            val kind: InstallKind
+            when (type) {
+                "git" -> {
+                    if (!u.contains("github.com")) {
+                        continue
+                    }
+                    kind = InstallKind.GIT
+                }
+                "direct_zip" -> {
+                    if (!u.startsWith("https://")) {
+                        continue
+                    }
+                    kind = InstallKind.DIRECT_ZIP
+                }
+                else -> continue
             }
             out.add(
                 Entry(
                     id = a.optString("id"),
                     name = a.optString("name"),
                     author = a.optString("author"),
+                    source = a.optString("source"),
                     category = a.optString("category"),
                     categories = readStringArray(a.optJSONArray("categories")),
                     description = a.optString("description"),
@@ -77,7 +100,8 @@ object AddonInstall {
                     avatarUrl = a.optString("avatar_url"),
                     folder = a.optString("folder"),
                     sourceSubdir = a.optString("source_subdir", ""),
-                    gitUrl = u,
+                    installKind = kind,
+                    installUrl = u,
                 )
             )
         }
@@ -118,11 +142,25 @@ object AddonInstall {
         return "https://codeload.github.com/${m.groupValues[1]}/$repo/zip/refs/heads/$branch"
     }
 
-    fun installGitAddon(
+    fun installAddon(
         context: Context,
         synastriaTree: Uri,
         e: Entry,
     ): Result<String> {
+        return when (e.installKind) {
+            InstallKind.GIT -> installFromGitZip(context, synastriaTree, e)
+            InstallKind.DIRECT_ZIP -> installFromHttpZip(context, synastriaTree, e)
+        }
+    }
+
+    private fun installFromGitZip(
+        context: Context,
+        synastriaTree: Uri,
+        e: Entry,
+    ): Result<String> {
+        if (e.installKind != InstallKind.GIT) {
+            return Result.failure(IllegalStateException("Not a git add-on."))
+        }
         val addOns = getOrCreateInterfaceAddOns(context, synastriaTree) ?: return Result.failure(
             IllegalStateException("Interface/AddOns not available (grant storage access, pick Synastria).")
         )
@@ -142,20 +180,66 @@ object AddonInstall {
                 zipF.delete()
             }
             val srcDir = findAddonSourceDir(work, e) ?: return Result.failure(
-                IllegalStateException("Folder “${e.folder}” not found in the downloaded archive.")
+                IllegalStateException("Folder \"${e.folder}\" not found in the downloaded archive.")
             )
-            var target: DocumentFile = addOns.findFile(e.folder) ?: addOns.createDirectory(e.folder)
-                ?: return Result.failure(IllegalStateException("Could not use AddOns/${e.folder}"))
-            for (c in target.listFiles().orEmpty()) {
-                c.delete()
-            }
-            copyFileTreeToDocument(context, srcDir, target)
-            Result.success("Installed: Interface/AddOns/${e.folder}/")
+            copyAddonFolder(context, addOns, e, srcDir)
         } catch (e2: Exception) {
             Result.failure(e2)
         } finally {
             work.deleteRecursively()
         }
+    }
+
+    private fun installFromHttpZip(
+        context: Context,
+        synastriaTree: Uri,
+        e: Entry,
+    ): Result<String> {
+        if (e.installKind != InstallKind.DIRECT_ZIP) {
+            return Result.failure(IllegalStateException("Not a direct zip add-on."))
+        }
+        val addOns = getOrCreateInterfaceAddOns(context, synastriaTree) ?: return Result.failure(
+            IllegalStateException("Interface/AddOns not available (grant storage access, pick Synastria).")
+        )
+        val work = File(context.cacheDir, "unzip-" + UUID.randomUUID())
+        work.deleteRecursively()
+        if (!work.mkdirs()) {
+            return Result.failure(IllegalStateException("Cache mkdir"))
+        }
+        return try {
+            val zipF = downloadHttpZipToCache(context, e.installUrl)
+                ?: return Result.failure(
+                    IllegalStateException("Download failed (check connection and URL).")
+                )
+            try {
+                unzipToDir(zipF, work)
+            } finally {
+                zipF.delete()
+            }
+            val srcDir = findAddonSourceDir(work, e) ?: return Result.failure(
+                IllegalStateException("Folder \"${e.folder}\" not found in the downloaded zip.")
+            )
+            copyAddonFolder(context, addOns, e, srcDir)
+        } catch (e2: Exception) {
+            Result.failure(e2)
+        } finally {
+            work.deleteRecursively()
+        }
+    }
+
+    private fun copyAddonFolder(
+        context: Context,
+        addOns: DocumentFile,
+        e: Entry,
+        srcDir: File,
+    ): Result<String> {
+        var target: DocumentFile = addOns.findFile(e.folder) ?: addOns.createDirectory(e.folder)
+            ?: return Result.failure(IllegalStateException("Could not use AddOns/${e.folder}"))
+        for (c in target.listFiles().orEmpty()) {
+            c.delete()
+        }
+        copyFileTreeToDocument(context, srcDir, target)
+        return Result.success("Installed: Interface/AddOns/${e.folder}/")
     }
 
     private fun getOrCreateInterfaceAddOns(context: Context, tree: Uri): DocumentFile? {
@@ -177,14 +261,27 @@ object AddonInstall {
     }
 
     private fun downloadGitZipToCache(context: Context, e: Entry): File? {
-        val uMain = codeloadZipUrl(e.gitUrl, "main")?.toHttpUrlOrNull() ?: return null
+        val uMain = codeloadZipUrl(e.installUrl, "main")?.toHttpUrlOrNull() ?: return null
         val out = File(context.cacheDir, "addon-" + e.id + "-" + System.currentTimeMillis() + ".zip")
         if (httpDownloadToFile(uMain, out) && out.length() > 64) {
             return out
         }
         out.delete()
-        val uMaster = codeloadZipUrl(e.gitUrl, "master")?.toHttpUrlOrNull() ?: return null
+        val uMaster = codeloadZipUrl(e.installUrl, "master")?.toHttpUrlOrNull() ?: return null
         if (httpDownloadToFile(uMaster, out) && out.length() > 64) {
+            return out
+        }
+        out.delete()
+        return null
+    }
+
+    private fun downloadHttpZipToCache(context: Context, zipUrl: String): File? {
+        val h = zipUrl.toHttpUrlOrNull() ?: return null
+        if (h.scheme != "https") {
+            return null
+        }
+        val out = File(context.cacheDir, "addon-" + System.currentTimeMillis() + ".zip")
+        if (httpDownloadToFile(h, out) && out.length() > 64) {
             return out
         }
         out.delete()
@@ -194,11 +291,14 @@ object AddonInstall {
     private fun httpDownloadToFile(h: okhttp3.HttpUrl, out: File): Boolean {
         return try {
             out.delete()
-            val req = Request.Builder().url(h).build()
+            val req = Request.Builder()
+                .url(h)
+                .header("User-Agent", HTTP_USER_AGENT)
+                .build()
             var ok = false
-            client.newCall(req).execute().use response@{ r ->
+            client.newCall(req).execute().use { r ->
                 if (!r.isSuccessful) {
-                    return@response
+                    return@use
                 }
                 r.body?.byteStream()?.use { ins ->
                     FileOutputStream(out).use { o ->
@@ -212,7 +312,7 @@ object AddonInstall {
                             }
                             if (total + n > MAX_DOWNLOAD_BYTES) {
                                 out.delete()
-                                return@response
+                                return@use
                             }
                             o.write(buf, 0, n)
                             total += n

@@ -149,35 +149,6 @@ def collect_felbite_urls(max_pages: int = 40) -> tuple[list[str], dict[str, str]
     return sorted(urls), category_by_url
 
 
-def collect_warperia_urls(max_pages: int = 40) -> tuple[list[str], dict[str, str]]:
-    urls: set[str] = set()
-    category_by_url: dict[str, str] = {}
-    for page in range(1, max_pages + 1):
-        page_url = "https://warperia.com/wotlk-addons/" if page == 1 else f"https://warperia.com/wotlk-addons/page/{page}/"
-        log(f"[Warperia] Listing page {page}/{max_pages}")
-        html = fetch_text(page_url)
-        if not html:
-            log(f"[Warperia] Stopped at page {page}: no response")
-            break
-        found = set(re.findall(r'https://warperia\.com/addon-wotlk/[a-z0-9\-]+/?', html, flags=re.IGNORECASE))
-        if not found:
-            log(f"[Warperia] Stopped at page {page}: no addon links found")
-            break
-        before = len(urls)
-        urls.update(found)
-        for match in re.finditer(r'https://warperia\.com/addon-wotlk/[a-z0-9\-]+/?', html, flags=re.IGNORECASE):
-            url = match.group(0)
-            context = html[max(0, match.start() - 600):match.end() + 600]
-            category = infer_category_from_context(context)
-            if category and url not in category_by_url:
-                category_by_url[url] = category
-        log(f"[Warperia] Page {page}: +{len(urls) - before} unique links ({len(urls)} total)")
-        if len(urls) == before:
-            log(f"[Warperia] Stopped at page {page}: no new links")
-            break
-    return sorted(urls), category_by_url
-
-
 def build_felbite_entry(url: str, zip_url: str | None, category: str | None) -> dict:
     slug = url.rstrip("/").split("/")[-1]
     if "-" in slug:
@@ -212,36 +183,6 @@ def build_felbite_entry(url: str, zip_url: str | None, category: str | None) -> 
     return entry
 
 
-def build_warperia_entry(url: str, zip_url: str | None, category: str | None) -> dict:
-    slug = url.rstrip("/").split("/")[-1]
-    name = slug_to_name(slug)
-    install_type = "direct_zip" if zip_url else "external_page"
-    install_url = zip_url if zip_url else url
-    repo_url = zip_url if zip_url else url
-    return {
-        "id": f"warperia-{slug}",
-        "name": name,
-        "author": "Warperia",
-        "source": "Warperia",
-        "category": category or "Website Catalog",
-        "folder": f"warperia-{slug}",
-        "description": "Community addon listing from Warperia (3.3.5a catalog page).",
-        "repo": repo_url,
-        "page_url": url,
-        "install": {
-            "type": install_type,
-            "url": install_url
-        },
-        "github_release": None,
-        "direct_zip": {
-            "url": zip_url,
-            "enabled": bool(zip_url)
-        } if zip_url else None,
-        "avatar_url": "",
-        "version": "website"
-    }
-
-
 def collect_zip_urls(detail_urls: list[str]) -> dict[str, str | None]:
     def scrape(url: str) -> tuple[str, str | None]:
         html = fetch_text(url)
@@ -266,16 +207,11 @@ def collect_zip_urls(detail_urls: list[str]) -> dict[str, str | None]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Import Felbite and Warperia addon catalogs.")
+    parser = argparse.ArgumentParser(description="Import Felbite addon catalog pages into manifest/addons.json.")
     parser.add_argument(
         "--sources",
-        default="felbite,warperia",
-        help="Comma-separated sources to import (felbite, warperia). Default: felbite,warperia",
-    )
-    parser.add_argument(
-        "--warperia-detail-scan",
-        action="store_true",
-        help="Enable Warperia detail-page zip scraping. Disabled by default to avoid stalls.",
+        default="felbite",
+        help="Comma-separated sources to import. Supported: felbite. Default: felbite",
     )
     parser.add_argument(
         "--detail-workers",
@@ -297,7 +233,6 @@ def main() -> None:
 
     requested_sources = {part.strip().lower() for part in args.sources.split(",") if part.strip()}
     include_felbite = "felbite" in requested_sources
-    include_warperia = "warperia" in requested_sources
 
     manifest_path = Path("manifest/addons.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -305,23 +240,17 @@ def main() -> None:
     existing_ids = {entry.get("id", "") for entry in addons if isinstance(entry, dict)}
 
     felbite_urls, felbite_categories = collect_felbite_urls() if include_felbite else ([], {})
-    warperia_urls, warperia_categories = collect_warperia_urls() if include_warperia else ([], {})
-    log(f"[Summary] Felbite URLs: {len(felbite_urls)} | Warperia URLs: {len(warperia_urls)}")
-    if include_warperia and not args.warperia_detail_scan:
-        log("[Warperia] Detail-page zip scanning is disabled (safe mode). Use --warperia-detail-scan to enable.")
+    log(f"[Summary] Felbite URLs: {len(felbite_urls)}")
 
     all_detail_urls = list(felbite_urls)
-    if include_warperia and args.warperia_detail_scan:
-        all_detail_urls.extend(warperia_urls)
     zip_by_url = collect_zip_urls(all_detail_urls)
 
     felbite_entries = [build_felbite_entry(url, zip_by_url.get(url), felbite_categories.get(url)) for url in felbite_urls]
-    warperia_entries = [build_warperia_entry(url, zip_by_url.get(url), warperia_categories.get(url)) for url in warperia_urls]
 
     added = 0
     updated = 0
     entry_map = {entry.get("id", ""): entry for entry in addons if isinstance(entry, dict)}
-    for entry in felbite_entries + warperia_entries:
+    for entry in felbite_entries:
         entry_id = entry["id"]
         if entry_id in existing_ids:
             current = entry_map.get(entry_id)
