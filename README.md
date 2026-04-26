@@ -1,24 +1,136 @@
-# AttuneHelperCompanion
+# Attune Helper Companion
 
-## AppImage (Linux x86_64)
+A **native C** companion for **Synastria** players: manage add-ons, read **AttuneHelper** daily snapshot history from local `SavedVariables`, and (on desktop) launch the game with optional **AwesomeWotLK**-style autologin. A separate **Android (Kotlin)** app covers mobile workflows (folder access, attune log, share codes, catalog installs, Winlator handoff). The project keeps data **local**—it does not download the game client, manage user accounts, or store user files on a project-operated server.
 
-From a clean clone, on a machine with OpenGL / X11 dev libraries (raylib’s usual Linux deps), a C compiler, `cmake`, and `curl` or `wget`:
+- **In scope:** add-on management from static manifests and zip packages, local `WTF` / add-on backups under a chosen Synastria tree (`AttuneHelperBackup`), parsing **DailyAttuneSnapshot** from `AttuneHelper.lua`, and safe URL / zip handling in line with a documented [threat model](docs/threat-model.md).
+- **Out of scope:** cloud sync of your game or credentials by this app, remote file hosting beyond what you configure (e.g. GitHub URLs in the catalog), and storing real game passwords on **Android** until a Keystore-backed design exists (JNI is currently a **stub**).
+
+**License:** [GPL-3.0](LICENSE.md).
+
+---
+
+## What’s in the repo
+
+| Area | Description |
+|------|-------------|
+| **Desktop app** | `attune_helper_companion` — **raylib** + **raygui** UI (Windows and Linux: Wine/Proton supported for launch paths). |
+| **Core library** | `ahc_c` in `src/` — attune snapshot parsing, add-on manifest, arena helpers, safe URLs, Wow autologin handling (see `CMakeLists.txt`). |
+| **Tests** | CTest targets under `tests/`; CI runs the same flow as [scripts/ci-build.sh](scripts/ci-build.sh). |
+| **Add-on catalog** | [manifest/addons.json](manifest/addons.json) baked at build time via [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py). |
+| **Android** | Gradle app under `android/` — Material UI, SAF to a Synastria root, attune log, `AHC1:` / QR / NFC flows, GitHub codeload zip install into `Interface/AddOns`. See [docs/android-build.md](docs/android-build.md). |
+| **Packaging** | Linux **AppImage** build script under `packaging/appimage/`. |
+
+For product goals and boundaries in one page, see [docs/scope.md](docs/scope.md). For desktop + Android trust boundaries and credential storage, see [docs/threat-model.md](docs/threat-model.md). For Winlator / split host–guest workflows, see [docs/android-winlator.md](docs/android-winlator.md).
+
+---
+
+## Features (summary)
+
+**Desktop (raylib app)**
+
+- **Synastria folder** — point at the install; the app reads `WTF/.../SavedVariables/AttuneHelper.lua` and shows attune **snapshot history** in the status area.
+- **Add-ons** — browse the baked catalog (filters, “Community Favorites,” install / update / uninstall with backups where designed).
+- **Play Game** — launches **WoWExt.exe** by default, or **Wow.exe** with autologin when that path is enabled.
+- **Autologin (AwesomeWotLK-style)** — optional `-login` / `-password` / `-realmname` (and validated extra launch parameters). On Windows, password material uses **DPAPI** (`wow_autologin.cred`); on Linux, a user-only `0600` file—not `settings.ini`. See [docs/user-testing.md](docs/user-testing.md).
+- **Tray and windowing** — hide to tray, restore, fullscreen (UI / F11 / Alt+Enter).
+
+**Android**
+
+- Pick a **storage root** (SAF), walk to **AttuneHelper** saved variables, keep a local attune log.
+- **Sync:** export/import a text token (`AHC1:…`); **QR** for a single compact day (`AHC-Q1:`) when a full log does not fit.
+- **Add-ons** — download from GitHub **codeload** zips per catalog entry into `Interface/AddOns` (size limits and path checks apply).
+- **Play** — open **Winlator** if installed; the game still runs in the guest environment.
+- **NFC** — push attune payload (and optional Lua part when it fits under limits); read [docs/android-build.md](docs/android-build.md) for constraints.
+
+**NDK / CMake:** optional `AHC_BUILD_ANDROID` links stub native pieces for future work; the shipped Android experience is the Kotlin app, not the full raylib UI on device.
+
+---
+
+## Build requirements
+
+- **CMake** 3.24+
+- **C11** compiler (MSVC with Desktop C++, or GCC/Clang on Linux)
+- **Python 3** (add-on catalog generation and `--check` in CI)
+- **Ninja** (used by the provided Windows and CI scripts; other generators can work if you adapt flags)
+- **Desktop app:** [raylib](https://github.com/raysan5/raylib) 5.5 and [raygui](https://github.com/raysan5/raygui) 4.0 are **fetched by CMake** when `AHC_BUILD_APP` is on.
+
+**Linux (desktop)** additionally needs the usual OpenGL / X11 (or Wayland) dev packages for raylib—see [scripts/ci-build.sh](scripts/ci-build.sh) for an `apt-get` list used in CI.
+
+**Android:** JDK 17+ and Android SDK; `ANDROID_HOME` or `android/local.properties` with `sdk.dir`. See [docs/android-build.md](docs/android-build.md).
+
+---
+
+## Build and test (local)
+
+**Windows (from repo root):**
+
+- First-time or clean configure: [build-test.bat](build-test.bat) (core tests only) or [build-app.bat](build-app.bat) (full app, tests, launch).
+- After `CMakeCache.txt` exists: [verify-incremental.bat](verify-incremental.bat) (incremental build + `ctest`). You can set `%AHC_BUILD_DIR%` if the build directory is not `build`.
+
+**Linux / macOS / Git Bash (CI parity):**
+
+```bash
+bash scripts/ci-build.sh
+```
+
+This runs `generate_addon_catalog.py --check`, configures with **Ninja**, **Release**, **LTO** (`-DAHC_OPT_PROFILE=lto`), builds, and runs **ctest**.
+
+**Android (CI parity with `assembleDebug`):**
+
+```bash
+bash scripts/android-verify.sh
+```
+
+---
+
+## Linux AppImage (x86_64)
+
+From a clean clone, on a machine with OpenGL / X11 dev libraries (as for raylib), a C compiler, `cmake`, and `curl` or `wget`:
 
 ```bash
 bash packaging/appimage/build-appimage.sh
 ```
 
-The script uses [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy) to bundle dependencies; place an icon at `packaging/appimage/attune-helper-companion-256.png` or install `librsvg2-bin` (for `rsvg-convert`) or ImageMagick to render the SVG. The finished file appears under `build-appimage/`.
+The script uses [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy) to bundle dependencies. Add an icon at `packaging/appimage/attune-helper-companion-256.png` or install `librsvg2-bin` (for `rsvg-convert`) or ImageMagick to render the SVG. Output appears under `build-appimage/`.
 
-## GitHub Actions
+---
 
-[`.github/workflows/build.yml`](.github/workflows/build.yml) runs a **matrix** on `windows-2022` and `ubuntu-22.04` and calls the same [`scripts/ci-build.sh`](scripts/ci-build.sh) (after [msvc-dev-cmd](https://github.com/ilammy/msvc-dev-cmd) on Windows so MSVC is on `PATH`). `RUNNER_OS` is set for you by the runner, so the script can install Linux packages only when `RUNNER_OS=Linux` and `GITHUB_ACTIONS` is set. The Linux job then runs [`packaging/appimage/build-appimage.sh`](packaging/appimage/build-appimage.sh) and uploads `AttuneHelperCompanion-Linux-x86_64.AppImage` (not a plain executable name with no extension).
+## GitHub Actions and releases
 
-**Artifacts vs releases:** every run uploads **workflow artifacts** (per OS) you can download from the Actions run. Those are **not** the same as [Releases](https://docs.github.com/en/repositories/releasing-projects-on-github).
+[`.github/workflows/build.yml`](.github/workflows/build.yml) runs a **matrix** on `windows-2022` and `ubuntu-22.04` and invokes [`scripts/ci-build.sh`](scripts/ci-build.sh) (on Windows, after [msvc-dev-cmd](https://github.com/ilammy/msvc-dev-cmd) so MSVC is on `PATH`). A separate job builds the **debug Android APK** via [scripts/android-verify.sh](scripts/android-verify.sh). On `ubuntu-22.04`, the Linux job can also run the AppImage script and upload `AttuneHelperCompanion-Linux-x86_64.AppImage`.
 
-**Automated GitHub Release:** on a **tag** whose name starts with `v` (e.g. `v0.1.0`), an extra job publishes a **Release** and attaches the Windows `.exe` and a Linux x86_64 `AttuneHelperCompanion-Linux-x86_64.AppImage` using [softprops/action-gh-release](https://github.com/softprops/action-gh-release), with [generated release notes](https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes). The repository must allow the default `GITHUB_TOKEN` to **write** contents (Settings → Actions → General → Workflow permissions, or the org default). Example:
+**Artifacts vs GitHub Releases:** every workflow run uploads **workflow artifacts** per job; those are not the same as [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github).
+
+**Automated release (tags):** on a **tag** whose name starts with `v` (e.g. `v0.1.0`), a release job can publish a **Release** and attach the Windows `.exe`, Linux **AppImage**, and **`AttuneHelperCompanion-android.apk`** (signed release if keystore [secrets](docs/android-signing.md) are set; otherwise the debug APK). The repository must allow the default `GITHUB_TOKEN` to **write** contents where the workflow requires it. Example:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+---
+
+## Manual checks (not covered by CTest)
+
+Tray behavior, fullscreen, add-ons tab UX, and real Synastria folder integration are **manual**; use [docs/user-testing.md](docs/user-testing.md).
+
+---
+
+## Documentation index
+
+| Document | Purpose |
+|----------|---------|
+| [docs/scope.md](docs/scope.md) | Product scope and distribution model |
+| [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, autologin, Android vs desktop |
+| [docs/user-testing.md](docs/user-testing.md) | Manual QA checklist |
+| [docs/android-build.md](docs/android-build.md) | Gradle, CI APK, NFC overview |
+| [docs/android-winlator.md](docs/android-winlator.md) | Android + Winlator integration paths (A / B / C) |
+| [docs/android-signing.md](docs/android-signing.md) | Release keystore and GitHub Actions secrets |
+| [AGENTS.md](AGENTS.md) | Contributor/agent notes (hooks, verify commands) |
+
+---
+
+## Contributing
+
+- Validate the add-on catalog when you change [manifest/addons.json](manifest/addons.json) or the generator: `python scripts/generate_addon_catalog.py --check`.
+- Follow the build commands above before merging C/CMake/manifest or Android resource changes; see [.cursor/rules/verify-build-and-test.mdc](.cursor/rules/verify-build-and-test.mdc) and [AGENTS.md](AGENTS.md) for the project’s verification expectations.
