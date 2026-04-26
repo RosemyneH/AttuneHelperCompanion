@@ -66,6 +66,12 @@
         <item name="android:color">@color/ahc_surface_variant</item>
     </style>
 
+    <style name="Widget.Ahc.Chip.Filter" parent="Widget.Material3.Chip.Filter">
+        <item name="android:minHeight">48dp</item>
+        <item name="chipMinHeight">48dp</item>
+        <item name="ensureMinTouchTargetSize">true</item>
+    </style>
+
     <style name="Widget.Ahc.TextField" parent="Widget.Material3.TextInputLayout.OutlinedBox.Dense">
         <item name="boxStrokeColor">@color/ahc_textinput_stroke</item>
         <item name="boxStrokeWidth">1dp</item>

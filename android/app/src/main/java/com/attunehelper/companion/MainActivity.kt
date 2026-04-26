@@ -2,6 +2,7 @@ package com.attunehelper.companion
 
 import android.Manifest
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -15,9 +16,13 @@ import android.nfc.NdefMessage
 import android.nfc.NfcAdapter
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -56,6 +61,16 @@ class MainActivity : AppCompatActivity() {
     private var addonInstalling = false
     private var nfcAdapter: NfcAdapter? = null
     private var nfcPrepared: NdefMessage? = null
+    private var ignoreRailSelection: Boolean = false
+    private var categoryChipListenerPaused: Boolean = false
+    private var addonSearchBlobByEntryIndex: List<String> = emptyList()
+    private val mainHandler: Handler = Handler(Looper.getMainLooper())
+    private val debouncedRenderAddonCatalog: Runnable = Runnable {
+        if (isFinishing) {
+            return@Runnable
+        }
+        renderAddonCatalog()
+    }
 
     private val pickTree = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -100,12 +115,20 @@ class MainActivity : AppCompatActivity() {
         setupNavigationRail()
         setupAddonSearch()
         findViewById<MaterialButton>(R.id.btn_open_winlator).setOnClickListener {
-            startActivity(
-                Intent(
-                    Intent.ACTION_VIEW,
-                    Uri.parse("https://github.com/brunodev85/winlator")
+            try {
+                startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://github.com/brunodev85/winlator")
+                    )
                 )
-            )
+            } catch (e: ActivityNotFoundException) {
+                Toast.makeText(
+                    this,
+                    "No app can open this link. Install a browser.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
         findViewById<MaterialButton>(R.id.btn_pick_tree).setOnClickListener { pickTree.launch(null) }
         findViewById<MaterialButton>(R.id.btn_scan_snapshot).setOnClickListener { scanSnapshot() }
@@ -123,8 +146,16 @@ class MainActivity : AppCompatActivity() {
         loadAddonCatalog()
     }
 
+    override fun onDestroy() {
+        mainHandler.removeCallbacks(debouncedRenderAddonCatalog)
+        super.onDestroy()
+    }
+
     private fun setupNavigationRail() {
         findViewById<NavigationRailView>(R.id.navigation_rail).setOnItemSelectedListener { item ->
+            if (ignoreRailSelection) {
+                return@setOnItemSelectedListener true
+            }
             when (item.itemId) {
                 R.id.nav_menu_catalog -> {
                     showSection(R.id.section_catalog)
@@ -169,7 +200,12 @@ class MainActivity : AppCompatActivity() {
         }
         val rail = findViewById<NavigationRailView>(R.id.navigation_rail)
         if (rail.selectedItemId != menuId) {
-            rail.selectedItemId = menuId
+            ignoreRailSelection = true
+            try {
+                rail.selectedItemId = menuId
+            } finally {
+                ignoreRailSelection = false
+            }
         }
         findViewById<ScrollView>(R.id.main_scroll).post {
             findViewById<ScrollView>(R.id.main_scroll).smoothScrollTo(0, 0)
@@ -182,7 +218,8 @@ class MainActivity : AppCompatActivity() {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
                 override fun afterTextChanged(s: Editable?) {
-                    renderAddonCatalog()
+                    mainHandler.removeCallbacks(debouncedRenderAddonCatalog)
+                    mainHandler.postDelayed(debouncedRenderAddonCatalog, 220L)
                 }
             }
         )
@@ -444,7 +481,11 @@ class MainActivity : AppCompatActivity() {
     private fun loadAddonCatalog() {
         lifecycleScope.launch {
             val list = withContext(Dispatchers.IO) { AddonInstall.listEntries(this@MainActivity) }
+            val blobs = withContext(Dispatchers.Default) {
+                List(list.size) { i -> precomputedSearchBlobForAddon(list[i]) }
+            }
             addonEntries = list
+            addonSearchBlobByEntryIndex = blobs
             selectedAddonEntry = list.firstOrNull()
             renderCategoryFilters()
             renderAddonCatalog()
@@ -452,8 +493,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderCategoryFilters() {
-        val host = findViewById<LinearLayout>(R.id.layout_category_filters)
-        host.removeAllViews()
+        val chipGroup = findViewById<ChipGroup>(R.id.layout_category_filters)
+        categoryChipListenerPaused = true
+        chipGroup.setOnCheckedStateChangeListener(null)
+        chipGroup.removeAllViews()
         val categories = addonEntries
             .flatMap { entry ->
                 val values = ArrayList<String>()
@@ -468,33 +511,44 @@ class MainActivity : AppCompatActivity() {
             .distinct()
             .sorted()
         val allCategories = listOf("") + categories
+        var checkId = View.NO_ID
         for (category in allCategories) {
-            val button = MaterialButton(this)
-            button.text = if (category.isEmpty()) getString(R.string.catalog_all) else category
-            button.minHeight = dp(36)
-            button.cornerRadius = dp(10)
-            button.isAllCaps = false
-            button.backgroundTintList = ColorStateList.valueOf(
-                getColor(if (selectedAddonCategory == category) R.color.ahc_accent else R.color.ahc_surface_variant)
+            val chip = Chip(
+                this,
+                null,
+                com.google.android.material.R.attr.chipStyle,
+                R.style.Widget_Ahc_Chip_Filter,
             )
-            button.setTextColor(
-                getColor(if (selectedAddonCategory == category) R.color.ahc_on_accent else R.color.ahc_text)
-            )
-            button.setOnClickListener {
-                selectedAddonCategory = category
-                renderCategoryFilters()
-                renderAddonCatalog()
+            chip.text = if (category.isEmpty()) getString(R.string.catalog_all) else category
+            chip.tag = category
+            chip.isCheckable = true
+            chip.id = View.generateViewId()
+            chip.isCheckedIconVisible = false
+            if (selectedAddonCategory == category) {
+                checkId = chip.id
             }
-            host.addView(
-                button,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    marginEnd = dp(8)
-                }
-            )
+            chipGroup.addView(chip)
         }
+        if (checkId == View.NO_ID && chipGroup.childCount > 0) {
+            val first = chipGroup.getChildAt(0) as Chip
+            checkId = first.id
+            selectedAddonCategory = first.tag as? String ?: ""
+        }
+        if (checkId != View.NO_ID) {
+            chipGroup.check(checkId)
+        }
+        chipGroup.setOnCheckedStateChangeListener { g, checkedIds ->
+            if (categoryChipListenerPaused) {
+                return@setOnCheckedStateChangeListener
+            }
+            if (checkedIds.isEmpty()) {
+                return@setOnCheckedStateChangeListener
+            }
+            val chip = g.findViewById<Chip>(checkedIds[0])
+            selectedAddonCategory = chip.tag as? String ?: ""
+            renderAddonCatalog()
+        }
+        categoryChipListenerPaused = false
     }
 
     private fun renderAddonCatalog() {
@@ -515,22 +569,49 @@ class MainActivity : AppCompatActivity() {
 
     private fun filteredAddonEntries(): List<AddonInstall.Entry> {
         val query = findViewById<TextInputEditText>(R.id.edit_addon_search).text?.toString()?.trim()?.lowercase().orEmpty()
-        return addonEntries.filter { entry ->
+        if (addonEntries.isEmpty()) {
+            return emptyList()
+        }
+        val blobs = addonSearchBlobByEntryIndex
+        return addonEntries.mapIndexedNotNull { i, entry ->
             val categoryMatch = selectedAddonCategory.isEmpty() ||
                 entry.category.equals(selectedAddonCategory, ignoreCase = true) ||
                 entry.categories.any { it.equals(selectedAddonCategory, ignoreCase = true) }
-            val queryMatch = query.isEmpty() || listOf(
-                entry.name,
-                entry.author,
-                entry.source,
-                entry.id,
-                entry.category,
-                entry.description,
-                entry.folder,
-                entry.version,
-            ).any { it.lowercase().contains(query) }
-            categoryMatch && queryMatch
+            if (!categoryMatch) {
+                return@mapIndexedNotNull null
+            }
+            if (query.isNotEmpty()) {
+                val blob = blobs.getOrNull(i) ?: return@mapIndexedNotNull null
+                if (!blob.contains(query)) {
+                    return@mapIndexedNotNull null
+                }
+            }
+            entry
         }
+    }
+
+    private fun precomputedSearchBlobForAddon(e: AddonInstall.Entry): String {
+        return buildString(e.name.length + e.author.length + e.description.length + 32) {
+            append(e.name)
+            append('\u0000')
+            append(e.author)
+            append('\u0000')
+            append(e.source)
+            append('\u0000')
+            append(e.id)
+            append('\u0000')
+            append(e.category)
+            append('\u0000')
+            append(e.description)
+            append('\u0000')
+            append(e.folder)
+            append('\u0000')
+            append(e.version)
+            for (c in e.categories) {
+                append('\u0000')
+                append(c)
+            }
+        }.lowercase()
     }
 
     private fun createAddonCard(entry: AddonInstall.Entry): View {
@@ -712,9 +793,26 @@ class MainActivity : AppCompatActivity() {
     private fun openWinlator() {
         val i = WinlatorIntents.tryLaunch(packageManager)
         if (i != null) {
-            startActivity(i)
+            try {
+                startActivity(i)
+            } catch (e: ActivityNotFoundException) {
+                Toast.makeText(
+                    this,
+                    e.message ?: "Could not start Winlator.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         } else {
-            startActivity(WinlatorIntents.playStoreOrGitHubPage())
+            try {
+                startActivity(WinlatorIntents.playStoreOrGitHubPage())
+            } catch (e: ActivityNotFoundException) {
+                Toast.makeText(
+                    this,
+                    "No app can open the Winlator page. Install a browser and try again.",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return
+            }
             Toast.makeText(
                 this,
                 "Winlator (com.winlator) not found. Opened the releases page — install, then return here.",
