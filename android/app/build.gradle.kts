@@ -20,6 +20,7 @@ android {
     externalNativeBuild {
         cmake {
             path = file("CMakeLists.txt")
+            version = "3.24.0"
         }
     }
     buildTypes {
