@@ -9,7 +9,6 @@
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <process.h>
 #else
 #include <errno.h>
 #include <fcntl.h>
@@ -40,6 +39,38 @@ static bool ahc_posix_execvp_wait(const char *const *argv)
 #endif
 }
 
+#if defined(_WIN32)
+static bool ahc_append_quoted_arg(char *out, size_t out_cap, const char *arg)
+{
+    size_t used = strlen(out);
+    if (used + 3u >= out_cap) {
+        return false;
+    }
+    if (used > 0u) {
+        out[used++] = ' ';
+        out[used] = '\0';
+    }
+    out[used++] = '"';
+    out[used] = '\0';
+    for (const char *p = arg; p && *p; p++) {
+        if (used + 3u >= out_cap) {
+            return false;
+        }
+        if (*p == '"' || *p == '\\') {
+            out[used++] = '\\';
+        }
+        out[used++] = *p;
+        out[used] = '\0';
+    }
+    if (used + 2u >= out_cap) {
+        return false;
+    }
+    out[used++] = '"';
+    out[used] = '\0';
+    return true;
+}
+#endif
+
 static bool ahc_win_spawnv_wait(const char *exe_basename, const char *const *argv)
 {
 #if !defined(_WIN32)
@@ -52,8 +83,45 @@ static bool ahc_win_spawnv_wait(const char *exe_basename, const char *const *arg
     if (SearchPathA(NULL, exe_basename, ".exe", sizeof(full), full, &filepart) == 0) {
         return false;
     }
-    intptr_t r = _spawnv(_P_WAIT, full, argv);
-    return r == 0;
+    char command_line[8192] = { 0 };
+    if (!ahc_append_quoted_arg(command_line, sizeof(command_line), full)) {
+        return false;
+    }
+    for (size_t i = 1u; argv[i]; i++) {
+        if (!ahc_append_quoted_arg(command_line, sizeof(command_line), argv[i])) {
+            return false;
+        }
+    }
+
+    STARTUPINFOA startup;
+    PROCESS_INFORMATION process;
+    ZeroMemory(&startup, sizeof(startup));
+    ZeroMemory(&process, sizeof(process));
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+
+    BOOL ok = CreateProcessA(
+        full,
+        command_line,
+        NULL,
+        NULL,
+        FALSE,
+        CREATE_NO_WINDOW,
+        NULL,
+        NULL,
+        &startup,
+        &process);
+    if (!ok) {
+        return false;
+    }
+
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 1u;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return exit_code == 0u;
 #endif
 }
 
