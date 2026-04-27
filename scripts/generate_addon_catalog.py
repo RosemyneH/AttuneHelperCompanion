@@ -68,7 +68,6 @@ def validate_manifest(data: dict[str, Any]) -> list[dict[str, Any]]:
         raise ManifestError("manifest must contain a non-empty addons array")
 
     seen_ids: set[str] = set()
-    felbite_count = 0
     for index, addon in enumerate(addons):
         if not isinstance(addon, dict):
             raise ManifestError(f"addon[{index}] must be an object")
@@ -89,11 +88,7 @@ def validate_manifest(data: dict[str, Any]) -> list[dict[str, Any]]:
         repo = addon["repo"]
         if not re.match(r"^(https?://|git@)", repo):
             raise ManifestError(f"addon[{index}] repo must be an http(s) URL or git SSH URL")
-        if addon.get("source") == "Felbite":
-            felbite_count += 1
 
-    if felbite_count == 0:
-        raise ManifestError("manifest must include Felbite entries")
     return addons
 
 

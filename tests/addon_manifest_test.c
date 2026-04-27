@@ -50,8 +50,12 @@ static int baked_catalog_has_source(const char *source)
 
 int main(void)
 {
-    if (ahc_addon_catalog_count() < 400u || !baked_catalog_has_source("Felbite")) {
-        fprintf(stderr, "Baked addon catalog is missing expected Felbite entries or is too small.\n");
+    if (ahc_addon_catalog_count() < 30u) {
+        fprintf(stderr, "Baked addon catalog is too small (curated list).\n");
+        return 1;
+    }
+    if (baked_catalog_has_source("Felbite")) {
+        fprintf(stderr, "Baked catalog should not use Felbite-sourced add-on rows (upstream-first policy).\n");
         return 1;
     }
     if (baked_catalog_has_source("Warperia")) {
@@ -65,8 +69,8 @@ int main(void)
         return 1;
     }
 
-    if (manifest.count < 34) {
-        fprintf(stderr, "Expected at least 34 addons, got %zu\n", manifest.count);
+    if (manifest.count < 30) {
+        fprintf(stderr, "Expected at least 30 curated addons, got %zu\n", manifest.count);
         ahc_addon_manifest_free(&manifest);
         return 1;
     }
@@ -102,26 +106,14 @@ int main(void)
         return 1;
     }
 
-    static const char felbite_acp_page[] = "https://felbite.com/addon/4688-addoncontrolpanel/";
-    const AhcAddon *felbite_acp = find_addon_by_id(&manifest, "felbite-addoncontrolpanel");
-    if (!felbite_acp) {
-        fprintf(stderr, "felbite-addoncontrolpanel was not found in manifest load.\n");
-        ahc_addon_manifest_free(&manifest);
-        return 1;
-    }
-    if (strcmp(felbite_acp->repo, felbite_acp_page) != 0) {
-        fprintf(
-            stderr,
-            "felbite-addoncontrolpanel repo should be the Felbite page, not a zip (install.url overwrites repo). "
-            "Got: %s\n",
-            felbite_acp->repo);
-        ahc_addon_manifest_free(&manifest);
-        return 1;
-    }
-    if (strstr(felbite_acp->repo, "-tbc-") != NULL) {
-        fprintf(stderr, "felbite-addoncontrolpanel repo must not reference a TBC build zip path.\n");
-        ahc_addon_manifest_free(&manifest);
-        return 1;
+    {
+        const AhcAddon *acp_zero = find_addon_by_id(&manifest, "acp-zero");
+        if (!acp_zero
+            || strcmp(acp_zero->repo, "https://github.com/DivideByZeroToDeleteWorld/ACP-Zero.git") != 0) {
+            fprintf(stderr, "acp-zero repo (manifest install merge) was not parsed correctly.\n");
+            ahc_addon_manifest_free(&manifest);
+            return 1;
+        }
     }
 
     ahc_addon_manifest_free(&manifest);

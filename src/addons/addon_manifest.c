@@ -127,6 +127,7 @@ static void ahc_compact_manifest_string_arena(
 
     for (size_t i = 0; i < n; i++) {
         AhcAddon *x = &items[i];
+        rebase_string_ptr((const char **)&x->id, ob, new_block, u);
         rebase_string_ptr(&x->name, ob, new_block, u);
         rebase_string_ptr(&x->author, ob, new_block, u);
         rebase_string_ptr(&x->category, ob, new_block, u);

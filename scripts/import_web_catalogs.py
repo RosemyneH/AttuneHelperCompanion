@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Optional Felbite HTML merge into manifest/addons.json (opt-in; default: no-op).
+
+The in-app catalog is upstream-first (see curated-wotlk-addons/ and AGENTS.md).
+Run with ``--sources felbite`` only when intentionally re-merging Felbite rows.
+"""
 import json
 import re
 import sys
@@ -307,11 +312,11 @@ def collect_zip_urls(detail_urls: list[str]) -> dict[str, str | None]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Import Felbite addon catalog pages into manifest/addons.json.")
+    parser = argparse.ArgumentParser(description="Import Felbite addon catalog pages into manifest/addons.json (opt-in).")
     parser.add_argument(
         "--sources",
-        default="felbite",
-        help="Comma-separated sources to import. Supported: felbite. Default: felbite",
+        default="",
+        help="Comma-separated sources. Supported: felbite. Default: empty (no import; pass felbite to merge).",
     )
     parser.add_argument(
         "--detail-workers",
@@ -332,6 +337,12 @@ def main() -> None:
         DETAIL_WORKERS = args.detail_workers
 
     requested_sources = {part.strip().lower() for part in args.sources.split(",") if part.strip()}
+    if not requested_sources:
+        log(
+            "No --sources: skipping (Felbite merge is opt-in; catalog is git/upstream-first). "
+            "Use: python scripts/import_web_catalogs.py --sources felbite"
+        )
+        return
     include_felbite = "felbite" in requested_sources
 
     manifest_path = Path("manifest/addons.json")

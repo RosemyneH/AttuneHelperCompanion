@@ -12,6 +12,6 @@
 
 - Core library and tests: [CMakeLists.txt](CMakeLists.txt), [src/](src/), [tests/](tests/)
 - CI script: [scripts/ci-build.sh](scripts/ci-build.sh)
-- Add-on catalog generation: [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py), [manifest/addons.json](manifest/addons.json)
+- Add-on catalog: upstream-first [manifest/addons.json](manifest/addons.json) (curated / git clone targets), [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py) (validate + baked C), optional [scripts/emit_curated_addon_manifest.py](scripts/emit_curated_addon_manifest.py) to rebuild the slim list from a prior export, and [curated-wotlk-addons/](curated-wotlk-addons/) (docs + layout for a future public vendored monorepo). Felbite bulk import: [scripts/import_web_catalogs.py](scripts/import_web_catalogs.py) with `--sources felbite` only.
 - Android debug build (CI parity): [android-verify.bat](android-verify.bat) (Windows; uses default Studio SDK path when `local.properties` is missing) or [scripts/android-verify.sh](scripts/android-verify.sh) (Bash) — JDK + [Android SDK](docs/android-build.md#local-build) required.
 - Android release signing: [docs/android-signing.md](docs/android-signing.md)
