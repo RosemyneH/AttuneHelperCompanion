@@ -13,6 +13,16 @@ static const AhcAddon *find_addon(const AhcAddonManifest *manifest, const char *
     return NULL;
 }
 
+static const AhcAddon *find_addon_by_id(const AhcAddonManifest *manifest, const char *id)
+{
+    for (size_t i = 0; i < manifest->count; i++) {
+        if (manifest->items[i].id && strcmp(manifest->items[i].id, id) == 0) {
+            return &manifest->items[i];
+        }
+    }
+    return NULL;
+}
+
 static int addon_has_category(const AhcAddon *addon, const char *category)
 {
     if (addon->categories && addon->category_count > 0u) {
@@ -88,6 +98,28 @@ int main(void)
 
     if (!questie->categories || questie->category_count != 1u || !addon_has_category(questie, "Questing")) {
         fprintf(stderr, "Legacy Questie category was not synthesized correctly.\n");
+        ahc_addon_manifest_free(&manifest);
+        return 1;
+    }
+
+    static const char felbite_acp_page[] = "https://felbite.com/addon/4688-addoncontrolpanel/";
+    const AhcAddon *felbite_acp = find_addon_by_id(&manifest, "felbite-addoncontrolpanel");
+    if (!felbite_acp) {
+        fprintf(stderr, "felbite-addoncontrolpanel was not found in manifest load.\n");
+        ahc_addon_manifest_free(&manifest);
+        return 1;
+    }
+    if (strcmp(felbite_acp->repo, felbite_acp_page) != 0) {
+        fprintf(
+            stderr,
+            "felbite-addoncontrolpanel repo should be the Felbite page, not a zip (install.url overwrites repo). "
+            "Got: %s\n",
+            felbite_acp->repo);
+        ahc_addon_manifest_free(&manifest);
+        return 1;
+    }
+    if (strstr(felbite_acp->repo, "-tbc-") != NULL) {
+        fprintf(stderr, "felbite-addoncontrolpanel repo must not reference a TBC build zip path.\n");
         ahc_addon_manifest_free(&manifest);
         return 1;
     }

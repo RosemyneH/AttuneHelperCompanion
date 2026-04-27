@@ -9303,10 +9303,7 @@
         "url": "https://felbite.com/addon/4688-addoncontrolpanel/"
       },
       "github_release": null,
-      "direct_zip": {
-        "url": "https://felbite.com/wp-content/uploads/2022/03/felbite.com-addoncontrolpanel-tbc-addoncontrolpanel.zip",
-        "enabled": false
-      },
+      "direct_zip": null,
       "avatar_url": "",
       "version": "website",
       "page_url": "https://felbite.com/addon/4688-addoncontrolpanel/"

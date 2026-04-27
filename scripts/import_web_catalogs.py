@@ -202,7 +202,6 @@ def curated_felbite_categories(slug: str, name: str, scraped_category: str | Non
 def apply_felbite_addoncontrolpanel_override(entry: dict) -> None:
     if entry.get("id") != "felbite-addoncontrolpanel":
         return
-    tbc = "https://felbite.com/wp-content/uploads/2022/03/felbite.com-addoncontrolpanel-tbc-addoncontrolpanel.zip"
     page = "https://felbite.com/addon/4688-addoncontrolpanel/"
     entry["description"] = (
         "Felbite hosts a TBC (2.4) build for this add-on, not 3.3.5. "
@@ -211,7 +210,7 @@ def apply_felbite_addoncontrolpanel_override(entry: dict) -> None:
     entry["repo"] = page
     entry["page_url"] = page
     entry["install"] = {"type": "external_page", "url": page}
-    entry["direct_zip"] = {"url": tbc, "enabled": False}
+    entry["direct_zip"] = None
     entry["name"] = entry.get("name") or "Addon Control Panel (Felbite listing)"
     entry["folder"] = "felbite-addoncontrolpanel"
     entry["source"] = "Felbite"
