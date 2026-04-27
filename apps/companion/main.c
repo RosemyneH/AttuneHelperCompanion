@@ -185,10 +185,17 @@ typedef struct CompanionState {
     char addon_job_progress[AHC_STATUS_CAPACITY];
     char addon_job_result[AHC_STATUS_CAPACITY];
     char addon_job_action[AHC_STATUS_CAPACITY];
+    volatile int catalog_job_running;
+    volatile int catalog_job_done;
+    volatile int catalog_job_success;
+    char catalog_job_progress[AHC_STATUS_CAPACITY];
+    char catalog_job_result[AHC_STATUS_CAPACITY];
 #if defined(_WIN32)
     uintptr_t addon_job_thread;
+    uintptr_t catalog_job_thread;
 #else
     pthread_t addon_job_thread;
+    pthread_t catalog_job_thread;
 #endif
     bool wow_config_loaded;
     bool wow_width_editing;
@@ -2306,6 +2313,115 @@ static void load_addon_catalog(CompanionState *state, bool force_remote_refresh)
             return;
         }
     }
+}
+
+typedef struct CatalogRefreshJobArgs {
+    CompanionState *state;
+    char cache_path[AHC_PATH_CAPACITY];
+    char temp_path[AHC_PATH_CAPACITY];
+} CatalogRefreshJobArgs;
+
+static void catalog_refresh_job_run(CatalogRefreshJobArgs *args)
+{
+    CompanionState *state = args->state;
+    snprintf(state->catalog_job_progress, sizeof(state->catalog_job_progress), "Downloading catalog manifest");
+    bool refreshed = refresh_remote_addon_catalog_cache(state, args->cache_path, args->temp_path);
+    state->catalog_job_success = refreshed ? 1 : 0;
+    snprintf(
+        state->catalog_job_result,
+        sizeof(state->catalog_job_result),
+        "%s",
+        refreshed ? "Catalog manifest downloaded. Rebuilding catalog..." : "Catalog refresh failed; kept the last available catalog.");
+    state->catalog_job_done = 1;
+    free(args);
+}
+
+#if defined(_WIN32)
+static unsigned __stdcall catalog_refresh_job_thread(void *opaque)
+{
+    catalog_refresh_job_run((CatalogRefreshJobArgs *)opaque);
+    return 0u;
+}
+#else
+static void *catalog_refresh_job_thread(void *opaque)
+{
+    catalog_refresh_job_run((CatalogRefreshJobArgs *)opaque);
+    return NULL;
+}
+#endif
+
+static void begin_catalog_refresh(CompanionState *state)
+{
+    if (state->catalog_job_running) {
+        set_action_status(state, "Catalog refresh is already running.", "Catalog refresh busy");
+        return;
+    }
+
+    CatalogRefreshJobArgs *args = (CatalogRefreshJobArgs *)calloc(1, sizeof(*args));
+    if (!args) {
+        set_action_status(state, "Could not start catalog refresh job.", "Catalog refresh failed");
+        return;
+    }
+    args->state = state;
+    if (!addon_catalog_cache_paths(state, args->cache_path, sizeof(args->cache_path), args->temp_path, sizeof(args->temp_path))) {
+        free(args);
+        set_action_status(state, "Could not prepare the catalog cache folder.", "Catalog refresh failed");
+        return;
+    }
+
+    state->catalog_job_running = 1;
+    state->catalog_job_done = 0;
+    state->catalog_job_success = 0;
+    snprintf(state->catalog_job_progress, sizeof(state->catalog_job_progress), "Refreshing catalog manifest");
+    snprintf(state->catalog_job_result, sizeof(state->catalog_job_result), "");
+    set_process_action(state, state->catalog_job_progress);
+
+#if defined(_WIN32)
+    state->catalog_job_thread = _beginthreadex(NULL, 0, catalog_refresh_job_thread, args, 0, NULL);
+    if (state->catalog_job_thread == 0u) {
+        state->catalog_job_running = 0;
+        free(args);
+        set_action_status(state, "Could not start catalog refresh thread.", "Catalog refresh failed");
+    }
+#else
+    if (pthread_create(&state->catalog_job_thread, NULL, catalog_refresh_job_thread, args) != 0) {
+        state->catalog_job_running = 0;
+        free(args);
+        set_action_status(state, "Could not start catalog refresh thread.", "Catalog refresh failed");
+    } else {
+        pthread_detach(state->catalog_job_thread);
+    }
+#endif
+}
+
+static void poll_catalog_refresh_job(CompanionState *state)
+{
+    if (!state->catalog_job_running) {
+        return;
+    }
+    snprintf(state->process_action, sizeof(state->process_action), "%s", state->catalog_job_progress);
+    state->process_started_at = app_time();
+    state->process_until = state->process_started_at + 1.0;
+    if (!state->catalog_job_done) {
+        return;
+    }
+#if defined(_WIN32)
+    if (state->catalog_job_thread != 0u) {
+        CloseHandle((void *)state->catalog_job_thread);
+        state->catalog_job_thread = 0u;
+    }
+#endif
+    bool success = state->catalog_job_success != 0;
+    state->catalog_job_running = 0;
+    if (success) {
+        snprintf(state->catalog_job_progress, sizeof(state->catalog_job_progress), "Rebuilding catalog");
+        load_addon_catalog(state, false);
+        addon_status_cache_invalidate(state);
+    }
+    set_action_status(
+        state,
+        state->catalog_job_result[0] ? state->catalog_job_result : "Catalog refresh finished.",
+        success ? "Catalog refreshed" : "Catalog refresh failed");
 }
 
 static int compare_snapshot_dates(const void *left, const void *right)
@@ -4519,12 +4635,9 @@ static void draw_addons_tab(CompanionState *state)
     char catalog_source[AHC_PATH_CAPACITY + 32];
     snprintf(catalog_source, sizeof(catalog_source), "Catalog source: %s", state->addon_catalog_source);
     draw_text(catalog_source, (int)content.x + 20, (int)controls_y, 14, AHC_MUTED);
-    if (draw_wow_button("Refresh catalog", (Rectangle){ content.x + content.width - 154.0f, controls_y - 6.0f, 134.0f, 28.0f }, false, 14)) {
-        load_addon_catalog(state, true);
-        addon_status_cache_invalidate(state);
-        set_action_status(state, "Refreshed add-on catalog.", "Catalog refreshed");
-        addons = state->addons ? state->addons : ahc_addon_catalog_items();
-        count = state->addons ? state->addon_count : ahc_addon_catalog_count();
+    const char *refresh_label = state->catalog_job_running ? "Refreshing..." : "Refresh catalog";
+    if (draw_wow_button(refresh_label, (Rectangle){ content.x + content.width - 154.0f, controls_y - 6.0f, 134.0f, 28.0f }, state->catalog_job_running != 0, 14)) {
+        begin_catalog_refresh(state);
     }
     controls_y += 28.0f;
     int category_rows = draw_category_filters(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
@@ -5147,6 +5260,7 @@ int main(void)
         }
         poll_other_instances(&state);
         poll_addon_install_job(&state);
+        poll_catalog_refresh_job(&state);
         poll_attunehelper_snapshot(&state);
 
         bool throttled = IsWindowHidden() || IsWindowMinimized();
