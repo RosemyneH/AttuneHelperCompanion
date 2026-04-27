@@ -9,13 +9,15 @@ The **authoritative** add-on install list for Attune Helper Companion is **[syna
 
 This companion repository **no longer** hosts `manifest/addons.json` (it only keeps [manifest/presets.json](manifest/presets.json) beside the hub `addons.json` in build output and Android assets).
 
-**CMake** resolves the hub at `../synastria-monorepo-addons/manifest/addons.json` (sibling) or `./synastria-monorepo-addons/...` (submodule). See [CMakeLists.txt](../CMakeLists.txt) (`AHC_HUB_ADDONS_JSON`).
+**CMake** resolves the hub in this order: optional **`-DAHC_HUB_ADDONS_JSON=`** (cache path to `addons.json`), else environment **`AHC_HUB_ADDONS_JSON`**, else `./synastria-monorepo-addons/manifest/addons.json` (in-repo), else `../synastria-monorepo-addons/manifest/addons.json` (sibling). See [CMakeLists.txt](../CMakeLists.txt).
+
+On Windows, [build-app.bat](../build-app.bat) and [build-test.bat](../build-test.bat) run [scripts/ensure-synastria-hub.bat](../scripts/ensure-synastria-hub.bat) before configure: if neither in-repo nor sibling manifest exists, they **shallow-clone** `RosemyneH/synastria-monorepo-addons` into `./synastria-monorepo-addons/`, then run **`generate_addon_catalog.py --check`** when `python` is on `PATH`.
 
 ## Maintenance scripts
 
-Python helpers under [scripts/](../scripts/) resolve the same hub path as CMake: in-repo `synastria-monorepo-addons/manifest/addons.json`, then sibling `../synastria-monorepo-addons/manifest/addons.json`. Shared logic lives in [scripts/ahc_hub_manifest.py](../scripts/ahc_hub_manifest.py).
+Python helpers under [scripts/](../scripts/) resolve the same default hub path as CMake (in-repo hub first, then sibling). Shared logic lives in [scripts/ahc_hub_manifest.py](../scripts/ahc_hub_manifest.py).
 
-To point at a non-standard checkout, set **`AHC_HUB_ADDONS_JSON`** to the absolute or relative path of `addons.json`.
+To point at a non-standard checkout, set **`AHC_HUB_ADDONS_JSON`** to the absolute or relative path of `addons.json` (CMake configure or Python).
 
 Examples (from this repo root, with the hub present as usual):
 

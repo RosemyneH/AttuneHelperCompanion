@@ -71,15 +71,18 @@ int main(void)
         return 1;
     }
 
+    const char *mono_repo = "https://github.com/RosemyneH/synastria-monorepo-addons.git";
+
     const AhcAddon *questie = find_addon(&manifest, "Questie 3.3.5");
-    if (!questie || !questie->source_subdir || strcmp(questie->source_subdir, "Questie-335") != 0) {
+    if (!questie || !questie->source_subdir
+        || strcmp(questie->source_subdir, "addons/questie-335/Questie-335") != 0) {
         fprintf(stderr, "Questie source_subdir was not parsed correctly.\n");
         ahc_addon_manifest_free(&manifest);
         return 1;
     }
 
     const AhcAddon *lizard = find_addon(&manifest, "LizardDMP");
-    if (!lizard || strcmp(lizard->repo, "https://github.com/Versicoloris/LizardDMP.git") != 0) {
+    if (!lizard || strcmp(lizard->repo, mono_repo) != 0) {
         fprintf(stderr, "LizardDMP repo was not parsed correctly.\n");
         ahc_addon_manifest_free(&manifest);
         return 1;
@@ -104,8 +107,7 @@ int main(void)
 
     {
         const AhcAddon *acp_zero = find_addon_by_id(&manifest, "acp-zero");
-        if (!acp_zero
-            || strcmp(acp_zero->repo, "https://github.com/DivideByZeroToDeleteWorld/ACP-Zero.git") != 0) {
+        if (!acp_zero || strcmp(acp_zero->repo, mono_repo) != 0) {
             fprintf(stderr, "acp-zero repo (manifest install merge) was not parsed correctly.\n");
             ahc_addon_manifest_free(&manifest);
             return 1;

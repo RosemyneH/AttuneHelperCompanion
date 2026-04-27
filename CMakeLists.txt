@@ -19,14 +19,28 @@ set_property(CACHE AHC_OPT_PROFILE PROPERTY STRINGS default release lto pgo_inst
 include(GNUInstallDirs)
 
 # ʕ •ᴥ•ʔ Add-on list is maintained in the synastria-monorepo-addons repo (sibling directory or git submodule).
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/synastria-monorepo-addons/manifest/addons.json")
+set(AHC_HUB_ADDONS_JSON "" CACHE FILEPATH
+    "Path to synastria-monorepo-addons manifest/addons.json (optional; overrides env and default discovery)")
+if(AHC_HUB_ADDONS_JSON)
+    if(NOT EXISTS "${AHC_HUB_ADDONS_JSON}")
+        message(FATAL_ERROR
+            "AHC_HUB_ADDONS_JSON points to a missing file: ${AHC_HUB_ADDONS_JSON}")
+    endif()
+elseif(DEFINED ENV{AHC_HUB_ADDONS_JSON} AND NOT "$ENV{AHC_HUB_ADDONS_JSON}" STREQUAL "")
+    if(NOT EXISTS "$ENV{AHC_HUB_ADDONS_JSON}")
+        message(FATAL_ERROR
+            "Environment AHC_HUB_ADDONS_JSON points to a missing file: $ENV{AHC_HUB_ADDONS_JSON}")
+    endif()
+    set(AHC_HUB_ADDONS_JSON "$ENV{AHC_HUB_ADDONS_JSON}")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/synastria-monorepo-addons/manifest/addons.json")
     set(AHC_HUB_ADDONS_JSON "${CMAKE_CURRENT_SOURCE_DIR}/synastria-monorepo-addons/manifest/addons.json")
 elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../synastria-monorepo-addons/manifest/addons.json")
     set(AHC_HUB_ADDONS_JSON "${CMAKE_CURRENT_SOURCE_DIR}/../synastria-monorepo-addons/manifest/addons.json")
 else()
     message(FATAL_ERROR
         "Could not find synastria-monorepo-addons/manifest/addons.json. "
-        "Clone the hub repo next to this one (e.g. e:/Repos/synastria-monorepo-addons) or add it as a submodule at ./synastria-monorepo-addons")
+        "Pass -DAHC_HUB_ADDONS_JSON=..., set environment AHC_HUB_ADDONS_JSON, clone the hub next to this repo "
+        "(e.g. e:/Repos/synastria-monorepo-addons), or add it as a submodule at ./synastria-monorepo-addons")
 endif()
 
 if(AHC_ENABLE_MASM AND MSVC)
