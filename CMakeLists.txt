@@ -43,6 +43,12 @@ else()
         "(e.g. e:/Repos/synastria-monorepo-addons), or add it as a submodule at ./synastria-monorepo-addons")
 endif()
 
+message(STATUS "AHC_HUB_ADDONS_JSON (bakes addon_catalog_generated.c from this file): ${AHC_HUB_ADDONS_JSON}")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/synastria-monorepo-addons/manifest/addons.json"
+   AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../synastria-monorepo-addons/manifest/addons.json")
+    message(STATUS "Note: in-repo and sibling synastria-monorepo-addons both exist; CMake uses in-repo first.")
+endif()
+
 if(AHC_ENABLE_MASM AND MSVC)
     if(NOT (CMAKE_SIZEOF_VOID_P EQUAL 8))
         set(AHC_ENABLE_MASM OFF CACHE BOOL "" FORCE)

@@ -2348,6 +2348,19 @@ static bool file_modified_within_seconds(const char *path, int seconds)
     return difftime(now, st.st_mtime) <= (double)seconds;
 }
 
+/* ʕ •ᴥ•ʔ True if a is readable and b is missing or a has a strictly newer mtime. */
+static bool file_newer_for_catalog_choice(const char *a, const char *b)
+{
+    struct AHC_STAT_STRUCT sa, sb;
+    if (AHC_STAT(a, &sa) != 0) {
+        return false;
+    }
+    if (AHC_STAT(b, &sb) != 0) {
+        return true;
+    }
+    return difftime(sa.st_mtime, sb.st_mtime) > 0.0;
+}
+
 static bool replace_file_with_temp(const char *temp_path, const char *destination_path)
 {
 #if defined(_WIN32)
@@ -2460,7 +2473,26 @@ static void load_addon_catalog(CompanionState *state, bool force_remote_refresh)
 
     char cache_path[AHC_PATH_CAPACITY];
     char temp_path[AHC_PATH_CAPACITY];
-    if (addon_catalog_cache_paths(state, cache_path, sizeof(cache_path), temp_path, sizeof(temp_path))) {
+    bool can_use_remote_cache = addon_catalog_cache_paths(state, cache_path, sizeof(cache_path), temp_path, sizeof(temp_path));
+    if (!force_remote_refresh && s_have_exe_dir) {
+        char build_manifest_path[AHC_PATH_CAPACITY];
+        path_join(build_manifest_path, sizeof(build_manifest_path), s_exe_dir, "manifest/addons.json");
+        if (FileExists(build_manifest_path)) {
+            bool should_try_build_manifest = !can_use_remote_cache
+                || !FileExists(cache_path)
+                || file_newer_for_catalog_choice(build_manifest_path, cache_path);
+            if (should_try_build_manifest) {
+                if (try_load_addon_manifest_labeled(
+                        state,
+                        build_manifest_path,
+                        "manifest next to application (from this build)")) {
+                    return;
+                }
+            }
+        }
+    }
+
+    if (can_use_remote_cache) {
         bool cache_exists = FileExists(cache_path);
         bool cache_fresh = cache_exists && file_modified_within_seconds(cache_path, AHC_REMOTE_MANIFEST_TTL_SECONDS);
         if (!force_remote_refresh && cache_fresh) {

@@ -57,7 +57,9 @@ echo Running ctest.
 ctest --test-dir "%BUILD_DIR%" --output-on-failure
 if errorlevel 1 exit /b 1
 
-echo App build completed successfully.
+echo App build completed successfully. CMake configure prints AHC_HUB_ADDONS_JSON (the file that bakes the catalog).
+echo If the add-on list in the app does not match that file, delete AppData\AttuneHelperCompanion\addon_catalog_cache.json or ensure build\manifest\addons.json is newer than the cache.
+
 if not exist "%APP_EXE%" (
     echo Expected app executable was not found: %APP_EXE%
     exit /b 1
