@@ -61,7 +61,11 @@ static int ahc_json_append_string(char *buf, size_t cap, size_t *len, const char
                 return -1;
             }
         } else if (*p < 0x20u) {
-            return -1;
+            char escaped[7];
+            snprintf(escaped, sizeof(escaped), "\\u%04x", (unsigned int)*p);
+            if (ahc_json_append_raw(buf, cap, len, escaped) != 0) {
+                return -1;
+            }
         } else if (ahc_json_append_char(buf, cap, len, (char)*p) != 0) {
             return -1;
         }
@@ -290,13 +294,22 @@ static int ahc_parse_json_string_value(const char **cursor, char *out, size_t ou
     return 0;
 }
 
-int ahc_profile_encode(const AhcAddonProfile *profile, char *out, size_t out_cap)
+int ahc_profile_encode_ex(const AhcAddonProfile *profile, char *out, size_t out_cap, AhcProfileEncodeError *error)
 {
+    if (error) {
+        *error = AHC_PROFILE_ENCODE_OK;
+    }
     if (!profile || !out || out_cap == 0u || profile->addon_count > AHC_PROFILE_MAX_ADDONS) {
+        if (error) {
+            *error = AHC_PROFILE_ENCODE_INVALID_ARGUMENT;
+        }
         return -1;
     }
     char *json = (char *)malloc(AHC_PROFILE_JSON_MAX);
     if (!json) {
+        if (error) {
+            *error = AHC_PROFILE_ENCODE_OUT_OF_MEMORY;
+        }
         return -1;
     }
     size_t len = 0;
@@ -305,20 +318,39 @@ int ahc_profile_encode(const AhcAddonProfile *profile, char *out, size_t out_cap
         || ahc_json_append_string(json, AHC_PROFILE_JSON_MAX, &len, profile->name[0] ? profile->name : "Add-on Profile") != 0
         || ahc_json_append_raw(json, AHC_PROFILE_JSON_MAX, &len, ",\"addon_ids\":[") != 0) {
         free(json);
+        if (error) {
+            *error = AHC_PROFILE_ENCODE_JSON_TOO_LARGE;
+        }
         return -1;
     }
     for (size_t i = 0; i < profile->addon_count; i++) {
         if (i > 0u && ahc_json_append_char(json, AHC_PROFILE_JSON_MAX, &len, ',') != 0) {
             free(json);
+            if (error) {
+                *error = AHC_PROFILE_ENCODE_JSON_TOO_LARGE;
+            }
             return -1;
         }
-        if (!profile->addon_ids[i][0] || ahc_json_append_string(json, AHC_PROFILE_JSON_MAX, &len, profile->addon_ids[i]) != 0) {
+        if (!profile->addon_ids[i][0]) {
             free(json);
+            if (error) {
+                *error = AHC_PROFILE_ENCODE_EMPTY_ADDON_ID;
+            }
+            return -1;
+        }
+        if (ahc_json_append_string(json, AHC_PROFILE_JSON_MAX, &len, profile->addon_ids[i]) != 0) {
+            free(json);
+            if (error) {
+                *error = AHC_PROFILE_ENCODE_JSON_TOO_LARGE;
+            }
             return -1;
         }
     }
     if (ahc_json_append_raw(json, AHC_PROFILE_JSON_MAX, &len, "]}") != 0) {
         free(json);
+        if (error) {
+            *error = AHC_PROFILE_ENCODE_JSON_TOO_LARGE;
+        }
         return -1;
     }
 
@@ -326,12 +358,18 @@ int ahc_profile_encode(const AhcAddonProfile *profile, char *out, size_t out_cap
     size_t gz_len = 0;
     if (ahc_gzip_to_heap((const unsigned char *)json, len, &gz, &gz_len) != 0) {
         free(json);
+        if (error) {
+            *error = AHC_PROFILE_ENCODE_GZIP_FAILED;
+        }
         return -1;
     }
     free(json);
     size_t prefix_len = strlen(AHC_PROFILE_CODE_PREFIX);
     if (prefix_len >= out_cap) {
         free(gz);
+        if (error) {
+            *error = AHC_PROFILE_ENCODE_OUTPUT_TOO_SMALL;
+        }
         return -1;
     }
     memcpy(out, AHC_PROFILE_CODE_PREFIX, prefix_len);
@@ -339,10 +377,18 @@ int ahc_profile_encode(const AhcAddonProfile *profile, char *out, size_t out_cap
     int rc = ahc_b64url_encode(gz, gz_len, out + prefix_len, out_cap - prefix_len - 1u, &b64_len);
     free(gz);
     if (rc != 0) {
+        if (error) {
+            *error = AHC_PROFILE_ENCODE_OUTPUT_TOO_SMALL;
+        }
         return -1;
     }
     out[prefix_len + b64_len] = '\0';
     return (int)(prefix_len + b64_len);
+}
+
+int ahc_profile_encode(const AhcAddonProfile *profile, char *out, size_t out_cap)
+{
+    return ahc_profile_encode_ex(profile, out, out_cap, NULL);
 }
 
 int ahc_profile_decode(const char *code, AhcAddonProfile *out)

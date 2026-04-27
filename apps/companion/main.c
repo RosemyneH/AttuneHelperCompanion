@@ -4853,6 +4853,54 @@ static const char *path_basename_any_separator(const char *path)
     return last;
 }
 
+static bool profile_copy_token_sanitized(char *out, size_t out_capacity, const char *token)
+{
+    if (!out || out_capacity == 0u || !token || !token[0]) {
+        return false;
+    }
+    size_t n = 0u;
+    bool changed = false;
+    for (const unsigned char *p = (const unsigned char *)token; *p; p++) {
+        char c = (char)*p;
+        if (*p < 0x20u || *p == 0x7fu || c == '/' || c == '\\') {
+            c = '-';
+            changed = true;
+        }
+        if (n + 1u >= out_capacity) {
+            out[0] = '\0';
+            return false;
+        }
+        out[n++] = c;
+    }
+    while (n > 0u && (out[n - 1u] == ' ' || out[n - 1u] == '.')) {
+        n--;
+        changed = true;
+    }
+    out[n] = '\0';
+    return n > 0u || !changed;
+}
+
+static const char *profile_encode_error_label(AhcProfileEncodeError error)
+{
+    switch (error) {
+        case AHC_PROFILE_ENCODE_OK:
+            return "ok";
+        case AHC_PROFILE_ENCODE_INVALID_ARGUMENT:
+            return "invalid-argument";
+        case AHC_PROFILE_ENCODE_OUT_OF_MEMORY:
+            return "out-of-memory";
+        case AHC_PROFILE_ENCODE_JSON_TOO_LARGE:
+            return "json-too-large";
+        case AHC_PROFILE_ENCODE_EMPTY_ADDON_ID:
+            return "empty-addon-id";
+        case AHC_PROFILE_ENCODE_GZIP_FAILED:
+            return "gzip-failed";
+        case AHC_PROFILE_ENCODE_OUTPUT_TOO_SMALL:
+            return "output-too-small";
+    }
+    return "unknown";
+}
+
 static void copy_installed_profile_to_clipboard(CompanionState *state, const AhcAddon *addons, size_t count)
 {
     AhcAddonProfile *profile = (AhcAddonProfile *)calloc(1, sizeof(*profile));
@@ -4883,6 +4931,7 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
     size_t skipped_non_directory = 0u;
     size_t skipped_long_token = 0u;
     size_t skipped_invalid_token = 0u;
+    size_t sanitized_token_count = 0u;
     size_t skipped_profile_limit = 0u;
     size_t longest_token = 0u;
     for (unsigned int i = 0; i < entries.count; i++) {
@@ -4908,24 +4957,21 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
                 break;
             }
         }
-        const char *token = catalog_addon && catalog_addon->id ? catalog_addon->id : folder;
-        size_t token_len = strlen(token);
+        const char *raw_token = catalog_addon && catalog_addon->id ? catalog_addon->id : folder;
+        char token_buf[AHC_PROFILE_ID_CAPACITY];
+        if (!profile_copy_token_sanitized(token_buf, sizeof(token_buf), raw_token)) {
+            skipped_invalid_token++;
+            continue;
+        }
+        if (strcmp(token_buf, raw_token) != 0) {
+            sanitized_token_count++;
+        }
+        size_t token_len = strlen(token_buf);
         if (token_len > longest_token) {
             longest_token = token_len;
         }
         if (token_len >= sizeof(profile->addon_ids[0])) {
             skipped_long_token++;
-            continue;
-        }
-        bool token_valid = true;
-        for (const unsigned char *p = (const unsigned char *)token; *p; p++) {
-            if (*p < 0x20u) {
-                token_valid = false;
-                break;
-            }
-        }
-        if (!token_valid) {
-            skipped_invalid_token++;
             continue;
         }
         if (profile->addon_count >= AHC_PROFILE_MAX_ADDONS) {
@@ -4936,7 +4982,7 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
             profile->addon_ids[profile->addon_count],
             sizeof(profile->addon_ids[profile->addon_count]),
             "%s",
-            token);
+            token_buf);
         profile->addon_count++;
         if (catalog_addon && catalog_addon->id) {
             catalog_count++;
@@ -4976,13 +5022,15 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
         free(profile);
         return;
     }
-    int n = ahc_profile_encode(profile, state->profile_code, sizeof(state->profile_code));
+    AhcProfileEncodeError encode_error = AHC_PROFILE_ENCODE_OK;
+    int n = ahc_profile_encode_ex(profile, state->profile_code, sizeof(state->profile_code), &encode_error);
     if (n < 0) {
         char message[AHC_STATUS_CAPACITY];
         snprintf(
             message,
             sizeof(message),
-            "Profile encode failed: add-ons=%zu, catalog=%zu, manual=%zu, longest token=%zu/%zu, buffer=%zu, limit=%zu, overlong=%zu, invalid=%zu.",
+            "Profile encode failed (%s): add-ons=%zu, catalog=%zu, manual=%zu, longest token=%zu/%zu, buffer=%zu, limit=%zu, overlong=%zu, invalid=%zu, sanitized=%zu.",
+            profile_encode_error_label(encode_error),
             profile->addon_count,
             catalog_count,
             manual_count,
@@ -4991,7 +5039,8 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
             sizeof(state->profile_code),
             skipped_profile_limit,
             skipped_long_token,
-            skipped_invalid_token);
+            skipped_invalid_token,
+            sanitized_token_count);
         set_action_status(state, message, "Profile export failed");
         free(profile);
         return;
@@ -5001,14 +5050,15 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
     snprintf(
         message,
         sizeof(message),
-        "Copied profile: %zu add-ons (%zu catalog, %zu manual), scanned %u entries, code=%d chars, skipped limit=%zu, overlong=%zu.",
+        "Copied profile: %zu add-ons (%zu catalog, %zu manual), scanned %u entries, code=%d chars, skipped limit=%zu, overlong=%zu, sanitized=%zu.",
         profile->addon_count,
         catalog_count,
         manual_count,
         scanned_entries,
         n,
         skipped_profile_limit,
-        skipped_long_token);
+        skipped_long_token,
+        sanitized_token_count);
     set_action_status(state, message, "Profile copied");
     free(profile);
 }
