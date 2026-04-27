@@ -8,6 +8,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from audit_tbc_zip_urls import is_tbc_build_zip_url
+
 
 USER_AGENT = "attune-helper-companion-web-catalog-import"
 DETAIL_WORKERS = 24
@@ -110,14 +112,29 @@ def slug_to_name(slug: str) -> str:
     return " ".join(word.capitalize() for word in words) if words else slug
 
 
+def _wotlk_hint_score(url: str) -> int:
+    lo = url.lower()
+    s = 0
+    if "wotlk" in lo:
+        s += 2
+    if "335" in lo or "3.3.5" in lo:
+        s += 2
+    return s
+
+
 def extract_zip_url(html: str) -> str | None:
     if not html:
         return None
     matches = re.findall(r'https://[^"\'\s<>]+\.zip(?:\?[^"\'\s<>]*)?', html, flags=re.IGNORECASE)
     if not matches:
         return None
-    preferred = [url for url in matches if "wp-content/uploads" in url or "download" in url.lower()]
-    return preferred[0] if preferred else matches[0]
+    unique = list(dict.fromkeys(matches))
+    preferred = [u for u in unique if "wp-content/uploads" in u or "download" in u.lower()]
+    pool: list[str] = preferred if preferred else unique
+    non_tbc = [(i, u) for i, u in enumerate(pool) if not is_tbc_build_zip_url(u)]
+    if not non_tbc:
+        return None
+    return max(non_tbc, key=lambda iu: (_wotlk_hint_score(iu[1]), -iu[0]))[1]
 
 
 def infer_category_from_context(context: str) -> str | None:

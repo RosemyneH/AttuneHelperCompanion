@@ -51,6 +51,10 @@ def url_field_reason(url: str) -> str | None:
     return None
 
 
+def is_tbc_build_zip_url(url: str) -> bool:
+    return url_field_reason(url) is not None
+
+
 def collect_url_fingerprints(
     entry: dict[str, Any]
 ) -> Iterator[tuple[str, str, str | None]]:
