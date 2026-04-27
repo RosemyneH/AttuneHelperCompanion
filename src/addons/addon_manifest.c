@@ -567,6 +567,62 @@ static const char *parse_install_object(
     }
 }
 
+static int strcmp_ci(const char *a, const char *b)
+{
+    for (;;) {
+        unsigned char x = (unsigned char)*a++;
+        unsigned char y = (unsigned char)*b++;
+        int dx = tolower((int)x) - tolower((int)y);
+        if (dx != 0) {
+            return dx;
+        }
+        if (x == 0) {
+            return 0;
+        }
+    }
+}
+
+static bool has_prefix_ci(const char *s, const char *pre)
+{
+    for (; *pre; s++, pre++) {
+        if (*s == 0) {
+            return false;
+        }
+        if (tolower((unsigned char)*s) != tolower((unsigned char)*pre)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool haystack_has_ci(const char *hay, const char *needle)
+{
+    if (!*needle) {
+        return true;
+    }
+    for (; *hay; hay++) {
+        if (has_prefix_ci(hay, needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool skip_felbite_listing(const AhcAddon *addon)
+{
+    if (addon->source && strcmp_ci(addon->source, "Felbite") == 0) {
+        return true;
+    }
+    if (addon->folder && has_prefix_ci(addon->folder, "felbite-")) {
+        return true;
+    }
+    if (addon->description
+        && haystack_has_ci(addon->description, "Community addon listing from Felbite")) {
+        return true;
+    }
+    return false;
+}
+
 static bool append_addon(AhcAddonManifest *manifest, const AhcAddon *addon)
 {
     size_t new_count = manifest->count + 1;
@@ -798,6 +854,10 @@ static const char *parse_addon_object(
     addon.category_count = fields.category_count;
     fields.source = NULL;
     memset(&fields, 0, sizeof(fields));
+
+    if (skip_felbite_listing(&addon)) {
+        return cursor;
+    }
 
     if (!append_addon(manifest, &addon)) {
         return NULL;

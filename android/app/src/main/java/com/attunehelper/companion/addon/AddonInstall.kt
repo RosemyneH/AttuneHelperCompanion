@@ -242,12 +242,30 @@ object AddonInstall {
         return out
     }
 
+    private fun isFelbiteCommunityListing(a: JSONObject): Boolean {
+        val source = a.optString("source", "").trim()
+        if (source.equals("Felbite", ignoreCase = true)) {
+            return true
+        }
+        val folder = a.optString("folder", "").trim()
+        if (folder.startsWith("felbite-", ignoreCase = true)) {
+            return true
+        }
+        if (a.optString("description", "").contains("Community addon listing from Felbite", ignoreCase = true)) {
+            return true
+        }
+        return false
+    }
+
     private fun parseEntries(text: String): List<Entry> {
         val o = JSONObject(text)
         val arr = o.optJSONArray("addons") ?: throw IllegalArgumentException("Manifest missing addons array.")
         val out = ArrayList<Entry>(arr.length())
         for (i in 0 until arr.length()) {
             val a = arr.optJSONObject(i) ?: continue
+            if (isFelbiteCommunityListing(a)) {
+                continue
+            }
             val inst = a.optJSONObject("install") ?: continue
             val type = inst.optString("type", "")
             val u = inst.optString("url", "").trim()

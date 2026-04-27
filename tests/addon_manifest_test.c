@@ -58,6 +58,10 @@ int main(void)
         fprintf(stderr, "Baked catalog should not include Warperia entries.\n");
         return 1;
     }
+    if (baked_catalog_has_source("Felbite")) {
+        fprintf(stderr, "Baked catalog should not include Felbite community listing entries.\n");
+        return 1;
+    }
 
     AhcAddonManifest manifest = { 0 };
     if (!ahc_addon_manifest_load_file(AHC_TEST_MANIFEST_PATH, &manifest)) {

@@ -64,6 +64,19 @@ def addon_categories(addon: dict[str, Any], index: int) -> list[str]:
     return categories
 
 
+def _is_felbite_community_listing(addon: dict[str, Any]) -> bool:
+    src = (addon.get("source") or "").strip().casefold()
+    if src == "felbite":
+        return True
+    folder = (addon.get("folder") or "").strip().casefold()
+    if folder.startswith("felbite-"):
+        return True
+    desc = (addon.get("description") or "").casefold()
+    if "community addon listing from felbite" in desc:
+        return True
+    return False
+
+
 def validate_manifest(data: dict[str, Any]) -> list[dict[str, Any]]:
     addons = data.get("addons")
     if not isinstance(addons, list) or not addons:
@@ -91,6 +104,9 @@ def validate_manifest(data: dict[str, Any]) -> list[dict[str, Any]]:
         if not re.match(r"^(https?://|git@)", repo):
             raise ManifestError(f"addon[{index}] repo must be an http(s) URL or git SSH URL")
 
+    addons = [a for a in addons if not _is_felbite_community_listing(a)]
+    if not addons:
+        raise ManifestError("manifest has no addons after excluding Felbite community listings")
     return addons
 
 
