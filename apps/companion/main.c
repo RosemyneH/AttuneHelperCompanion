@@ -8,6 +8,7 @@
 #include "addons/addon_catalog.h"
 #include "addons/addon_manifest.h"
 #include "addons/addon_profile_codec.h"
+#include "addons/wow_default_addons.h"
 #include "attune/attune_snapshot.h"
 #include "attune/attune_sync_codec.h"
 #include "qrcodegen.h"
@@ -5074,7 +5075,8 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
     unsigned int scanned_entries = entries.count;
     size_t directory_count = 0u;
     size_t catalog_count = 0u;
-    size_t manual_count = 0u;
+    size_t skipped_blizzard = 0u;
+    size_t skipped_not_in_catalog = 0u;
     size_t skipped_hidden = 0u;
     size_t skipped_non_directory = 0u;
     size_t skipped_long_token = 0u;
@@ -5097,6 +5099,10 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
             skipped_hidden++;
             continue;
         }
+        if (ahc_is_blizzard_default_addon_folder(folder)) {
+            skipped_blizzard++;
+            continue;
+        }
         directory_count++;
         const AhcAddon *catalog_addon = NULL;
         for (size_t c = 0; c < count; c++) {
@@ -5105,7 +5111,11 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
                 break;
             }
         }
-        const char *raw_token = catalog_addon && catalog_addon->id ? catalog_addon->id : folder;
+        if (!catalog_addon || !catalog_addon->id) {
+            skipped_not_in_catalog++;
+            continue;
+        }
+        const char *raw_token = catalog_addon->id;
         char token_buf[AHC_PROFILE_ID_CAPACITY];
         if (!profile_copy_token_sanitized(token_buf, sizeof(token_buf), raw_token)) {
             skipped_invalid_token++;
@@ -5132,35 +5142,20 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
             "%s",
             token_buf);
         profile->addon_count++;
-        if (catalog_addon && catalog_addon->id) {
-            catalog_count++;
-        } else {
-            manual_count++;
-        }
+        catalog_count++;
     }
     UnloadDirectoryFiles(entries);
 
-    if (profile->addon_count == 0u) {
-        for (size_t i = 0; i < count && profile->addon_count < AHC_PROFILE_MAX_ADDONS; i++) {
-            if (addons[i].id && addon_is_installed(state, &addons[i])) {
-                snprintf(profile->addon_ids[profile->addon_count], sizeof(profile->addon_ids[profile->addon_count]), "%s", addons[i].id);
-                profile->addon_count++;
-                catalog_count++;
-                size_t id_len = strlen(addons[i].id);
-                if (id_len > longest_token) {
-                    longest_token = id_len;
-                }
-            }
-        }
-    }
     if (profile->addon_count == 0u) {
         char message[AHC_STATUS_CAPACITY];
         snprintf(
             message,
             sizeof(message),
-            "Profile export empty: scanned %u entries in %s; folders=%zu, hidden/staging=%zu, files=%zu, overlong=%zu, invalid=%zu.",
+            "Profile export empty: no catalog add-on folders; scanned %u in %s; blizzard=%zu, not in catalog=%zu, folders seen=%zu, hidden/staging=%zu, overlong=%zu, invalid=%zu.",
             scanned_entries,
             addons_path,
+            skipped_blizzard,
+            skipped_not_in_catalog,
             directory_count,
             skipped_hidden,
             skipped_non_directory,
@@ -5177,11 +5172,10 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
         snprintf(
             message,
             sizeof(message),
-            "Profile encode failed (%s): add-ons=%zu, catalog=%zu, manual=%zu, longest token=%zu/%zu, buffer=%zu, limit=%zu, overlong=%zu, invalid=%zu, sanitized=%zu.",
+            "Profile encode failed (%s): add-ons=%zu, catalog=%zu, longest token=%zu/%zu, buffer=%zu, limit=%zu, overlong=%zu, invalid=%zu, sanitized=%zu.",
             profile_encode_error_label(encode_error),
             profile->addon_count,
             catalog_count,
-            manual_count,
             longest_token,
             sizeof(profile->addon_ids[0]) - 1u,
             sizeof(state->profile_code),
@@ -5198,12 +5192,12 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
     snprintf(
         message,
         sizeof(message),
-        "Copied profile: %zu add-ons (%zu catalog, %zu manual), scanned %u entries, code=%d chars, skipped limit=%zu, overlong=%zu, sanitized=%zu.",
+        "Copied profile: %zu catalog add-ons, scanned %u entries, code=%d chars, skipped blizzard=%zu, not in catalog=%zu, limit=%zu, overlong=%zu, sanitized=%zu.",
         profile->addon_count,
-        catalog_count,
-        manual_count,
         scanned_entries,
         n,
+        skipped_blizzard,
+        skipped_not_in_catalog,
         skipped_profile_limit,
         skipped_long_token,
         sanitized_token_count);

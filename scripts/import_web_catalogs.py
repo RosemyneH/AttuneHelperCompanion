@@ -45,10 +45,51 @@ CATEGORY_LABELS = [
     "Utility",
 ]
 
-LOOT_KEYWORDS = ("loot", "roll", "atlasloot", "atlas-loot", "atlas", "auction", "drop", "itemrack")
-INVENTORY_KEYWORDS = ("bag", "bags", "inventory", "arkinventory", "bagnon", "bank", "bagspace")
-MAP_KEYWORDS = ("mapster", "map", "minimap", "cartographer", "coordinates", "coords", "tomtom")
-ATTUNEMENT_KEYWORDS = ("attune",)
+FELBITE_EXTRA_LABELS = [
+    "Quality of Life",
+    "Loot",
+    "Map",
+    "Attunement",
+]
+
+# Listing-page and Felbite text labels: normalize against this (length-first in match function).
+FELBITE_KNOWN_LABELS: list[str] = list(dict.fromkeys([*CATEGORY_LABELS, *FELBITE_EXTRA_LABELS]))
+
+# Narrow substring buckets (legacy manifest tags Loot / Map / Attunement; avoid bare "atlas" — conflicts with Atlas maps).
+INVENTORY_NARROW = (
+    "bagnon", "arkin", "cargb", "combuctor", "jpack", "bankstack", "bagon", "inventa", "baganator",
+)
+MAP_NARROW = ("mapster", "minimap", "cartographer", "tomtom", "gathermate", "handy", "atlasl", "coord", "routes", "eclip")
+LOOT_NARROW = ("atlasloot", "atlas-loot", "mogit", "itemrack", "pawn", "roll", "leatrix", "mog-")
+ATTUNEMENT_NARROW = ("attune", "mythic", "attunement", "hymn", "hymb")
+
+# Additional (keyword_substring, category_label) rules; use specific terms to limit false positives.
+FELBITE_KEYWORD_RULES: list[tuple[tuple[str, ...], str]] = [
+    (("bartender", "dominos", "magnus", "nmain", "maccar", "naga"), "Action Bars"),
+    (("prat", "wim", "chatt", "choc", "gossip", "caelch"), "Chat & Communication"),
+    (("bigwigs", "dbm", "littlew", "kazz", "sdyk", "mimir"), "Boss Encounters"),
+    (("vuhdo", "grida", "x-perl", "sufl", "luf", "ouf", "stuf", "aguf", "gufl"), "Unit Frames"),
+    (("recount", "skada", "omenw", "damage", "tiny", "eave"), "Combat"),
+    (("tiptac", "tekt", "mendele"), "Tooltip"),
+    (("miks", "buffbar", "needt", "filger", "nek", "weak", "bartall"), "Buffs & Debuffs"),
+    (("glad", "capping", "hhd", "pvpg", "arathi"), "PvP"),
+    (("questa", "carb", "monk", "moll", "carbo", "gryph", "dail"), "Quests & Leveling"),
+    (("auc", "tradesk", "tradeskilla", "fishing", "flying", "mining", "herb"), "Professions"),
+    (("auction", "tradeskilla", "broker", "craft"), "Auction & Economy"),
+    (("talen", "glyph", "eclipseb", "spell", "druid", "druidb"), "Talents"),
+    (("totem", "necb", "necro", "doomb"), "Class"),
+    (("trp", "flagr", "gmi3", "myr", "greet"), "Roleplay"),
+    (("pegle", "chess", "arcade", "dice", "durb"), "Minigames"),
+    (("buggr", "fstack", "taint", "swat", "sylv", "debugd"), "Development Tools"),
+    (("ace3", "ace2", "libstub", "librar", "callbackh"), "Libraries"),
+    (("oraid", "guilda", "greets", "guildb"), "Guild"),
+    (("openall", "postal", "craph", "bulkmail"), "Mail"),
+    (("hudb", "threat", "aggroa", "taunt", "dpsm"), "Combat"),
+    (("musi", "sfxa", "soundl", "volum", "volumi"), "Audio & Video"),
+    (("mogd", "dressb", "wardrobe", "preview"), "Artwork"),
+    (("inspect", "socketing", "paper", "character"), "Miscellaneous"),
+    (("timer", "clocka", "cooldown", "coola"), "Utility"),
+]
 
 
 def log(message: str) -> None:
@@ -81,7 +122,7 @@ def extract_zip_url(html: str) -> str | None:
 
 def infer_category_from_context(context: str) -> str | None:
     lowered = context.lower()
-    for label in sorted(CATEGORY_LABELS, key=len, reverse=True):
+    for label in sorted(FELBITE_KNOWN_LABELS, key=len, reverse=True):
         if label.lower() in lowered:
             return label
     return None
@@ -104,20 +145,62 @@ def assign_categories(entry: dict, categories: list[str]) -> None:
         entry.pop("categories", None)
 
 
+def match_scraped_felbite_label(raw: str | None) -> str | None:
+    if not raw or not str(raw).strip():
+        return None
+    compact = " ".join(str(raw).split())
+    for label in sorted(FELBITE_KNOWN_LABELS, key=len, reverse=True):
+        if compact.casefold() == label.casefold():
+            return label
+    return None
+
+
 def curated_felbite_categories(slug: str, name: str, scraped_category: str | None) -> list[str]:
     text = f"{slug} {name} {scraped_category or ''}".lower()
-    categories: list[str] = []
-    if any(keyword in text for keyword in LOOT_KEYWORDS):
-        categories.append("Loot")
-    if any(keyword in text for keyword in INVENTORY_KEYWORDS):
-        categories.append("Inventory")
-    if any(keyword in text for keyword in ATTUNEMENT_KEYWORDS):
-        categories.append("Attunement")
-    if any(keyword in text for keyword in MAP_KEYWORDS):
-        categories.append("Map")
-    if not categories:
-        categories.append("Quality of Life")
-    return unique_categories(categories)
+    out: list[str] = []
+    m = match_scraped_felbite_label(scraped_category)
+    if m:
+        out.append(m)
+
+    def add(label: str) -> None:
+        if label not in out:
+            out.append(label)
+
+    if any(kw in text for kw in LOOT_NARROW):
+        add("Loot")
+    if any(kw in text for kw in INVENTORY_NARROW):
+        add("Inventory")
+    if any(kw in text for kw in ATTUNEMENT_NARROW):
+        add("Attunement")
+    if any(kw in text for kw in MAP_NARROW):
+        add("Map")
+    for keywords, label in FELBITE_KEYWORD_RULES:
+        if any(kw in text for kw in keywords):
+            add(label)
+    if not out:
+        out.append("Quality of Life")
+    return unique_categories(out)
+
+
+def apply_felbite_addoncontrolpanel_override(entry: dict) -> None:
+    if entry.get("id") != "felbite-addoncontrolpanel":
+        return
+    tbc = "https://felbite.com/wp-content/uploads/2022/03/felbite.com-addoncontrolpanel-tbc-addoncontrolpanel.zip"
+    page = "https://felbite.com/addon/4688-addoncontrolpanel/"
+    entry["description"] = (
+        "Felbite hosts a TBC (2.4) build for this add-on, not 3.3.5. "
+        "For WotLK 3.3.5 use the catalog entry acp-zero (folder ACP-Zero) from GitHub instead."
+    )
+    entry["repo"] = page
+    entry["page_url"] = page
+    entry["install"] = {"type": "external_page", "url": page}
+    entry["direct_zip"] = {"url": tbc, "enabled": False}
+    entry["name"] = entry.get("name") or "Addon Control Panel (Felbite listing)"
+    entry["folder"] = "felbite-addoncontrolpanel"
+    entry["source"] = "Felbite"
+    entry["github_release"] = None
+    entry["version"] = "website"
+    entry["avatar_url"] = entry.get("avatar_url", "") or ""
 
 
 def collect_felbite_urls(max_pages: int = 40) -> tuple[list[str], dict[str, str]]:
@@ -180,6 +263,7 @@ def build_felbite_entry(url: str, zip_url: str | None, category: str | None) -> 
         "version": "website"
     }
     assign_categories(entry, curated_felbite_categories(slug, name, category))
+    apply_felbite_addoncontrolpanel_override(entry)
     return entry
 
 
@@ -265,6 +349,7 @@ def main() -> None:
                     current["categories"] = entry["categories"]
                 else:
                     current.pop("categories", None)
+                apply_felbite_addoncontrolpanel_override(current)
                 updated += 1
             continue
         addons.append(entry)

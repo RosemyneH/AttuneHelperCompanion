@@ -39,6 +39,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.attunehelper.companion.addon.AddonInstall
 import com.attunehelper.companion.addon.AddonProfileCodec
+import com.attunehelper.companion.addon.WowDefaultAddons
 import com.attunehelper.companion.data.AttuneHistoryStore
 import com.attunehelper.companion.nfc.AhcNfcHelper
 import com.attunehelper.companion.nfc.NfcNdefPushCompat
@@ -854,10 +855,17 @@ class MainActivity : AppCompatActivity() {
         val uri = Uri.parse(s)
         val entriesByFolder = addonEntries.associateBy { it.folder.lowercase() }
         val ids = AddonInstall.listInstalledAddonFolderNames(this, uri)
-            .map { folder -> entriesByFolder[folder.lowercase()]?.id?.takeIf { it.isNotBlank() } ?: folder }
+            .asSequence()
+            .filterNot { WowDefaultAddons.isBlizzardDefaultFolder(it) }
+            .mapNotNull { folder -> entriesByFolder[folder.lowercase()]?.id?.takeIf { id -> id.isNotBlank() } }
             .distinct()
+            .toList()
         if (ids.isEmpty()) {
-            Toast.makeText(this, "No installed add-ons found to export.", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                "No catalog add-ons in Interface/AddOns to export. Blizzard and unknown folder names are skipped.",
+                Toast.LENGTH_LONG,
+            ).show()
             return
         }
         val profile = AddonProfileCodec.Profile(

@@ -56,6 +56,7 @@ add_library(ahc_core
     "${AHC_GENERATED_ADDON_CATALOG}"
     src/addons/addon_manifest.c
     src/addons/addon_profile_codec.c
+    src/addons/wow_default_addons.c
     src/attune/attune_snapshot.c
     src/attune/attune_sync_codec.c
     third_party/miniz/miniz.c
@@ -238,6 +239,9 @@ if(AHC_BUILD_TESTS)
     add_executable(addon_profile_codec_test
         tests/addon_profile_codec_test.c
     )
+    add_executable(wow_default_addons_test
+        tests/wow_default_addons_test.c
+    )
 
     target_link_libraries(attune_snapshot_test
         PRIVATE
@@ -271,6 +275,10 @@ if(AHC_BUILD_TESTS)
         PRIVATE
             ahc_core
     )
+    target_link_libraries(wow_default_addons_test
+        PRIVATE
+            ahc_core
+    )
     target_include_directories(attune_sync_codec_test
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz
@@ -294,6 +302,7 @@ if(AHC_BUILD_TESTS)
         target_compile_options(ahc_safe_url_test PRIVATE /W4)
         target_compile_options(attune_sync_codec_test PRIVATE /W4)
         target_compile_options(addon_profile_codec_test PRIVATE /W4)
+        target_compile_options(wow_default_addons_test PRIVATE /W4)
     else()
         target_compile_options(attune_snapshot_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(addon_manifest_test PRIVATE -Wall -Wextra -Wpedantic)
@@ -303,6 +312,7 @@ if(AHC_BUILD_TESTS)
         target_compile_options(ahc_safe_url_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(attune_sync_codec_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(addon_profile_codec_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(wow_default_addons_test PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     if(AHC_OPT_PROFILE STREQUAL "sanitize" AND NOT MSVC)
@@ -322,6 +332,8 @@ if(AHC_BUILD_TESTS)
         target_link_options(attune_sync_codec_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(addon_profile_codec_test PRIVATE -fsanitize=address,undefined -g)
         target_link_options(addon_profile_codec_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(wow_default_addons_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(wow_default_addons_test PRIVATE -fsanitize=address,undefined)
     endif()
 
     add_test(NAME attune_snapshot_test COMMAND attune_snapshot_test)
@@ -332,6 +344,7 @@ if(AHC_BUILD_TESTS)
     add_test(NAME ahc_safe_url_test COMMAND ahc_safe_url_test)
     add_test(NAME attune_sync_codec_test COMMAND attune_sync_codec_test)
     add_test(NAME addon_profile_codec_test COMMAND addon_profile_codec_test)
+    add_test(NAME wow_default_addons_test COMMAND wow_default_addons_test)
 endif()
 
 if(AHC_BUILD_ANDROID)
