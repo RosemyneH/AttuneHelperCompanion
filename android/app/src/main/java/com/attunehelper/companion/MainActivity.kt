@@ -71,6 +71,8 @@ class MainActivity : AppCompatActivity() {
     private var selectedAddonEntry: AddonInstall.Entry? = null
     private var selectedAddonCategory: String = ""
     private var addonInstalling = false
+    private var addonCatalogLoading = false
+    private var addonCatalogSourceLabel = ""
     private var nfcAdapter: NfcAdapter? = null
     private var nfcPrepared: NdefMessage? = null
     private var ignoreRailSelection: Boolean = false
@@ -171,6 +173,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_play_winlator).setOnClickListener { openWinlator() }
         findViewById<MaterialButton>(R.id.btn_nfc_prepare).setOnClickListener { prepareNfcPush() }
         findViewById<MaterialButton>(R.id.btn_attunes_open_sync).setOnClickListener { showSection(R.id.section_sync) }
+        findViewById<MaterialButton>(R.id.btn_refresh_catalog).setOnClickListener { loadAddonCatalog(forceRemoteRefresh = true) }
         attuneGraph = findViewById(R.id.attune_graph)
         textAttuneGraphDetail = findViewById(R.id.text_attune_graph_detail)
         textAttuneGraphAverage = findViewById(R.id.text_attune_graph_average)
@@ -689,17 +692,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadAddonCatalog() {
+    private fun loadAddonCatalog(forceRemoteRefresh: Boolean = false) {
+        addonCatalogLoading = true
+        renderAddonCatalog()
         lifecycleScope.launch {
-            val list = withContext(Dispatchers.IO) { AddonInstall.listEntries(this@MainActivity) }
-            val blobs = withContext(Dispatchers.Default) {
-                List(list.size) { i -> precomputedSearchBlobForAddon(list[i]) }
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    AddonInstall.loadCatalog(this@MainActivity, forceRemoteRefresh)
+                }
+                val blobs = withContext(Dispatchers.Default) {
+                    List(result.entries.size) { i -> precomputedSearchBlobForAddon(result.entries[i]) }
+                }
+                addonEntries = result.entries
+                addonCatalogSourceLabel = result.sourceLabel
+                addonSearchBlobByEntryIndex = blobs
+                selectedAddonEntry = result.entries.firstOrNull()
+                renderCategoryFilters()
+                if (forceRemoteRefresh) {
+                    Toast.makeText(this@MainActivity, getString(R.string.catalog_refreshed), Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Could not load add-on catalog: ${e.message ?: e.javaClass.simpleName}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                addonCatalogLoading = false
+                renderAddonCatalog()
             }
-            addonEntries = list
-            addonSearchBlobByEntryIndex = blobs
-            selectedAddonEntry = list.firstOrNull()
-            renderCategoryFilters()
-            renderAddonCatalog()
         }
     }
 
@@ -764,7 +785,9 @@ class MainActivity : AppCompatActivity() {
         val count = findViewById<TextView>(R.id.text_catalog_count)
         host.removeAllViews()
         val filtered = filteredAddonEntries()
-        count.text = getString(R.string.catalog_count, filtered.size)
+        val source = addonCatalogSourceLabel.ifBlank { getString(R.string.catalog_source_loading) }
+        count.text = getString(R.string.catalog_count_source, filtered.size, source)
+        findViewById<MaterialButton>(R.id.btn_refresh_catalog).isEnabled = !addonCatalogLoading
         empty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
         for (entry in filtered) {
             host.addView(createAddonCard(entry))

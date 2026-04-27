@@ -101,13 +101,31 @@
                         android:textColorHint="@color/ahc_text_muted" />
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <TextView
-                    android:id="@+id/text_catalog_count"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_xs"
-                    android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="@color/ahc_text_muted" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/text_catalog_count"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="@color/ahc_text_muted" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_refresh_catalog"
+                        style="@style/Widget.Ahc.Button.Tonal"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:minHeight="0dp"
+                        android:text="@string/catalog_refresh"
+                        android:textAllCaps="false"
+                        android:textSize="12sp" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/text_addon_status"

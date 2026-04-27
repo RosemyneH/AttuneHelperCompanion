@@ -36,11 +36,18 @@
 #if defined(_WIN32)
 #include <wchar.h>
 __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void *hModule, char *lpFilename, unsigned long nSize);
+__declspec(dllimport) int __stdcall MoveFileExA(const char *lpExistingFileName, const char *lpNewFileName, unsigned long dwFlags);
 __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #include <direct.h>
 #include <process.h>
+#include <sys/stat.h>
+#ifndef MOVEFILE_REPLACE_EXISTING
+#define MOVEFILE_REPLACE_EXISTING 0x00000001u
+#endif
 #define AHC_MKDIR(path) _mkdir(path)
 #define AHC_RMDIR(path) _rmdir(path)
+#define AHC_STAT _stat
+#define AHC_STAT_STRUCT _stat
 #define AHC_STRICMP _stricmp
 #else
 #include <pthread.h>
@@ -48,6 +55,8 @@ __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #include <unistd.h>
 #define AHC_MKDIR(path) mkdir(path, 0755)
 #define AHC_RMDIR(path) rmdir(path)
+#define AHC_STAT stat
+#define AHC_STAT_STRUCT stat
 #define AHC_STRICMP strcasecmp
 #endif
 
@@ -65,6 +74,8 @@ __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #define AHC_ADDON_STATUS_REFRESH_SECONDS 5.0
 #define AHC_ADDON_STATIC_FPS 30
 #define AHC_HIDDEN_FPS 2
+#define AHC_REMOTE_MANIFEST_TTL_SECONDS 86400
+#define AHC_REMOTE_MANIFEST_URL "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/addons.json"
 #define AHC_FONT_GLYPHS 95
 #define AHC_SNAPSHOT_POLL_SECONDS 5.0
 #define AHC_PROCESS_ACTIVE_SECONDS 4.0
@@ -2096,7 +2107,7 @@ static bool save_settings(CompanionState *state)
     return true;
 }
 
-static bool try_load_addon_manifest(CompanionState *state, const char *path)
+static bool try_load_addon_manifest_labeled(CompanionState *state, const char *path, const char *label)
 {
     AhcAddonManifest manifest = { 0 };
     if (!ahc_addon_manifest_load_file(path, &manifest)) {
@@ -2108,9 +2119,75 @@ static bool try_load_addon_manifest(CompanionState *state, const char *path)
     state->addons = state->addon_manifest.items;
     state->addon_count = state->addon_manifest.count;
     state->addon_manifest_loaded = true;
-    snprintf(state->addon_catalog_source, sizeof(state->addon_catalog_source), "%s", path);
+    snprintf(state->addon_catalog_source, sizeof(state->addon_catalog_source), "%s", label);
     state->selected_addon_category[0] = '\0';
     state->addon_scroll = 0;
+    return true;
+}
+
+static bool try_load_addon_manifest(CompanionState *state, const char *path)
+{
+    return try_load_addon_manifest_labeled(state, path, path);
+}
+
+static bool addon_manifest_file_valid(const char *path)
+{
+    AhcAddonManifest manifest = { 0 };
+    if (!ahc_addon_manifest_load_file(path, &manifest)) {
+        return false;
+    }
+    ahc_addon_manifest_free(&manifest);
+    return true;
+}
+
+static bool file_modified_within_seconds(const char *path, int seconds)
+{
+    struct AHC_STAT_STRUCT st;
+    if (AHC_STAT(path, &st) != 0) {
+        return false;
+    }
+    time_t now = time(NULL);
+    if (now == (time_t)-1 || st.st_mtime > now) {
+        return false;
+    }
+    return difftime(now, st.st_mtime) <= (double)seconds;
+}
+
+static bool replace_file_with_temp(const char *temp_path, const char *destination_path)
+{
+#if defined(_WIN32)
+    return MoveFileExA(temp_path, destination_path, MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+    return rename(temp_path, destination_path) == 0;
+#endif
+}
+
+static bool addon_catalog_cache_paths(const CompanionState *state, char *cache_path, size_t cache_capacity, char *temp_path, size_t temp_capacity)
+{
+    if (!state->config_dir[0] || !ensure_directory(state->config_dir)) {
+        return false;
+    }
+    path_join(cache_path, cache_capacity, state->config_dir, "addon_catalog_cache.json");
+    path_join(temp_path, temp_capacity, state->config_dir, "addon_catalog_cache.tmp");
+    return true;
+}
+
+static bool refresh_remote_addon_catalog_cache(CompanionState *state, const char *cache_path, const char *temp_path)
+{
+    (void)state;
+    remove(temp_path);
+    if (!ahc_curl_download_file(AHC_REMOTE_MANIFEST_URL, temp_path)) {
+        remove(temp_path);
+        return false;
+    }
+    if (!addon_manifest_file_valid(temp_path)) {
+        remove(temp_path);
+        return false;
+    }
+    if (!replace_file_with_temp(temp_path, cache_path)) {
+        remove(temp_path);
+        return false;
+    }
     return true;
 }
 
@@ -2178,13 +2255,34 @@ static void ahc_init_exe_dir_once(void)
 #endif
 }
 
-static void load_addon_catalog(CompanionState *state)
+static void load_addon_catalog(CompanionState *state, bool force_remote_refresh)
 {
     ahc_init_exe_dir_once();
     state->addons = ahc_addon_catalog_items();
     state->addon_count = ahc_addon_catalog_count();
     state->addon_manifest_loaded = false;
     snprintf(state->addon_catalog_source, sizeof(state->addon_catalog_source), "baked manifest catalog");
+
+    char cache_path[AHC_PATH_CAPACITY];
+    char temp_path[AHC_PATH_CAPACITY];
+    if (addon_catalog_cache_paths(state, cache_path, sizeof(cache_path), temp_path, sizeof(temp_path))) {
+        bool cache_exists = FileExists(cache_path);
+        bool cache_fresh = cache_exists && file_modified_within_seconds(cache_path, AHC_REMOTE_MANIFEST_TTL_SECONDS);
+        if (!force_remote_refresh && cache_fresh) {
+            if (try_load_addon_manifest_labeled(state, cache_path, "cached remote catalog")) {
+                return;
+            }
+            cache_fresh = false;
+        }
+        if ((force_remote_refresh || !cache_fresh) && refresh_remote_addon_catalog_cache(state, cache_path, temp_path)) {
+            if (try_load_addon_manifest_labeled(state, cache_path, "remote catalog")) {
+                return;
+            }
+        }
+        if (cache_exists && try_load_addon_manifest_labeled(state, cache_path, "cached remote catalog")) {
+            return;
+        }
+    }
 
     if (s_have_exe_dir) {
         char exe_manifest[AHC_PATH_CAPACITY];
@@ -4404,7 +4502,7 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_
 static void draw_addons_tab(CompanionState *state)
 {
     const AhcAddon *addons = state->addons ? state->addons : ahc_addon_catalog_items();
-    const size_t count = state->addons ? state->addon_count : ahc_addon_catalog_count();
+    size_t count = state->addons ? state->addon_count : ahc_addon_catalog_count();
     const size_t filtered_count = addon_filtered_count(state, addons, count);
 
     char title[128];
@@ -4418,6 +4516,17 @@ static void draw_addons_tab(CompanionState *state)
     draw_card(content, title);
 
     float controls_y = content.y + 50.0f;
+    char catalog_source[AHC_PATH_CAPACITY + 32];
+    snprintf(catalog_source, sizeof(catalog_source), "Catalog source: %s", state->addon_catalog_source);
+    draw_text(catalog_source, (int)content.x + 20, (int)controls_y, 14, AHC_MUTED);
+    if (draw_wow_button("Refresh catalog", (Rectangle){ content.x + content.width - 154.0f, controls_y - 6.0f, 134.0f, 28.0f }, false, 14)) {
+        load_addon_catalog(state, true);
+        addon_status_cache_invalidate(state);
+        set_action_status(state, "Refreshed add-on catalog.", "Catalog refreshed");
+        addons = state->addons ? state->addons : ahc_addon_catalog_items();
+        count = state->addons ? state->addon_count : ahc_addon_catalog_count();
+    }
+    controls_y += 28.0f;
     int category_rows = draw_category_filters(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
     float list_y = controls_y + (float)(category_rows * 34) + 8.0f;
     float list_height = content.y + content.height - list_y - 14.0f;
@@ -4745,8 +4854,8 @@ static void init_state(CompanionState *state)
     state->graph_metric = GRAPH_METRIC_ACCOUNT;
     state->graph_display = GRAPH_DISPLAY_PLOT;
     reset_wow_config_fields(state);
-    load_addon_catalog(state);
     resolve_config_paths(state);
+    load_addon_catalog(state, false);
     load_settings(state);
     if (!state->autologin_realm[0]) {
         snprintf(state->autologin_realm, sizeof state->autologin_realm, "AzerothCore");

@@ -20,8 +20,11 @@ import java.util.zip.ZipFile
 
 object AddonInstall {
     private const val MAX_DOWNLOAD_BYTES = 64L * 1024 * 1024
+    private const val MAX_MANIFEST_BYTES = 2L * 1024 * 1024
     private const val MAX_EXTRACTED_TOTAL_BYTES = 256L * 1024 * 1024
     private const val MAX_SINGLE_ZIP_FILE_BYTES = 32L * 1024 * 1024
+    private const val CATALOG_CACHE_TTL_MS = 24L * 60L * 60L * 1000L
+    private const val REMOTE_MANIFEST_URL = "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/addons.json"
     private const val MOBILE_CONTROLLER_CATEGORY = "Mobile & Controller"
     private const val HTTP_USER_AGENT = "AttuneHelperCompanion-Android/1.0"
 
@@ -46,8 +49,13 @@ object AddonInstall {
         val installUrl: String,
     )
 
+    data class CatalogResult(
+        val entries: List<Entry>,
+        val sourceLabel: String,
+    )
+
     @Volatile
-    private var cached: List<Entry>? = null
+    private var cached: CatalogResult? = null
 
     private val client = OkHttpClient.Builder()
         .callTimeout(3, TimeUnit.MINUTES)
@@ -55,13 +63,82 @@ object AddonInstall {
         .build()
 
     fun listEntries(context: Context): List<Entry> {
+        return loadCatalog(context).entries
+    }
+
+    fun loadCatalog(context: Context, forceRemoteRefresh: Boolean = false): CatalogResult {
         val hit = cached
-        if (hit != null) {
+        if (hit != null && !forceRemoteRefresh) {
             return hit
         }
+
+        val cacheFile = File(context.filesDir, "addon_catalog_cache.json")
+        var cacheFresh = cacheFile.isFile && isCatalogCacheFresh(cacheFile)
+        if (!forceRemoteRefresh && cacheFresh) {
+            parseCatalogFile(cacheFile)?.let {
+                return rememberCatalog(CatalogResult(it, "Cached remote catalog"))
+            }
+            cacheFresh = false
+        }
+
+        if (forceRemoteRefresh || !cacheFresh) {
+            fetchRemoteCatalog(context, cacheFile)?.let {
+                return rememberCatalog(CatalogResult(it, "Remote catalog"))
+            }
+        }
+
+        if (cacheFile.isFile) {
+            parseCatalogFile(cacheFile)?.let {
+                return rememberCatalog(CatalogResult(it, "Cached remote catalog"))
+            }
+        }
+
         val text = context.assets.open("addons.json").bufferedReader().use { it.readText() }
+        return rememberCatalog(CatalogResult(parseEntries(text), "Bundled catalog"))
+    }
+
+    private fun rememberCatalog(result: CatalogResult): CatalogResult {
+        cached = result
+        return result
+    }
+
+    private fun isCatalogCacheFresh(cacheFile: File): Boolean {
+        val age = System.currentTimeMillis() - cacheFile.lastModified()
+        return age in 0..CATALOG_CACHE_TTL_MS
+    }
+
+    private fun parseCatalogFile(file: File): List<Entry>? {
+        return try {
+            parseEntries(file.readText())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun fetchRemoteCatalog(context: Context, cacheFile: File): List<Entry>? {
+        val h = REMOTE_MANIFEST_URL.toHttpUrlOrNull() ?: return null
+        if (h.scheme != "https" || h.host != "raw.githubusercontent.com") {
+            return null
+        }
+        val tmp = File(context.cacheDir, "addon-catalog-" + System.currentTimeMillis() + ".json")
+        if (!httpDownloadToFile(h, tmp, MAX_MANIFEST_BYTES)) {
+            tmp.delete()
+            return null
+        }
+        return try {
+            val entries = parseEntries(tmp.readText())
+            tmp.copyTo(cacheFile, overwrite = true)
+            entries
+        } catch (e: Exception) {
+            null
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    private fun parseEntries(text: String): List<Entry> {
         val o = JSONObject(text)
-        val arr = o.optJSONArray("addons") ?: JSONArray()
+        val arr = o.optJSONArray("addons") ?: throw IllegalArgumentException("Manifest missing addons array.")
         val out = ArrayList<Entry>(arr.length())
         for (i in 0 until arr.length()) {
             val a = arr.optJSONObject(i) ?: continue
@@ -109,7 +186,9 @@ object AddonInstall {
             compareBy<Entry> { if (it.hasCategory(MOBILE_CONTROLLER_CATEGORY)) 0 else 1 }
                 .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
         )
-        cached = out
+        if (out.isEmpty()) {
+            throw IllegalArgumentException("Manifest contained no installable add-ons.")
+        }
         return out
     }
 
@@ -288,7 +367,7 @@ object AddonInstall {
         return null
     }
 
-    private fun httpDownloadToFile(h: okhttp3.HttpUrl, out: File): Boolean {
+    private fun httpDownloadToFile(h: okhttp3.HttpUrl, out: File, maxBytes: Long = MAX_DOWNLOAD_BYTES): Boolean {
         return try {
             out.delete()
             val req = Request.Builder()
@@ -310,7 +389,7 @@ object AddonInstall {
                                 ok = true
                                 break
                             }
-                            if (total + n > MAX_DOWNLOAD_BYTES) {
+                            if (total + n > maxBytes) {
                                 out.delete()
                                 return@use
                             }

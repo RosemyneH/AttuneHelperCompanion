@@ -8,6 +8,10 @@
     <string name="catalog_all">All</string>
     <string name="catalog_empty">No add-ons match that search.</string>
     <string name="catalog_count">%1$d add-ons ready</string>
+    <string name="catalog_count_source">%1$d add-ons ready · %2$s</string>
+    <string name="catalog_refresh">Refresh catalog</string>
+    <string name="catalog_refreshed">Catalog refreshed</string>
+    <string name="catalog_source_loading">Loading catalog</string>
     <string name="catalog_selected">Selected: %1$s</string>
     <string name="catalog_installing">Installing %1$s...</string>
     <string name="catalog_pick_first">Choose an add-on card first.</string>
@@ -23,7 +27,7 @@
     <string name="addon_category_unknown">General</string>
     <string name="addon_description_empty">No description available yet.</string>
     <string name="section_catalog">Add-on Catalog</string>
-    <string name="section_catalog_help">Search or filter the bundled Synastria add-on catalog, then install directly into Interface/AddOns.</string>
+    <string name="section_catalog_help">Search or filter the Synastria add-on catalog. The app refreshes the central manifest when online and falls back to the bundled catalog offline.</string>
     <string name="section_library">Library Setup</string>
     <string name="android_winlator_title">Run WoW on this device?</string>
     <string name="android_winlator_body">This app does not bundle a Windows or Wine environment. If you want Classic WoW on Android, you need something like Winlator (or another trusted project you choose), then run the Windows build of the companion and the game inside that guest. If you do not have such an app yet, install one from a source you trust (for many users, that is the official Winlator project).</string>
