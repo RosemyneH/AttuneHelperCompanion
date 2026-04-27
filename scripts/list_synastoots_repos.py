@@ -4,15 +4,16 @@ import json
 import sys
 from pathlib import Path
 
+from ahc_hub_manifest import resolve_hub_addons_json
+
 ROOT = Path(__file__).resolve().parents[1]
-HUB = ROOT.parent / "synastria-monorepo-addons" / "manifest" / "addons.json"
-FALLBACK = ROOT / "manifest" / "addons.json"
 
 
 def main() -> int:
-    path = HUB if HUB.is_file() else FALLBACK
-    if not path.is_file():
-        print("No manifest at", HUB, "or", FALLBACK, file=sys.stderr)
+    try:
+        path = resolve_hub_addons_json(ROOT)
+    except FileNotFoundError as exc:
+        print(exc, file=sys.stderr)
         return 1
     data = json.loads(path.read_text(encoding="utf-8"))
     rows = []

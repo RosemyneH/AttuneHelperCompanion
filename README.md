@@ -136,7 +136,7 @@ Tray behavior, fullscreen, add-ons tab UX, and real Synastria folder integration
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, the [code of conduct](CODE_OF_CONDUCT.md), and PR/issue expectations. Quick checks: hub catalog `python scripts/generate_addon_catalog.py --check --input ../synastria-monorepo-addons/manifest/addons.json` when the catalog or generator changes; [verify build and test](.cursor/rules/verify-build-and-test.mdc) and [AGENTS.md](AGENTS.md) for local verification.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, the [code of conduct](CODE_OF_CONDUCT.md), and PR/issue expectations. Quick checks: hub catalog `python scripts/generate_addon_catalog.py --check` when the catalog or generator changes (hub clone next to this repo or under `./synastria-monorepo-addons/`); [verify build and test](.cursor/rules/verify-build-and-test.mdc) and [AGENTS.md](AGENTS.md) for local verification.
 
 ---
 

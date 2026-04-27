@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import json
 import re
+import sys
 from email.utils import parsedate_to_datetime
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+from ahc_hub_manifest import resolve_hub_addons_json
 
 
 REPO_OWNER_RE = re.compile(r"github\.com/([^/]+)/", re.IGNORECASE)
@@ -113,7 +116,12 @@ def resolve_direct_zip_version(url: str) -> str:
 
 
 def main() -> None:
-    manifest_path = Path("manifest/addons.json")
+    companion_root = Path(__file__).resolve().parents[1]
+    try:
+        manifest_path = resolve_hub_addons_json(companion_root)
+    except FileNotFoundError as exc:
+        print(exc, file=sys.stderr)
+        raise SystemExit(1) from exc
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     addons = data.get("addons", [])
 

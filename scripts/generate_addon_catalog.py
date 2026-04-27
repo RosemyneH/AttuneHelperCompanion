@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from ahc_hub_manifest import resolve_hub_addons_json
+
 
 REQUIRED_STRING_FIELDS = ("name", "author", "category", "folder", "repo", "description")
 OPTIONAL_STRING_FIELDS = ("source_subdir", "avatar_url", "version", "source", "page_url")
@@ -145,7 +147,12 @@ def generate_c(addons: list[dict[str, Any]]) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate and generate the baked addon catalog.")
-    parser.add_argument("--input", default="manifest/addons.json", help="Path to manifest JSON.")
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=None,
+        help="Path to manifest JSON (default: synastria-monorepo-addons hub, same as CMake).",
+    )
     parser.add_argument("--output", help="Path to generated C output.")
     parser.add_argument("--check", action="store_true", help="Validate only; do not write generated output.")
     return parser.parse_args()
@@ -153,7 +160,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    manifest_path = Path(args.input)
+    companion_root = Path(__file__).resolve().parents[1]
+    try:
+        manifest_path = args.input if args.input is not None else resolve_hub_addons_json(companion_root)
+    except FileNotFoundError as exc:
+        print(f"generate_addon_catalog.py: {exc}", file=sys.stderr)
+        return 1
     try:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):

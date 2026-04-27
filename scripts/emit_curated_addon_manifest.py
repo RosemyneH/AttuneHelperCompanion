@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Build slim upstream-first manifest/addons.json (non-interactive; run from repo root)."""
+"""Build slim upstream-first hub manifest/addons.json (non-interactive; run from repo root)."""
 
 from __future__ import annotations
 
+import argparse
 import json
+import sys
 from pathlib import Path
 
+from ahc_hub_manifest import resolve_hub_addons_json
+
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "manifest" / "addons.json"
 
 # Non-Felbite ids to keep (slim catalog; Felbite bulk removed).
 KEEP_IDS = frozenset(
@@ -124,8 +127,25 @@ NEW_ADDONS: list[dict] = [
 ]
 
 
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Emit curated slim addon list into the hub manifest.")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print addon count and hub path; do not write.",
+    )
+    return p.parse_args()
+
+
 def main() -> int:
-    data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    args = parse_args()
+    try:
+        manifest_path = resolve_hub_addons_json(ROOT)
+    except FileNotFoundError as exc:
+        print(f"emit_curated_addon_manifest: {exc}", file=sys.stderr)
+        return 1
+
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
     addons = data.get("addons", [])
     kept: list[dict] = []
     for a in addons:
@@ -154,8 +174,11 @@ def main() -> int:
         from datetime import date
 
         data["updated_at"] = str(date.today())
-    MANIFEST.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"Wrote {len(data['addons'])} addons to {MANIFEST}")
+    if args.dry_run:
+        print(f"dry-run: would write {len(data['addons'])} addons to {manifest_path}")
+        return 0
+    manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Wrote {len(data['addons'])} addons to {manifest_path}")
     return 0
 
 

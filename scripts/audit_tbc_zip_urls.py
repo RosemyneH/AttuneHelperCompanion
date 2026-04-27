@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from ahc_hub_manifest import resolve_hub_addons_json
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = REPO_ROOT / "manifest" / "addons.json"
 DEFAULT_OUT = REPO_ROOT / "build" / "tbc_zip_audit.json"
 MARKER_STEM = "tbc_zip_audit_had_matches"
 
@@ -127,13 +128,15 @@ def load_manifest(path: Path) -> dict[str, Any]:
 def print_rescrape_block(match_count: int) -> None:
     py = "python" if sys.platform == "win32" else "python3"
     lines = [
-        "# Re-scrape Felbite 3.3.5 catalog into manifest (updates zip URLs; review git diff).",
+        "# Re-scrape Felbite 3.3.5 catalog into hub manifest (updates zip URLs; review git diff).",
         "# Windows (cmd, from repo root):",
-        f"#   {py} scripts\\import_web_catalogs.py",
+        f"#   {py} scripts\\import_web_catalogs.py --sources felbite",
         "# Git Bash / WSL / macOS / Linux (from repo root):",
-        f"#   {py} scripts/import_web_catalogs.py",
+        f"#   {py} scripts/import_web_catalogs.py --sources felbite",
         "",
-        f'"{py}" scripts/import_web_catalogs.py' if sys.platform != "win32" else f"{py} scripts\\import_web_catalogs.py",
+        f'"{py}" scripts/import_web_catalogs.py --sources felbite'
+        if sys.platform != "win32"
+        else f"{py} scripts\\import_web_catalogs.py --sources felbite",
     ]
     text = "\n".join(lines) + "\n"
     print(text, end="", file=sys.stderr)
@@ -146,8 +149,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--manifest",
         type=Path,
-        default=DEFAULT_MANIFEST,
-        help=f"Path to manifest JSON (default: {DEFAULT_MANIFEST.relative_to(REPO_ROOT)})",
+        default=None,
+        help="Path to manifest JSON (default: synastria-monorepo-addons hub, same as CMake).",
     )
     p.add_argument(
         "-o",
@@ -176,7 +179,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    manifest_path = args.manifest
+    try:
+        manifest_path = args.manifest if args.manifest is not None else resolve_hub_addons_json(REPO_ROOT)
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     if not manifest_path.is_file():
         print(f"error: manifest not found: {manifest_path}", file=sys.stderr)
         return 2

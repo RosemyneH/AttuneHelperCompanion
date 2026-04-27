@@ -12,7 +12,7 @@ alwaysApply: true
   - **Windows (cmd, from repo root)**: [android-verify.bat](android-verify.bat) — same as CI (`gradlew assembleDebug`). If `ANDROID_HOME` is unset, it uses `%LOCALAPPDATA%\Android\Sdk` when present and can create `android\local.properties`; otherwise set `sdk.dir` per [android/local.properties.example](android/local.properties.example).
   - **Git Bash / WSL / Linux / macOS**: `bash scripts/android-verify.sh`
   - Needs a discoverable **Android SDK** and a **JDK** on `PATH` (set **JAVA_HOME** if `java` is missing).
-- **Hub manifest or generator**: with sibling `../synastria-monorepo-addons`, run `python scripts/generate_addon_catalog.py --check --input ../synastria-monorepo-addons/manifest/addons.json` before merging anything that changes the catalog or the script.
+- **Hub manifest or generator**: with the hub clone present (sibling or `./synastria-monorepo-addons/`), run `python scripts/generate_addon_catalog.py --check` before merging anything that changes the catalog or the script; use `--input` or `AHC_HUB_ADDONS_JSON` for a non-standard layout.
 
 **Cursor**: `.cursor/hooks.json` runs the incremental test flow on `.c`/`.h` edits (see `AGENTS.md`). Failing ctest does not block the save; fix failures before finishing the task.
 

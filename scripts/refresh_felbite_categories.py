@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reapply Felbite category heuristics to manifest/addons.json (no network)."""
+"""Reapply Felbite category heuristics to hub manifest/addons.json (no network)."""
 
 import json
 import sys
@@ -7,11 +7,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+
+from ahc_hub_manifest import resolve_hub_addons_json
+
 import import_web_catalogs as cat
 
 
 def main() -> None:
-    path = REPO / "manifest" / "addons.json"
+    path = resolve_hub_addons_json(REPO)
     data = json.loads(path.read_text(encoding="utf-8"))
     n = 0
     for entry in data.get("addons", []):

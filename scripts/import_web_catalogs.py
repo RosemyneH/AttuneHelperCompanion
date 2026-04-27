@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Maintenance-only: optional Felbite HTML merge. Canonical catalog: synastria-monorepo-addons (hub).
 
-The live install list is owned by https://github.com/RosemyneH/synastria-monorepo-addons — not Felbite. Default: no-op. Run with ``--sources felbite`` only for intentional legacy re-merges into a **checked-out** `manifest/addons.json` (hub workflow).
+The live install list is owned by https://github.com/RosemyneH/synastria-monorepo-addons — not Felbite. Default: no-op. Run with ``--sources felbite`` only for intentional legacy re-merges into the **hub** `manifest/addons.json` (resolved like CMake, or ``--manifest``).
 """
 import json
 import re
@@ -12,6 +12,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from ahc_hub_manifest import resolve_hub_addons_json
 from audit_tbc_zip_urls import is_tbc_build_zip_url
 
 
@@ -311,7 +312,9 @@ def collect_zip_urls(detail_urls: list[str]) -> dict[str, str | None]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Import Felbite addon catalog pages into manifest/addons.json (opt-in).")
+    parser = argparse.ArgumentParser(
+        description="Import Felbite addon catalog pages into hub manifest/addons.json (opt-in)."
+    )
     parser.add_argument(
         "--sources",
         default="",
@@ -322,6 +325,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DETAIL_WORKERS,
         help=f"Concurrent workers for detail-page scanning (default: {DETAIL_WORKERS}).",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help="Path to addons.json (default: synastria-monorepo-addons hub).",
     )
     return parser.parse_args()
 
@@ -344,7 +353,13 @@ def main() -> None:
         return
     include_felbite = "felbite" in requested_sources
 
-    manifest_path = Path("manifest/addons.json")
+    companion_root = Path(__file__).resolve().parents[1]
+    try:
+        manifest_path = args.manifest if args.manifest is not None else resolve_hub_addons_json(companion_root)
+    except FileNotFoundError as exc:
+        log(str(exc))
+        sys.exit(1)
+
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     addons = manifest.get("addons", [])
     existing_ids = {entry.get("id", "") for entry in addons if isinstance(entry, dict)}

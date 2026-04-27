@@ -17,7 +17,7 @@ Participation is governed by the [Code of conduct](CODE_OF_CONDUCT.md). Be const
 | Change | Verify |
 |--------|--------|
 | C, CMake, core headers | Incremental or full build + **CTest** (see [AGENTS.md](AGENTS.md), [verify build rule](.cursor/rules/verify-build-and-test.mdc)) |
-| Hub [synastria-monorepo-addons](https://github.com/RosemyneH/synastria-monorepo-addons) `manifest/addons.json` or [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py) | `python scripts/generate_addon_catalog.py --check --input ../synastria-monorepo-addons/manifest/addons.json` (sibling clone) |
+| Hub [synastria-monorepo-addons](https://github.com/RosemyneH/synastria-monorepo-addons) `manifest/addons.json` or [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py) | `python scripts/generate_addon_catalog.py --check` (resolves sibling or `./synastria-monorepo-addons/` like CMake; optional `--input` or `AHC_HUB_ADDONS_JSON`) |
 | Android app / resources | [android-verify](android-verify.bat) (Windows) or [scripts/android-verify.sh](scripts/android-verify.sh) |
 
 **Windows (cmd, repo root), after CMake is configured:** [verify-incremental.bat](verify-incremental.bat)  
