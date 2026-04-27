@@ -159,6 +159,7 @@ typedef struct CompanionState {
     bool pending_profile_valid;
     bool pending_profile_selected[AHC_PROFILE_MAX_ADDONS];
     bool profile_confirm_open;
+    int profile_confirm_scroll;
     char profile_code[AHC_PROFILE_CODE_CAPACITY];
     bool profile_code_editing;
     char profile_queue_ids[AHC_PROFILE_MAX_ADDONS][AHC_PROFILE_ID_CAPACITY];
@@ -1946,6 +1947,7 @@ static void open_profile_confirm(CompanionState *state, const AhcAddonProfile *p
     state->pending_profile = *profile;
     state->pending_profile_valid = true;
     state->profile_confirm_open = true;
+    state->profile_confirm_scroll = 0;
     const AhcAddon *addons = state->addons ? state->addons : ahc_addon_catalog_items();
     size_t count = state->addons ? state->addon_count : ahc_addon_catalog_count();
     for (size_t i = 0; i < AHC_PROFILE_MAX_ADDONS; i++) {
@@ -5241,9 +5243,38 @@ static void draw_profile_confirm_overlay(CompanionState *state, const AhcAddon *
     draw_text(subtitle, (int)modal.x + 22, (int)modal.y + 48, 14, AHC_MUTED);
 
     Rectangle list = { modal.x + 22.0f, modal.y + 78.0f, modal.width - 44.0f, modal.height - 138.0f };
+    int visible_rows = (int)(list.height / row_height);
+    if (visible_rows < 1) {
+        visible_rows = 1;
+    }
+    int max_scroll = item_count > (size_t)visible_rows ? (int)item_count - visible_rows : 0;
+    if (state->profile_confirm_scroll > max_scroll) {
+        state->profile_confirm_scroll = max_scroll;
+    }
+    if (state->profile_confirm_scroll < 0) {
+        state->profile_confirm_scroll = 0;
+    }
+    bool can_scroll = max_scroll > 0;
+    if (can_scroll && CheckCollisionPointRec(GetMousePosition(), list)) {
+        int wheel = (int)GetMouseWheelMove();
+        if (wheel != 0) {
+            state->profile_confirm_scroll -= wheel * 3;
+            if (state->profile_confirm_scroll > max_scroll) {
+                state->profile_confirm_scroll = max_scroll;
+            }
+            if (state->profile_confirm_scroll < 0) {
+                state->profile_confirm_scroll = 0;
+            }
+        }
+    }
+
+    Rectangle row_bounds = list;
+    if (can_scroll) {
+        row_bounds.width -= 14.0f;
+    }
     BeginScissorMode((int)list.x, (int)list.y, (int)list.width, (int)list.height);
     for (size_t i = 0; i < item_count; i++) {
-        float y = list.y + (float)i * row_height;
+        float y = list.y + (float)((int)i - state->profile_confirm_scroll) * row_height;
         if (y + row_height < list.y || y > list.y + list.height) {
             continue;
         }
@@ -5251,7 +5282,7 @@ static void draw_profile_confirm_overlay(CompanionState *state, const AhcAddon *
         const AhcAddon *addon = find_addon_by_id(addons, count, token);
         bool matched = addon != NULL;
         bool installed = matched && addon_is_installed(state, addon);
-        Rectangle row = { list.x, y, list.width, row_height - 3.0f };
+        Rectangle row = { row_bounds.x, y, row_bounds.width, row_height - 3.0f };
         if ((i % 2u) == 0u) {
             DrawRectangleRec(row, (Color){ 18, 29, 46, 130 });
         }
@@ -5274,6 +5305,19 @@ static void draw_profile_confirm_overlay(CompanionState *state, const AhcAddon *
         draw_text(label, (int)row.x + 32, (int)row.y + 7, 14, matched ? AHC_TEXT : AHC_MUTED);
     }
     EndScissorMode();
+
+    if (can_scroll) {
+        Rectangle track = { list.x + list.width - 8.0f, list.y, 5.0f, list.height };
+        DrawRectangleRounded(track, 0.5f, 4, (Color){ 88, 124, 166, 90 });
+        float thumb_height = list.height * ((float)visible_rows / (float)item_count);
+        if (thumb_height < 28.0f) {
+            thumb_height = 28.0f;
+        }
+        float travel = list.height - thumb_height;
+        float thumb_y = list.y + (max_scroll > 0 ? travel * ((float)state->profile_confirm_scroll / (float)max_scroll) : 0.0f);
+        DrawRectangleRounded((Rectangle){ track.x, thumb_y, track.width, thumb_height }, 0.5f, 4, AHC_ACCENT);
+        draw_text("Mouse wheel to review more add-ons.", (int)list.x, (int)(modal.y + modal.height - 44.0f), 12, AHC_MUTED);
+    }
 
     Rectangle cancel = { modal.x + modal.width - 230.0f, modal.y + modal.height - 46.0f, 96.0f, 30.0f };
     Rectangle install = { modal.x + modal.width - 124.0f, modal.y + modal.height - 46.0f, 102.0f, 30.0f };
