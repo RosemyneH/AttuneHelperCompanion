@@ -1,19 +1,21 @@
-# WotLK curated monorepo (separate repository)
+# Synastria monorepo add-ons (separate repository)
 
 The **vendored add-on monorepo** is a **standalone Git repository** next to this
 project, not a subfolder of AttuneHelperCompanion.
 
 | Location | Path |
 |----------|------|
-| On disk (default) | `e:\Repos\wotlk-curated-addons` (sibling of `AttuneHelperCompanion`) |
-| Publish | Create `https://github.com/<org>/wotlk-curated-addons` (or your org’s name) and push `main` |
+| On disk (default) | `e:\Repos\synastria-monorepo-addons` (sibling of `AttuneHelperCompanion`) |
+| Publish | Create `https://github.com/<org>/synastria-monorepo-addons` and push `main` |
+
+(Former name: `wotlk-curated-addons`. If that folder still exists beside this one, remove the duplicate and use only `synastria-monorepo-addons`.)
 
 ## First-time publish
 
 ```bash
-cd /path/to/wotlk-curated-addons
+cd /path/to/synastria-monorepo-addons
 # already: git init + initial commit
-git remote add origin https://github.com/<org>/wotlk-curated-addons.git
+git remote add origin https://github.com/<org>/synastria-monorepo-addons.git
 git push -u origin main
 ```
 
