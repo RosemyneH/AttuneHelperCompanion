@@ -747,8 +747,8 @@ class MainActivity : AppCompatActivity() {
         val card = MaterialCardView(this)
         card.radius = dp(12).toFloat()
         card.strokeWidth = 1
-        card.strokeColor = getColor(R.color.ahc_border)
-        card.setCardBackgroundColor(getColor(R.color.ahc_panel))
+        card.strokeColor = getColor(R.color.ahc_outline)
+        card.setCardBackgroundColor(getColor(R.color.ahc_surface))
         val root = LinearLayout(this)
         root.orientation = LinearLayout.HORIZONTAL
         root.gravity = android.view.Gravity.CENTER_VERTICAL

@@ -5789,14 +5789,17 @@ static void apply_window_defaults(void)
 
 int main(void)
 {
-    CompanionState state;
-    init_state(&state);
+    CompanionState *state = (CompanionState *)calloc(1, sizeof(*state));
+    if (!state) {
+        return 1;
+    }
+    init_state(state);
 
     SetConfigFlags(FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_ALWAYS_RUN);
     InitWindow(1500, 900, "Attune Helper Companion");
     SetExitKey(0);
     apply_window_defaults();
-    apply_monitor_defaults(&state);
+    apply_monitor_defaults(state);
     load_ui_font();
     load_ui_images();
     {
@@ -5834,7 +5837,7 @@ int main(void)
         if (acts & AHC_TRAYA_SHOW) {
             ClearWindowState(FLAG_WINDOW_HIDDEN);
             RestoreWindow();
-            state.windowed_maximized = false;
+            state->windowed_maximized = false;
             SetWindowFocused();
         }
         if (g_quit) {
@@ -5842,25 +5845,25 @@ int main(void)
         }
 
         if (IsKeyPressed(KEY_F11) || ((IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT)) && IsKeyPressed(KEY_ENTER))) {
-            state.windowed_maximized = false;
+            state->windowed_maximized = false;
             ToggleFullscreen();
         }
 
-        update_ui_scale(&state);
-        if (!IsWindowHidden() && !IsWindowMinimized() && !g_chrome_drag && !state.windowed_maximized && !IsWindowMaximized()) {
+        update_ui_scale(state);
+        if (!IsWindowHidden() && !IsWindowMinimized() && !g_chrome_drag && !state->windowed_maximized && !IsWindowMaximized()) {
             constrain_window_to_current_monitor();
         }
-        poll_other_instances(&state);
-        poll_addon_install_job(&state);
-        poll_catalog_refresh_job(&state);
-        poll_attunehelper_snapshot(&state);
+        poll_other_instances(state);
+        poll_addon_install_job(state);
+        poll_catalog_refresh_job(state);
+        poll_attunehelper_snapshot(state);
 
         bool throttled = IsWindowHidden() || IsWindowMinimized();
         if (!throttled) {
             ahc_process_avatar_deferred_loads();
         }
         {
-            int want = throttled ? AHC_HIDDEN_FPS : ahc_display_fps_cap(&state);
+            int want = throttled ? AHC_HIDDEN_FPS : ahc_display_fps_cap(state);
             if (want != last_fps_target) {
                 SetTargetFPS(want);
                 last_fps_target = want;
@@ -5887,23 +5890,23 @@ int main(void)
         DrawCircle(GetScreenWidth() - 120, 132 + AHC_CHROME_H, 220, (Color){ 55, 112, 175, 42 });
         DrawCircle(120, GetScreenHeight() - 86, 180, (Color){ 25, 56, 93, 38 });
 
-        draw_window_chrome(&state);
-        draw_header(&state);
-        draw_tabs(&state);
+        draw_window_chrome(state);
+        draw_header(state);
+        draw_tabs(state);
 
-        switch (state.tab) {
+        switch (state->tab) {
             case COMPANION_TAB_ATTUNES:
-                draw_attunes_tab(&state);
+                draw_attunes_tab(state);
                 break;
             case COMPANION_TAB_ADDONS:
-                draw_addons_tab(&state);
+                draw_addons_tab(state);
                 break;
             case COMPANION_TAB_SETTINGS:
-                draw_settings_tab(&state);
+                draw_settings_tab(state);
                 break;
         }
 
-        draw_process_footer(&state);
+        draw_process_footer(state);
 
         EndDrawing();
         }
@@ -5916,8 +5919,9 @@ int main(void)
         }
     }
     CloseWindow();
-    companion_dispose_phone_qr(&state);
-    ahc_addon_manifest_free(&state.addon_manifest);
+    companion_dispose_phone_qr(state);
+    ahc_addon_manifest_free(&state->addon_manifest);
+    free(state);
     if (g_has_ui_font) {
         UnloadFont(g_ui_font);
     }
