@@ -75,6 +75,16 @@ object AddonInstall {
         return loadCatalog(context).entries
     }
 
+    fun listInstalledAddonFolderNames(context: Context, tree: Uri): List<String> {
+        val addOns = getOrCreateInterfaceAddOns(context, tree) ?: return emptyList()
+        return addOns.listFiles()
+            .filter { it.isDirectory }
+            .mapNotNull { it.name?.takeIf { name -> name.isNotBlank() && !name.startsWith(".") } }
+            .filterNot { it.equals("_AttuneHelperCompanionStaging", ignoreCase = true) }
+            .distinct()
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+    }
+
     fun loadCatalog(context: Context, forceRemoteRefresh: Boolean = false): CatalogResult {
         val hit = cached
         if (hit != null && !forceRemoteRefresh) {

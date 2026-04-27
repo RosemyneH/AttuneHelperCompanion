@@ -156,7 +156,11 @@ typedef struct CompanionState {
     char preset_source[AHC_PATH_CAPACITY];
     AhcAddonProfile imported_profile;
     bool imported_profile_valid;
-    char profile_code[4096];
+    AhcAddonProfile pending_profile;
+    bool pending_profile_valid;
+    bool pending_profile_selected[AHC_PROFILE_MAX_ADDONS];
+    bool profile_confirm_open;
+    char profile_code[32768];
     bool profile_code_editing;
     char profile_queue_ids[AHC_PROFILE_MAX_ADDONS][AHC_PROFILE_ID_CAPACITY];
     size_t profile_queue_count;
@@ -1856,7 +1860,9 @@ static const AhcAddon *find_addon_by_id(const AhcAddon *addons, size_t count, co
         return NULL;
     }
     for (size_t i = 0; i < count; i++) {
-        if (addons[i].id && strcmp(addons[i].id, id) == 0) {
+        if ((addons[i].id && strcmp(addons[i].id, id) == 0)
+            || (addons[i].folder && AHC_STRICMP(addons[i].folder, id) == 0)
+            || (addons[i].name && AHC_STRICMP(addons[i].name, id) == 0)) {
             return &addons[i];
         }
     }
@@ -1886,6 +1892,24 @@ static void profile_queue_start_next(CompanionState *state)
     set_action_status(state, "Profile apply complete.", "Profile complete");
 }
 
+static void open_profile_confirm(CompanionState *state, const AhcAddonProfile *profile)
+{
+    if (!profile || profile->addon_count == 0u) {
+        set_action_status(state, "Profile has no add-ons to apply.", "Profile empty");
+        return;
+    }
+    state->pending_profile = *profile;
+    state->pending_profile_valid = true;
+    state->profile_confirm_open = true;
+    const AhcAddon *addons = state->addons ? state->addons : ahc_addon_catalog_items();
+    size_t count = state->addons ? state->addon_count : ahc_addon_catalog_count();
+    for (size_t i = 0; i < AHC_PROFILE_MAX_ADDONS; i++) {
+        const AhcAddon *addon = i < profile->addon_count ? find_addon_by_id(addons, count, profile->addon_ids[i]) : NULL;
+        state->pending_profile_selected[i] = addon != NULL && !addon_is_installed(state, addon);
+    }
+    set_action_status(state, "Review profile add-ons before installing.", "Profile review");
+}
+
 static void begin_apply_profile(CompanionState *state, const AhcAddonProfile *profile)
 {
     if (!profile || profile->addon_count == 0u) {
@@ -1896,12 +1920,22 @@ static void begin_apply_profile(CompanionState *state, const AhcAddonProfile *pr
         set_action_status(state, "Wait for the current add-on install to finish.", "Profile busy");
         return;
     }
-    state->profile_queue_count = profile->addon_count < AHC_PROFILE_MAX_ADDONS ? profile->addon_count : AHC_PROFILE_MAX_ADDONS;
+    state->profile_queue_count = 0u;
     state->profile_queue_index = 0u;
-    for (size_t i = 0; i < state->profile_queue_count; i++) {
-        snprintf(state->profile_queue_ids[i], sizeof(state->profile_queue_ids[i]), "%s", profile->addon_ids[i]);
+    size_t source_count = profile->addon_count < AHC_PROFILE_MAX_ADDONS ? profile->addon_count : AHC_PROFILE_MAX_ADDONS;
+    for (size_t i = 0; i < source_count; i++) {
+        bool selected = !state->profile_confirm_open || state->pending_profile_selected[i];
+        if (selected) {
+            snprintf(state->profile_queue_ids[state->profile_queue_count], sizeof(state->profile_queue_ids[state->profile_queue_count]), "%s", profile->addon_ids[i]);
+            state->profile_queue_count++;
+        }
+    }
+    if (state->profile_queue_count == 0u) {
+        set_action_status(state, "No profile add-ons selected to install.", "Profile empty");
+        return;
     }
     state->profile_queue_running = true;
+    state->profile_confirm_open = false;
     set_action_status(state, "Applying profile add-ons.", "Profile apply");
     profile_queue_start_next(state);
 }
@@ -4810,14 +4844,51 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
     AhcAddonProfile profile;
     memset(&profile, 0, sizeof(profile));
     snprintf(profile.name, sizeof(profile.name), "%s", "My Add-on Profile");
-    for (size_t i = 0; i < count && profile.addon_count < AHC_PROFILE_MAX_ADDONS; i++) {
-        if (addons[i].id && addon_is_installed(state, &addons[i])) {
-            snprintf(profile.addon_ids[profile.addon_count], sizeof(profile.addon_ids[profile.addon_count]), "%s", addons[i].id);
-            profile.addon_count++;
+    char addons_path[AHC_PATH_CAPACITY];
+    if (!resolve_addons_path(state, addons_path, sizeof(addons_path))) {
+        set_action_status(state, "Set a valid Synastria folder before exporting profiles.", "Profile export failed");
+        return;
+    }
+
+    FilePathList entries = LoadDirectoryFiles(addons_path);
+    for (unsigned int i = 0; i < entries.count && profile.addon_count < AHC_PROFILE_MAX_ADDONS; i++) {
+        const char *entry = entries.paths[i];
+        if (!DirectoryExists(entry)) {
+            continue;
+        }
+        const char *folder = GetFileName(entry);
+        if (!folder || !folder[0] || folder[0] == '.') {
+            continue;
+        }
+        if (AHC_STRICMP(folder, "_AttuneHelperCompanionStaging") == 0) {
+            continue;
+        }
+        const AhcAddon *catalog_addon = NULL;
+        for (size_t c = 0; c < count; c++) {
+            if (addons[c].folder && AHC_STRICMP(addons[c].folder, folder) == 0) {
+                catalog_addon = &addons[c];
+                break;
+            }
+        }
+        snprintf(
+            profile.addon_ids[profile.addon_count],
+            sizeof(profile.addon_ids[profile.addon_count]),
+            "%s",
+            catalog_addon && catalog_addon->id ? catalog_addon->id : folder);
+        profile.addon_count++;
+    }
+    UnloadDirectoryFiles(entries);
+
+    if (profile.addon_count == 0u) {
+        for (size_t i = 0; i < count && profile.addon_count < AHC_PROFILE_MAX_ADDONS; i++) {
+            if (addons[i].id && addon_is_installed(state, &addons[i])) {
+                snprintf(profile.addon_ids[profile.addon_count], sizeof(profile.addon_ids[profile.addon_count]), "%s", addons[i].id);
+                profile.addon_count++;
+            }
         }
     }
     if (profile.addon_count == 0u) {
-        set_action_status(state, "No installed catalog add-ons found to export.", "Profile export empty");
+        set_action_status(state, "No installed add-ons found to export.", "Profile export empty");
         return;
     }
     int n = ahc_profile_encode(&profile, state->profile_code, sizeof(state->profile_code));
@@ -4841,6 +4912,7 @@ static void import_profile_from_code(CompanionState *state, const char *code)
     state->imported_profile = profile;
     state->imported_profile_valid = true;
     snprintf(state->profile_code, sizeof(state->profile_code), "%s", code);
+    open_profile_confirm(state, &state->imported_profile);
     char message[AHC_STATUS_CAPACITY];
     snprintf(message, sizeof(message), "Imported profile %s with %zu add-ons.", profile.name, profile.addon_count);
     set_action_status(state, message, "Profile imported");
@@ -4877,7 +4949,7 @@ static float draw_profiles_panel(CompanionState *state, const AhcAddon *addons, 
     }
     bx += 174.0f;
     if (state->imported_profile_valid && draw_wow_button("Apply imported", (Rectangle){ bx, by, 128.0f, 28.0f }, state->profile_queue_running, 13)) {
-        begin_apply_profile(state, &state->imported_profile);
+        open_profile_confirm(state, &state->imported_profile);
     }
     if (state->imported_profile_valid) {
         char line[220];
@@ -4892,10 +4964,79 @@ static float draw_profiles_panel(CompanionState *state, const AhcAddon *addons, 
     for (size_t i = 0; i < state->preset_count && i < 3u; i++) {
         Rectangle button = { px + (float)i * 154.0f, by, 144.0f, 28.0f };
         if (draw_wow_button(state->presets[i].profile.name, button, state->profile_queue_running, 12)) {
-            begin_apply_profile(state, &state->presets[i].profile);
+            open_profile_confirm(state, &state->presets[i].profile);
         }
     }
     return panel.height + 8.0f;
+}
+
+static void draw_profile_confirm_overlay(CompanionState *state, const AhcAddon *addons, size_t count)
+{
+    if (!state->profile_confirm_open || !state->pending_profile_valid) {
+        return;
+    }
+
+    Rectangle screen = { 0.0f, 0.0f, (float)GetScreenWidth(), (float)GetScreenHeight() };
+    DrawRectangleRec(screen, (Color){ 3, 6, 12, 178 });
+
+    float width = screen.width < 760.0f ? screen.width - 48.0f : 720.0f;
+    float row_height = 30.0f;
+    size_t item_count = state->pending_profile.addon_count < AHC_PROFILE_MAX_ADDONS ? state->pending_profile.addon_count : AHC_PROFILE_MAX_ADDONS;
+    float height = 168.0f + (float)item_count * row_height;
+    if (height > screen.height - 72.0f) {
+        height = screen.height - 72.0f;
+    }
+    Rectangle modal = { (screen.width - width) * 0.5f, (screen.height - height) * 0.5f, width, height };
+    DrawRectangleRounded(modal, 0.035f, 10, AHC_PANEL_DARK);
+    DrawRectangleRoundedLines(modal, 0.035f, 10, AHC_BORDER_BRIGHT);
+    draw_text("Review add-ons before installing", (int)modal.x + 22, (int)modal.y + 18, 22, AHC_TEXT);
+    char subtitle[220];
+    snprintf(subtitle, sizeof(subtitle), "%s (%zu add-ons)", state->pending_profile.name, item_count);
+    draw_text(subtitle, (int)modal.x + 22, (int)modal.y + 48, 14, AHC_MUTED);
+
+    Rectangle list = { modal.x + 22.0f, modal.y + 78.0f, modal.width - 44.0f, modal.height - 138.0f };
+    BeginScissorMode((int)list.x, (int)list.y, (int)list.width, (int)list.height);
+    for (size_t i = 0; i < item_count; i++) {
+        float y = list.y + (float)i * row_height;
+        if (y + row_height < list.y || y > list.y + list.height) {
+            continue;
+        }
+        const char *token = state->pending_profile.addon_ids[i];
+        const AhcAddon *addon = find_addon_by_id(addons, count, token);
+        bool matched = addon != NULL;
+        bool installed = matched && addon_is_installed(state, addon);
+        Rectangle row = { list.x, y, list.width, row_height - 3.0f };
+        if ((i % 2u) == 0u) {
+            DrawRectangleRec(row, (Color){ 18, 29, 46, 130 });
+        }
+        Rectangle box = { row.x + 6.0f, row.y + 6.0f, 16.0f, 16.0f };
+        bool can_toggle = matched && !installed;
+        if (can_toggle && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), row)) {
+            state->pending_profile_selected[i] = !state->pending_profile_selected[i];
+        }
+        DrawRectangleLinesEx(box, 1.0f, can_toggle ? AHC_ACCENT : AHC_MUTED);
+        if (state->pending_profile_selected[i]) {
+            DrawRectangleRec((Rectangle){ box.x + 4.0f, box.y + 4.0f, 8.0f, 8.0f }, AHC_ACCENT);
+        }
+        char label[320];
+        snprintf(
+            label,
+            sizeof(label),
+            "%s  -  %s",
+            matched ? addon->name : token,
+            installed ? "Installed" : (matched ? "Will download" : "Not in catalog"));
+        draw_text(label, (int)row.x + 32, (int)row.y + 7, 14, matched ? AHC_TEXT : AHC_MUTED);
+    }
+    EndScissorMode();
+
+    Rectangle cancel = { modal.x + modal.width - 230.0f, modal.y + modal.height - 46.0f, 96.0f, 30.0f };
+    Rectangle install = { modal.x + modal.width - 124.0f, modal.y + modal.height - 46.0f, 102.0f, 30.0f };
+    if (draw_wow_button("Cancel", cancel, false, 14)) {
+        state->profile_confirm_open = false;
+    }
+    if (draw_wow_button("Install", install, state->profile_queue_running, 14)) {
+        begin_apply_profile(state, &state->pending_profile);
+    }
 }
 
 static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_t count, size_t index, Rectangle bounds)
@@ -5067,6 +5208,7 @@ static void draw_addons_tab(CompanionState *state)
         }
         EndScissorMode();
     }
+    draw_profile_confirm_overlay(state, addons, count);
 }
 
 static void draw_labeled_textbox(const char *label, Rectangle bounds, char *value, int value_capacity, bool *editing)

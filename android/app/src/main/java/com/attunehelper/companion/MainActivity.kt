@@ -762,7 +762,7 @@ class MainActivity : AppCompatActivity() {
         val apply = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle)
         apply.text = getString(R.string.profile_apply)
         apply.isAllCaps = false
-        apply.setOnClickListener { applyAddonProfile(profile) }
+        apply.setOnClickListener { showAddonProfileReview(profile) }
         root.addView(apply)
         card.addView(root)
         return card.apply {
@@ -846,13 +846,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun copyVisibleAddonProfile() {
-        val ids = filteredAddonEntries().map { it.id }.filter { it.isNotBlank() }.distinct()
+        val s = store.synastriaTreeUri() ?: run {
+            Toast.makeText(this, "Choose Synastria folder first (Play → Library).", Toast.LENGTH_LONG).show()
+            showSection(R.id.section_play)
+            return
+        }
+        val uri = Uri.parse(s)
+        val entriesByFolder = addonEntries.associateBy { it.folder.lowercase() }
+        val ids = AddonInstall.listInstalledAddonFolderNames(this, uri)
+            .map { folder -> entriesByFolder[folder.lowercase()]?.id?.takeIf { it.isNotBlank() } ?: folder }
+            .distinct()
         if (ids.isEmpty()) {
-            Toast.makeText(this, "No add-ons to export in the current view.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "No installed add-ons found to export.", Toast.LENGTH_LONG).show()
             return
         }
         val profile = AddonProfileCodec.Profile(
-            name = selectedAddonCategory.ifBlank { "Visible Add-ons" },
+            name = "Installed Add-ons",
             addonIds = ids,
             description = "Shared from Attune Helper Companion",
         )
@@ -872,7 +881,52 @@ class MainActivity : AppCompatActivity() {
         }
         importedAddonProfile = profile
         renderAddonPresets()
+        showAddonProfileReview(profile)
         Toast.makeText(this, "Imported profile ${profile.name}.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun addonEntryForProfileToken(token: String): AddonInstall.Entry? {
+        return addonEntries.firstOrNull {
+            it.id == token ||
+                it.folder.equals(token, ignoreCase = true) ||
+                it.name.equals(token, ignoreCase = true)
+        }
+    }
+
+    private fun showAddonProfileReview(profile: AddonProfileCodec.Profile) {
+        val s = store.synastriaTreeUri() ?: run {
+            Toast.makeText(this, "Choose Synastria folder first (Play → Library).", Toast.LENGTH_LONG).show()
+            showSection(R.id.section_play)
+            return
+        }
+        val installed = AddonInstall.listInstalledAddonFolderNames(this, Uri.parse(s)).map { it.lowercase() }.toSet()
+        val entries = profile.addonIds.map { token -> token to addonEntryForProfileToken(token) }
+        if (entries.isEmpty()) {
+            Toast.makeText(this, "Profile has no add-ons.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val labels = entries.map { (token, entry) ->
+            when {
+                entry == null -> "$token - Not in catalog"
+                installed.contains(entry.folder.lowercase()) -> "${entry.name} - Installed"
+                else -> "${entry.name} - Will download"
+            }
+        }.toTypedArray()
+        val checked = entries.map { (_, entry) -> entry != null && !installed.contains(entry.folder.lowercase()) }.toBooleanArray()
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Review add-ons")
+            .setMessage(profile.name)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton("Install") { _, _ ->
+                val selectedIds = entries.mapIndexedNotNull { index, (token, entry) ->
+                    if (checked[index] && entry != null) entry.id.ifBlank { token } else null
+                }
+                applyAddonProfile(profile.copy(addonIds = selectedIds))
+            }
+            .show()
     }
 
     private fun applyAddonProfile(profile: AddonProfileCodec.Profile) {
