@@ -136,6 +136,43 @@
                     android:textAppearance="?attr/textAppearanceBodySmall" />
 
                 <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_copy_profile"
+                        style="@style/Widget.Ahc.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:minHeight="0dp"
+                        android:text="@string/profile_copy_installed"
+                        android:textAllCaps="false"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_import_profile"
+                        style="@style/Widget.Ahc.Button.Tonal"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="@dimen/space_xs"
+                        android:layout_weight="1"
+                        android:minHeight="0dp"
+                        android:text="@string/profile_import_clipboard"
+                        android:textAllCaps="false"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/layout_addon_presets"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_xs"
+                    android:orientation="vertical" />
+
+                <LinearLayout
                     android:id="@+id/layout_addon_catalog"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

@@ -38,6 +38,7 @@ import androidx.appcompat.R as AppCompatR
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.attunehelper.companion.addon.AddonInstall
+import com.attunehelper.companion.addon.AddonProfileCodec
 import com.attunehelper.companion.data.AttuneHistoryStore
 import com.attunehelper.companion.nfc.AhcNfcHelper
 import com.attunehelper.companion.nfc.NfcNdefPushCompat
@@ -73,6 +74,8 @@ class MainActivity : AppCompatActivity() {
     private var addonInstalling = false
     private var addonCatalogLoading = false
     private var addonCatalogSourceLabel = ""
+    private var addonPresets: List<AddonProfileCodec.Profile> = emptyList()
+    private var importedAddonProfile: AddonProfileCodec.Profile? = null
     private var nfcAdapter: NfcAdapter? = null
     private var nfcPrepared: NdefMessage? = null
     private var ignoreRailSelection: Boolean = false
@@ -174,6 +177,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_nfc_prepare).setOnClickListener { prepareNfcPush() }
         findViewById<MaterialButton>(R.id.btn_attunes_open_sync).setOnClickListener { showSection(R.id.section_sync) }
         findViewById<MaterialButton>(R.id.btn_refresh_catalog).setOnClickListener { loadAddonCatalog(forceRemoteRefresh = true) }
+        findViewById<MaterialButton>(R.id.btn_copy_profile).setOnClickListener { copyVisibleAddonProfile() }
+        findViewById<MaterialButton>(R.id.btn_import_profile).setOnClickListener { importAddonProfileFromClipboard() }
         attuneGraph = findViewById(R.id.attune_graph)
         textAttuneGraphDetail = findViewById(R.id.text_attune_graph_detail)
         textAttuneGraphAverage = findViewById(R.id.text_attune_graph_average)
@@ -700,10 +705,14 @@ class MainActivity : AppCompatActivity() {
                 val result = withContext(Dispatchers.IO) {
                     AddonInstall.loadCatalog(this@MainActivity, forceRemoteRefresh)
                 }
+                val presets = withContext(Dispatchers.IO) {
+                    AddonInstall.loadPresets(this@MainActivity, forceRemoteRefresh).presets
+                }
                 val blobs = withContext(Dispatchers.Default) {
                     List(result.entries.size) { i -> precomputedSearchBlobForAddon(result.entries[i]) }
                 }
                 addonEntries = result.entries
+                addonPresets = presets
                 addonCatalogSourceLabel = result.sourceLabel
                 addonSearchBlobByEntryIndex = blobs
                 selectedAddonEntry = result.entries.firstOrNull()
@@ -719,7 +728,46 @@ class MainActivity : AppCompatActivity() {
                 ).show()
             } finally {
                 addonCatalogLoading = false
+                renderAddonPresets()
                 renderAddonCatalog()
+            }
+        }
+    }
+
+    private fun renderAddonPresets() {
+        val host = findViewById<LinearLayout>(R.id.layout_addon_presets)
+        host.removeAllViews()
+        importedAddonProfile?.let { host.addView(createPresetCard(it, imported = true)) }
+        for (preset in addonPresets.take(3)) {
+            host.addView(createPresetCard(preset, imported = false))
+        }
+    }
+
+    private fun createPresetCard(profile: AddonProfileCodec.Profile, imported: Boolean): View {
+        val card = MaterialCardView(this)
+        card.radius = dp(12).toFloat()
+        card.strokeWidth = 1
+        card.strokeColor = getColor(R.color.ahc_border)
+        card.setCardBackgroundColor(getColor(R.color.ahc_panel))
+        val root = LinearLayout(this)
+        root.orientation = LinearLayout.HORIZONTAL
+        root.gravity = android.view.Gravity.CENTER_VERTICAL
+        root.setPadding(dp(10), dp(8), dp(10), dp(8))
+        val body = LinearLayout(this)
+        body.orientation = LinearLayout.VERTICAL
+        body.addView(textView(if (imported) "Imported: ${profile.name}" else profile.name, 14f, R.color.ahc_text, true))
+        val subtitle = profile.description.ifBlank { "${profile.addonIds.size} add-ons" }
+        body.addView(textView(subtitle, 12f, R.color.ahc_text_muted).apply { maxLines = 2 })
+        root.addView(body, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        val apply = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle)
+        apply.text = getString(R.string.profile_apply)
+        apply.isAllCaps = false
+        apply.setOnClickListener { applyAddonProfile(profile) }
+        root.addView(apply)
+        card.addView(root)
+        return card.apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4)
             }
         }
     }
@@ -794,6 +842,74 @@ class MainActivity : AppCompatActivity() {
         }
         if (selectedAddonEntry != null && selectedAddonEntry !in addonEntries) {
             selectedAddonEntry = filtered.firstOrNull()
+        }
+    }
+
+    private fun copyVisibleAddonProfile() {
+        val ids = filteredAddonEntries().map { it.id }.filter { it.isNotBlank() }.distinct()
+        if (ids.isEmpty()) {
+            Toast.makeText(this, "No add-ons to export in the current view.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val profile = AddonProfileCodec.Profile(
+            name = selectedAddonCategory.ifBlank { "Visible Add-ons" },
+            addonIds = ids,
+            description = "Shared from Attune Helper Companion",
+        )
+        val code = AddonProfileCodec.encode(profile)
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("add-on profile", code))
+        Toast.makeText(this, "Copied AHC-P1 profile code.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun importAddonProfileFromClipboard() {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val text = cm.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+        val profile = AddonProfileCodec.decodeOrNull(text)
+        if (profile == null) {
+            Toast.makeText(this, "Clipboard does not contain an AHC-P1 profile code.", Toast.LENGTH_LONG).show()
+            return
+        }
+        importedAddonProfile = profile
+        renderAddonPresets()
+        Toast.makeText(this, "Imported profile ${profile.name}.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun applyAddonProfile(profile: AddonProfileCodec.Profile) {
+        val s = store.synastriaTreeUri() ?: run {
+            Toast.makeText(this, "Choose Synastria folder first (Play → Library).", Toast.LENGTH_LONG).show()
+            showSection(R.id.section_play)
+            return
+        }
+        val entriesById = addonEntries.associateBy { it.id }
+        val entries = profile.addonIds.mapNotNull { entriesById[it] }
+        if (entries.isEmpty()) {
+            Toast.makeText(this, "No add-ons in this profile match the current catalog.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val uri = Uri.parse(s)
+        val status = findViewById<TextView>(R.id.text_addon_status)
+        status.visibility = View.VISIBLE
+        status.setTextColor(getColor(R.color.ahc_accent))
+        addonInstalling = true
+        renderAddonCatalog()
+        lifecycleScope.launch {
+            var installed = 0
+            var failed = 0
+            for (entry in entries) {
+                status.text = getString(R.string.catalog_installing, entry.name)
+                val result = withContext(Dispatchers.IO) { AddonInstall.installAddon(this@MainActivity, uri, entry) }
+                if (result.isSuccess) {
+                    installed++
+                } else {
+                    failed++
+                }
+            }
+            addonInstalling = false
+            status.setTextColor(getColor(if (failed == 0) R.color.ahc_success else R.color.ahc_error))
+            status.text = "Applied ${profile.name}: $installed installed, $failed failed."
+            Toast.makeText(this@MainActivity, status.text, Toast.LENGTH_LONG).show()
+            renderAddonCatalog()
         }
     }
 

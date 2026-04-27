@@ -7,6 +7,7 @@
 
 #include "addons/addon_catalog.h"
 #include "addons/addon_manifest.h"
+#include "addons/addon_profile_codec.h"
 #include "attune/attune_snapshot.h"
 #include "attune/attune_sync_codec.h"
 #include "qrcodegen.h"
@@ -66,6 +67,7 @@ __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #define AHC_HISTORY_CAPACITY 256
 #define AHC_DISPLAY_HISTORY_CAPACITY 400
 #define AHC_CATEGORY_CAPACITY 64
+#define AHC_PRESET_CAPACITY 16
 #define AHC_AVATAR_CACHE_CAPACITY 24
 #define AHC_AVATAR_TEXTURE_MAX 32
 #define AHC_AVATAR_KEY 256
@@ -76,6 +78,7 @@ __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #define AHC_HIDDEN_FPS 2
 #define AHC_REMOTE_MANIFEST_TTL_SECONDS 86400
 #define AHC_REMOTE_MANIFEST_URL "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/addons.json"
+#define AHC_REMOTE_PRESETS_URL "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/presets.json"
 #define AHC_FONT_GLYPHS 95
 #define AHC_SNAPSHOT_POLL_SECONDS 5.0
 #define AHC_PROCESS_ACTIVE_SECONDS 4.0
@@ -119,6 +122,12 @@ typedef struct AddonInstallStatus {
     bool managed;
 } AddonInstallStatus;
 
+typedef struct AddonPreset {
+    AhcAddonProfile profile;
+    char description[256];
+    char author[96];
+} AddonPreset;
+
 typedef struct CompanionState {
     CompanionTab tab;
     char config_dir[AHC_PATH_CAPACITY];
@@ -142,6 +151,17 @@ typedef struct CompanionState {
     GraphDisplay graph_display;
     char selected_addon_category[64];
     char addon_catalog_source[AHC_PATH_CAPACITY];
+    AddonPreset presets[AHC_PRESET_CAPACITY];
+    size_t preset_count;
+    char preset_source[AHC_PATH_CAPACITY];
+    AhcAddonProfile imported_profile;
+    bool imported_profile_valid;
+    char profile_code[4096];
+    bool profile_code_editing;
+    char profile_queue_ids[AHC_PROFILE_MAX_ADDONS][AHC_PROFILE_ID_CAPACITY];
+    size_t profile_queue_count;
+    size_t profile_queue_index;
+    bool profile_queue_running;
     const AhcAddon *addon_category_cache_items;
     size_t addon_category_cache_count;
     const char *addon_categories[AHC_CATEGORY_CAPACITY];
@@ -317,6 +337,7 @@ static double app_time(void);
 static void poll_other_instances(CompanionState *state);
 static void path_join(char *out, size_t out_capacity, const char *left, const char *right);
 static void ahc_init_exe_dir_once(void);
+static void load_addon_presets(CompanionState *state, bool force_remote_refresh);
 static bool validate_synastria_path(const char *path);
 static void addon_status_cache_invalidate(CompanionState *state);
 static bool addon_current_install_path(const CompanionState *state, const AhcAddon *addon, char *out, size_t out_capacity);
@@ -1829,6 +1850,62 @@ static void begin_install_or_update_addon(CompanionState *state, const AhcAddon 
 #endif
 }
 
+static const AhcAddon *find_addon_by_id(const AhcAddon *addons, size_t count, const char *id)
+{
+    if (!id || !id[0]) {
+        return NULL;
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (addons[i].id && strcmp(addons[i].id, id) == 0) {
+            return &addons[i];
+        }
+    }
+    return NULL;
+}
+
+static void profile_queue_start_next(CompanionState *state)
+{
+    if (!state->profile_queue_running || state->addon_job_running) {
+        return;
+    }
+    const AhcAddon *addons = state->addons ? state->addons : ahc_addon_catalog_items();
+    size_t count = state->addons ? state->addon_count : ahc_addon_catalog_count();
+    while (state->profile_queue_index < state->profile_queue_count) {
+        const char *id = state->profile_queue_ids[state->profile_queue_index++];
+        const AhcAddon *addon = find_addon_by_id(addons, count, id);
+        if (!addon) {
+            continue;
+        }
+        if (addon_is_installed(state, addon)) {
+            continue;
+        }
+        begin_install_or_update_addon(state, addon);
+        return;
+    }
+    state->profile_queue_running = false;
+    set_action_status(state, "Profile apply complete.", "Profile complete");
+}
+
+static void begin_apply_profile(CompanionState *state, const AhcAddonProfile *profile)
+{
+    if (!profile || profile->addon_count == 0u) {
+        set_action_status(state, "Profile has no add-ons to apply.", "Profile empty");
+        return;
+    }
+    if (state->profile_queue_running || state->addon_job_running) {
+        set_action_status(state, "Wait for the current add-on install to finish.", "Profile busy");
+        return;
+    }
+    state->profile_queue_count = profile->addon_count < AHC_PROFILE_MAX_ADDONS ? profile->addon_count : AHC_PROFILE_MAX_ADDONS;
+    state->profile_queue_index = 0u;
+    for (size_t i = 0; i < state->profile_queue_count; i++) {
+        snprintf(state->profile_queue_ids[i], sizeof(state->profile_queue_ids[i]), "%s", profile->addon_ids[i]);
+    }
+    state->profile_queue_running = true;
+    set_action_status(state, "Applying profile add-ons.", "Profile apply");
+    profile_queue_start_next(state);
+}
+
 static void poll_addon_install_job(CompanionState *state)
 {
     if (!state->addon_job_running) {
@@ -1849,6 +1926,7 @@ static void poll_addon_install_job(CompanionState *state)
     state->addon_job_running = 0;
     set_action_status(state, state->addon_job_result[0] ? state->addon_job_result : "Addon install finished.", state->addon_job_success ? "Addon install complete" : "Addon install failed");
     addon_status_cache_invalidate(state);
+    profile_queue_start_next(state);
 }
 
 static void uninstall_addon(CompanionState *state, const AhcAddon *addon)
@@ -2416,12 +2494,213 @@ static void poll_catalog_refresh_job(CompanionState *state)
     if (success) {
         snprintf(state->catalog_job_progress, sizeof(state->catalog_job_progress), "Rebuilding catalog");
         load_addon_catalog(state, false);
+        load_addon_presets(state, false);
         addon_status_cache_invalidate(state);
     }
     set_action_status(
         state,
         state->catalog_job_result[0] ? state->catalog_job_result : "Catalog refresh finished.",
         success ? "Catalog refreshed" : "Catalog refresh failed");
+}
+
+static char *read_text_file_heap(const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (!file) {
+        return NULL;
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return NULL;
+    }
+    long size = ftell(file);
+    if (size < 0 || size > 1024 * 1024) {
+        fclose(file);
+        return NULL;
+    }
+    rewind(file);
+    char *text = (char *)malloc((size_t)size + 1u);
+    if (!text) {
+        fclose(file);
+        return NULL;
+    }
+    size_t read_count = fread(text, 1, (size_t)size, file);
+    fclose(file);
+    text[read_count] = '\0';
+    return text;
+}
+
+static const char *find_json_key_after(const char *start, const char *key)
+{
+    char needle[80];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char *p = strstr(start, needle);
+    if (!p) {
+        return NULL;
+    }
+    p += strlen(needle);
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+        p++;
+    }
+    return *p == ':' ? p + 1 : NULL;
+}
+
+static bool parse_simple_json_string(const char **cursor, char *out, size_t out_capacity)
+{
+    const char *p = *cursor;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+        p++;
+    }
+    if (*p != '"') {
+        return false;
+    }
+    p++;
+    size_t n = 0;
+    while (*p && *p != '"') {
+        char c = *p++;
+        if (c == '\\') {
+            c = *p++;
+            if (c == 'n') {
+                c = '\n';
+            } else if (c == 'r') {
+                c = '\r';
+            } else if (c == 't') {
+                c = '\t';
+            }
+        }
+        if (n + 1u >= out_capacity) {
+            return false;
+        }
+        out[n++] = c;
+    }
+    if (*p != '"') {
+        return false;
+    }
+    out[n] = '\0';
+    *cursor = p + 1;
+    return true;
+}
+
+static bool parse_preset_manifest_text(const char *text, AddonPreset *presets, size_t capacity, size_t *out_count)
+{
+    *out_count = 0u;
+    const char *p = strstr(text, "\"presets\"");
+    if (!p) {
+        return false;
+    }
+    while ((p = strchr(p, '{')) != NULL && *out_count < capacity) {
+        const char *end = strchr(p, '}');
+        if (!end) {
+            break;
+        }
+        AddonPreset preset;
+        memset(&preset, 0, sizeof(preset));
+        const char *value = find_json_key_after(p, "name");
+        if (value && value < end) {
+            (void)parse_simple_json_string(&value, preset.profile.name, sizeof(preset.profile.name));
+        }
+        value = find_json_key_after(p, "description");
+        if (value && value < end) {
+            (void)parse_simple_json_string(&value, preset.description, sizeof(preset.description));
+        }
+        value = find_json_key_after(p, "author");
+        if (value && value < end) {
+            (void)parse_simple_json_string(&value, preset.author, sizeof(preset.author));
+        }
+        const char *ids = find_json_key_after(p, "addon_ids");
+        if (ids && ids < end) {
+            while (*ids && ids < end && *ids != '[') {
+                ids++;
+            }
+            if (*ids == '[') {
+                ids++;
+                while (ids < end && preset.profile.addon_count < AHC_PROFILE_MAX_ADDONS) {
+                    while (ids < end && (*ids == ' ' || *ids == '\t' || *ids == '\r' || *ids == '\n' || *ids == ',')) {
+                        ids++;
+                    }
+                    if (*ids == ']') {
+                        break;
+                    }
+                    if (!parse_simple_json_string(&ids, preset.profile.addon_ids[preset.profile.addon_count], sizeof(preset.profile.addon_ids[preset.profile.addon_count]))) {
+                        break;
+                    }
+                    preset.profile.addon_count++;
+                }
+            }
+        }
+        if (preset.profile.name[0] && preset.profile.addon_count > 0u) {
+            presets[*out_count] = preset;
+            (*out_count)++;
+        }
+        p = end + 1;
+    }
+    return *out_count > 0u;
+}
+
+static bool try_load_preset_manifest(CompanionState *state, const char *path, const char *label)
+{
+    char *text = read_text_file_heap(path);
+    if (!text) {
+        return false;
+    }
+    size_t count = 0u;
+    bool ok = parse_preset_manifest_text(text, state->presets, AHC_PRESET_CAPACITY, &count);
+    free(text);
+    if (!ok) {
+        return false;
+    }
+    state->preset_count = count;
+    snprintf(state->preset_source, sizeof(state->preset_source), "%s", label);
+    return true;
+}
+
+static bool preset_cache_paths(const CompanionState *state, char *cache_path, size_t cache_capacity, char *temp_path, size_t temp_capacity)
+{
+    if (!state->config_dir[0] || !ensure_directory(state->config_dir)) {
+        return false;
+    }
+    path_join(cache_path, cache_capacity, state->config_dir, "addon_preset_cache.json");
+    path_join(temp_path, temp_capacity, state->config_dir, "addon_preset_cache.tmp");
+    return true;
+}
+
+static void load_addon_presets(CompanionState *state, bool force_remote_refresh)
+{
+    state->preset_count = 0u;
+    snprintf(state->preset_source, sizeof(state->preset_source), "%s", "No presets loaded");
+    char cache_path[AHC_PATH_CAPACITY];
+    char temp_path[AHC_PATH_CAPACITY];
+    if (preset_cache_paths(state, cache_path, sizeof(cache_path), temp_path, sizeof(temp_path))) {
+        bool cache_exists = FileExists(cache_path);
+        bool cache_fresh = cache_exists && file_modified_within_seconds(cache_path, AHC_REMOTE_MANIFEST_TTL_SECONDS);
+        if (!force_remote_refresh && cache_fresh && try_load_preset_manifest(state, cache_path, "cached community presets")) {
+            return;
+        }
+        if (force_remote_refresh || !cache_fresh) {
+            remove(temp_path);
+            if (ahc_curl_download_file(AHC_REMOTE_PRESETS_URL, temp_path) && try_load_preset_manifest(state, temp_path, "community presets")) {
+                (void)replace_file_with_temp(temp_path, cache_path);
+                return;
+            }
+            remove(temp_path);
+        }
+        if (cache_exists && try_load_preset_manifest(state, cache_path, "cached community presets")) {
+            return;
+        }
+    }
+    if (s_have_exe_dir) {
+        char exe_manifest[AHC_PATH_CAPACITY];
+        path_join(exe_manifest, sizeof(exe_manifest), s_exe_dir, "manifest/presets.json");
+        if (try_load_preset_manifest(state, exe_manifest, "bundled presets")) {
+            return;
+        }
+    }
+    const char *paths[] = { "manifest/presets.json", "../manifest/presets.json", NULL };
+    for (int i = 0; paths[i]; i++) {
+        if (try_load_preset_manifest(state, paths[i], "bundled presets")) {
+            return;
+        }
+    }
 }
 
 static int compare_snapshot_dates(const void *left, const void *right)
@@ -4526,6 +4805,99 @@ static void draw_status_icon(Rectangle bounds, bool installed, bool managed)
     draw_tooltip_box(!installed ? "Not installed" : (managed ? "Managed install" : "Manual install detected"), bounds);
 }
 
+static void copy_installed_profile_to_clipboard(CompanionState *state, const AhcAddon *addons, size_t count)
+{
+    AhcAddonProfile profile;
+    memset(&profile, 0, sizeof(profile));
+    snprintf(profile.name, sizeof(profile.name), "%s", "My Add-on Profile");
+    for (size_t i = 0; i < count && profile.addon_count < AHC_PROFILE_MAX_ADDONS; i++) {
+        if (addons[i].id && addon_is_installed(state, &addons[i])) {
+            snprintf(profile.addon_ids[profile.addon_count], sizeof(profile.addon_ids[profile.addon_count]), "%s", addons[i].id);
+            profile.addon_count++;
+        }
+    }
+    if (profile.addon_count == 0u) {
+        set_action_status(state, "No installed catalog add-ons found to export.", "Profile export empty");
+        return;
+    }
+    int n = ahc_profile_encode(&profile, state->profile_code, sizeof(state->profile_code));
+    if (n < 0) {
+        set_action_status(state, "Could not encode profile.", "Profile export failed");
+        return;
+    }
+    SetClipboardText(state->profile_code);
+    set_action_status(state, "Copied installed add-on profile code.", "Profile copied");
+}
+
+static void import_profile_from_code(CompanionState *state, const char *code)
+{
+    AhcAddonProfile profile;
+    memset(&profile, 0, sizeof(profile));
+    if (ahc_profile_decode(code, &profile) != 0) {
+        state->imported_profile_valid = false;
+        set_action_status(state, "Profile code was not recognized.", "Profile import failed");
+        return;
+    }
+    state->imported_profile = profile;
+    state->imported_profile_valid = true;
+    snprintf(state->profile_code, sizeof(state->profile_code), "%s", code);
+    char message[AHC_STATUS_CAPACITY];
+    snprintf(message, sizeof(message), "Imported profile %s with %zu add-ons.", profile.name, profile.addon_count);
+    set_action_status(state, message, "Profile imported");
+}
+
+static void import_profile_from_clipboard(CompanionState *state)
+{
+    const char *clipboard = GetClipboardText();
+    if (!clipboard || !clipboard[0]) {
+        set_action_status(state, "Clipboard is empty.", "Profile import failed");
+        return;
+    }
+    import_profile_from_code(state, clipboard);
+}
+
+static float draw_profiles_panel(CompanionState *state, const AhcAddon *addons, size_t count, float x, float y, float right)
+{
+    Rectangle panel = { x, y, right - x, 116.0f };
+    DrawRectangleRounded(panel, 0.035f, 8, AHC_PANEL_DARK);
+    DrawRectangleRoundedLines(panel, 0.035f, 8, AHC_BORDER);
+    draw_text("Profiles & presets", (int)x + 12, (int)y + 9, 16, AHC_TEXT);
+    char source_line[AHC_PATH_CAPACITY + 64];
+    snprintf(source_line, sizeof(source_line), "Presets: %s", state->preset_source);
+    draw_text(source_line, (int)x + 12, (int)y + 31, 12, AHC_MUTED);
+
+    float bx = x + 12.0f;
+    float by = y + 54.0f;
+    if (draw_wow_button("Copy installed profile", (Rectangle){ bx, by, 164.0f, 28.0f }, false, 13)) {
+        copy_installed_profile_to_clipboard(state, addons, count);
+    }
+    bx += 174.0f;
+    if (draw_wow_button("Import from clipboard", (Rectangle){ bx, by, 164.0f, 28.0f }, false, 13)) {
+        import_profile_from_clipboard(state);
+    }
+    bx += 174.0f;
+    if (state->imported_profile_valid && draw_wow_button("Apply imported", (Rectangle){ bx, by, 128.0f, 28.0f }, state->profile_queue_running, 13)) {
+        begin_apply_profile(state, &state->imported_profile);
+    }
+    if (state->imported_profile_valid) {
+        char line[220];
+        snprintf(line, sizeof(line), "Imported: %s (%zu add-ons)", state->imported_profile.name, state->imported_profile.addon_count);
+        draw_text(line, (int)x + 12, (int)y + 90, 12, AHC_ACCENT);
+    }
+
+    float px = right - 468.0f;
+    if (px < x + 12.0f) {
+        px = x + 12.0f;
+    }
+    for (size_t i = 0; i < state->preset_count && i < 3u; i++) {
+        Rectangle button = { px + (float)i * 154.0f, by, 144.0f, 28.0f };
+        if (draw_wow_button(state->presets[i].profile.name, button, state->profile_queue_running, 12)) {
+            begin_apply_profile(state, &state->presets[i].profile);
+        }
+    }
+    return panel.height + 8.0f;
+}
+
 static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_t count, size_t index, Rectangle bounds)
 {
     const AhcAddon *addon = &addons[index];
@@ -4640,6 +5012,7 @@ static void draw_addons_tab(CompanionState *state)
         begin_catalog_refresh(state);
     }
     controls_y += 28.0f;
+    controls_y += draw_profiles_panel(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
     int category_rows = draw_category_filters(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
     float list_y = controls_y + (float)(category_rows * 34) + 8.0f;
     float list_height = content.y + content.height - list_y - 14.0f;
@@ -4969,6 +5342,7 @@ static void init_state(CompanionState *state)
     reset_wow_config_fields(state);
     resolve_config_paths(state);
     load_addon_catalog(state, false);
+    load_addon_presets(state, false);
     load_settings(state);
     if (!state->autologin_realm[0]) {
         snprintf(state->autologin_realm, sizeof state->autologin_realm, "AzerothCore");

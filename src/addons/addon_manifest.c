@@ -13,6 +13,7 @@ typedef struct AhcManifestStorage {
 } AhcManifestStorage;
 
 typedef struct AddonFields {
+    char *id;
     char *name;
     char *author;
     char *source;
@@ -613,7 +614,15 @@ static const char *parse_addon_object(
         }
         cursor++;
 
-        if (strcmp(key, "name") == 0) {
+        if (strcmp(key, "id") == 0) {
+            char *value = NULL;
+            if (!parse_json_string(&cursor, &value)) {
+                free(key);
+                clear_addon_fields(&fields);
+                return NULL;
+            }
+            set_field_arena(arena, &fields.id, value);
+        } else if (strcmp(key, "name") == 0) {
             char *value = NULL;
             if (!parse_json_string(&cursor, &value)) {
                 free(key);
@@ -757,12 +766,13 @@ static const char *parse_addon_object(
         fields.category = (char *)fields.categories[0];
     }
 
-    if (!fields.name || !fields.author || !fields.category || !fields.folder || !fields.repo || !fields.description) {
+    if (!fields.id || !fields.name || !fields.author || !fields.category || !fields.folder || !fields.repo || !fields.description) {
         clear_addon_fields(&fields);
         return NULL;
     }
 
     AhcAddon addon;
+    addon.id = fields.id;
     addon.name = fields.name;
     addon.author = fields.author;
     if (fields.source) {

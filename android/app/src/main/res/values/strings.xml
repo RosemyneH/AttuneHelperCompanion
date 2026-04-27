@@ -12,6 +12,9 @@
     <string name="catalog_refresh">Refresh catalog</string>
     <string name="catalog_refreshed">Catalog refreshed</string>
     <string name="catalog_source_loading">Loading catalog</string>
+    <string name="profile_copy_installed">Copy visible profile</string>
+    <string name="profile_import_clipboard">Import profile</string>
+    <string name="profile_apply">Apply</string>
     <string name="catalog_selected">Selected: %1$s</string>
     <string name="catalog_installing">Installing %1$s...</string>
     <string name="catalog_pick_first">Choose an add-on card first.</string>

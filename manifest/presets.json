@@ -1,0 +1,49 @@
+{
+  "manifest_version": 1,
+  "updated_at": "2026-04-26",
+  "presets": [
+    {
+      "id": "starter-community",
+      "name": "Starter Community Pack",
+      "author": "Attune Helper Companion",
+      "description": "Core community favorites for new Synastria players.",
+      "tags": [
+        "Starter",
+        "Community Favorites"
+      ],
+      "addon_ids": [
+        "attune-helper",
+        "mapster-synastria-hosting",
+        "consoleport-lk"
+      ]
+    },
+    {
+      "id": "ui-suite",
+      "name": "UI Suite",
+      "author": "Attune Helper Companion",
+      "description": "UI-focused add-ons for players who want a more complete interface setup.",
+      "tags": [
+        "UI Suite"
+      ],
+      "addon_ids": [
+        "elvui",
+        "cdf-synastria"
+      ]
+    },
+    {
+      "id": "attunement-tools",
+      "name": "Attunement Tools",
+      "author": "Attune Helper Companion",
+      "description": "Useful tools for tracking attunement progress and gearing.",
+      "tags": [
+        "Attunement",
+        "Gear"
+      ],
+      "addon_ids": [
+        "attune-helper",
+        "attune-progress",
+        "atlasloot-mythic"
+      ]
+    }
+  ]
+}

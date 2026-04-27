@@ -117,6 +117,7 @@ def generate_c(addons: list[dict[str, Any]]) -> str:
     for index, addon in enumerate(addons):
         categories_ident = c_ident("AHC_ADDON_CATEGORIES", index)
         fields = [
+            require_string(addon, "id", index),
             require_string(addon, "name", index),
             require_string(addon, "author", index),
             require_string(addon, "category", index),

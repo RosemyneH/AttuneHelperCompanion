@@ -21,10 +21,12 @@ import java.util.zip.ZipFile
 object AddonInstall {
     private const val MAX_DOWNLOAD_BYTES = 64L * 1024 * 1024
     private const val MAX_MANIFEST_BYTES = 2L * 1024 * 1024
+    private const val MAX_PRESETS_BYTES = 512L * 1024
     private const val MAX_EXTRACTED_TOTAL_BYTES = 256L * 1024 * 1024
     private const val MAX_SINGLE_ZIP_FILE_BYTES = 32L * 1024 * 1024
     private const val CATALOG_CACHE_TTL_MS = 24L * 60L * 60L * 1000L
     private const val REMOTE_MANIFEST_URL = "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/addons.json"
+    private const val REMOTE_PRESETS_URL = "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/presets.json"
     private const val MOBILE_CONTROLLER_CATEGORY = "Mobile & Controller"
     private const val HTTP_USER_AGENT = "AttuneHelperCompanion-Android/1.0"
 
@@ -54,8 +56,15 @@ object AddonInstall {
         val sourceLabel: String,
     )
 
+    data class PresetResult(
+        val presets: List<AddonProfileCodec.Profile>,
+        val sourceLabel: String,
+    )
+
     @Volatile
     private var cached: CatalogResult? = null
+    @Volatile
+    private var cachedPresets: PresetResult? = null
 
     private val client = OkHttpClient.Builder()
         .callTimeout(3, TimeUnit.MINUTES)
@@ -97,8 +106,40 @@ object AddonInstall {
         return rememberCatalog(CatalogResult(parseEntries(text), "Bundled catalog"))
     }
 
+    fun loadPresets(context: Context, forceRemoteRefresh: Boolean = false): PresetResult {
+        val hit = cachedPresets
+        if (hit != null && !forceRemoteRefresh) {
+            return hit
+        }
+        val cacheFile = File(context.filesDir, "addon_preset_cache.json")
+        var cacheFresh = cacheFile.isFile && isCatalogCacheFresh(cacheFile)
+        if (!forceRemoteRefresh && cacheFresh) {
+            parsePresetFile(cacheFile)?.let {
+                return rememberPresets(PresetResult(it, "Cached community presets"))
+            }
+            cacheFresh = false
+        }
+        if (forceRemoteRefresh || !cacheFresh) {
+            fetchRemotePresets(context, cacheFile)?.let {
+                return rememberPresets(PresetResult(it, "Community presets"))
+            }
+        }
+        if (cacheFile.isFile) {
+            parsePresetFile(cacheFile)?.let {
+                return rememberPresets(PresetResult(it, "Cached community presets"))
+            }
+        }
+        val text = context.assets.open("presets.json").bufferedReader().use { it.readText() }
+        return rememberPresets(PresetResult(parsePresets(text), "Bundled presets"))
+    }
+
     private fun rememberCatalog(result: CatalogResult): CatalogResult {
         cached = result
+        return result
+    }
+
+    private fun rememberPresets(result: PresetResult): PresetResult {
+        cachedPresets = result
         return result
     }
 
@@ -134,6 +175,61 @@ object AddonInstall {
         } finally {
             tmp.delete()
         }
+    }
+
+    private fun parsePresetFile(file: File): List<AddonProfileCodec.Profile>? {
+        return try {
+            parsePresets(file.readText())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun fetchRemotePresets(context: Context, cacheFile: File): List<AddonProfileCodec.Profile>? {
+        val h = REMOTE_PRESETS_URL.toHttpUrlOrNull() ?: return null
+        if (h.scheme != "https" || h.host != "raw.githubusercontent.com") {
+            return null
+        }
+        val tmp = File(context.cacheDir, "addon-presets-" + System.currentTimeMillis() + ".json")
+        if (!httpDownloadToFile(h, tmp, MAX_PRESETS_BYTES)) {
+            tmp.delete()
+            return null
+        }
+        return try {
+            val presets = parsePresets(tmp.readText())
+            tmp.copyTo(cacheFile, overwrite = true)
+            presets
+        } catch (e: Exception) {
+            null
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    private fun parsePresets(text: String): List<AddonProfileCodec.Profile> {
+        val root = JSONObject(text)
+        val arr = root.optJSONArray("presets") ?: throw IllegalArgumentException("Preset manifest missing presets array.")
+        val out = ArrayList<AddonProfileCodec.Profile>(arr.length())
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val ids = AddonProfileCodec.readStringArray(item.optJSONArray("addon_ids")).distinct()
+            if (ids.isEmpty()) {
+                continue
+            }
+            out.add(
+                AddonProfileCodec.Profile(
+                    name = item.optString("name", item.optString("id", "Community Preset")),
+                    addonIds = ids,
+                    description = item.optString("description", ""),
+                    author = item.optString("author", ""),
+                    tags = AddonProfileCodec.readStringArray(item.optJSONArray("tags")),
+                )
+            )
+        }
+        if (out.isEmpty()) {
+            throw IllegalArgumentException("Preset manifest contained no usable presets.")
+        }
+        return out
     }
 
     private fun parseEntries(text: String): List<Entry> {

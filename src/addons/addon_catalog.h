@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 typedef struct AhcAddon {
+    const char *id;
     const char *name;
     const char *author;
     const char *category;
