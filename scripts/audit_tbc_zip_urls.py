@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # Audit manifest entries whose install/repo/zip URLs look like a TBC (2.x) build
-# instead of WotLK 3.3.5, for manual review and re-scraping.
+# instead of WotLK 3.3.5, for manual review.
 #
 # Run (repo root):
 #   Windows (cmd):  python scripts\audit_tbc_zip_urls.py
 #   Git Bash / WSL:  python scripts/audit_tbc_zip_urls.py
 #
-# With --emit-rescrape-bash, JSON still goes to stdout unless you use -o and --no-stdout-json
-#   python scripts/audit_tbc_zip_urls.py -o build/tbc_zip_audit.json --no-stdout-json --emit-rescrape-bash
-# Or: scripts\felbite_rescrape_hint.bat  |  scripts/felbite_rescrape_hint.sh
+# With -o / --no-stdout-json:
+#   python scripts/audit_tbc_zip_urls.py -o build/tbc_zip_audit.json --no-stdout-json
 from __future__ import annotations
 
 import argparse
@@ -25,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = REPO_ROOT / "build" / "tbc_zip_audit.json"
 MARKER_STEM = "tbc_zip_audit_had_matches"
 
-# Felbite and similar: "-tbc-" in path, or basename contains "tbc" (covers *-tbc.zip, *-tbc-*.zip).
+# Heuristic: "-tbc-" in path, or basename contains "tbc" (covers *-tbc.zip, *-tbc-*.zip).
 TBC_DASH = "-tbc-"
 
 
@@ -50,10 +49,6 @@ def url_field_reason(url: str) -> str | None:
     if "tbc" in base.lower():
         return "filename *tbc* (basename contains tbc)"
     return None
-
-
-def is_tbc_build_zip_url(url: str) -> bool:
-    return url_field_reason(url) is not None
 
 
 def collect_url_fingerprints(
@@ -125,23 +120,6 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def print_rescrape_block(match_count: int) -> None:
-    py = "python" if sys.platform == "win32" else "python3"
-    lines = [
-        "# Re-scrape Felbite 3.3.5 catalog into hub manifest (updates zip URLs; review git diff).",
-        "# Windows (cmd, from repo root):",
-        f"#   {py} scripts\\import_web_catalogs.py --sources felbite",
-        "# Git Bash / WSL / macOS / Linux (from repo root):",
-        f"#   {py} scripts/import_web_catalogs.py --sources felbite",
-        "",
-        f'"{py}" scripts/import_web_catalogs.py --sources felbite'
-        if sys.platform != "win32"
-        else f"{py} scripts\\import_web_catalogs.py --sources felbite",
-    ]
-    text = "\n".join(lines) + "\n"
-    print(text, end="", file=sys.stderr)
-
-
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="List manifest addons whose repo / install.url / direct_zip.url look TBC (zip audit for 3.3.5)."
@@ -157,11 +135,6 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         help=f"Write JSON to this file (default if omitted: print only to stdout; suggested: {DEFAULT_OUT.relative_to(REPO_ROOT)})",
-    )
-    p.add_argument(
-        "--emit-rescrape-bash",
-        action="store_true",
-        help="After audit, print a ready-to-run import_web_catalogs.py command (hint on stderr; see script header for cmd vs bash).",
     )
     p.add_argument(
         "--marker",
@@ -218,9 +191,6 @@ def main() -> int:
             except OSError:
                 pass
 
-    if args.emit_rescrape_bash:
-        print_rescrape_block(n)
-        return 0 if n > 0 else 1
     return 0
 
 

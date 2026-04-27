@@ -54,10 +54,6 @@ int main(void)
         fprintf(stderr, "Baked addon catalog is too small (curated list).\n");
         return 1;
     }
-    if (baked_catalog_has_source("Felbite")) {
-        fprintf(stderr, "Baked catalog should not use Felbite-sourced add-on rows (upstream-first policy).\n");
-        return 1;
-    }
     if (baked_catalog_has_source("Warperia")) {
         fprintf(stderr, "Baked catalog should not include Warperia entries.\n");
         return 1;

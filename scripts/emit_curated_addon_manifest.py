@@ -12,7 +12,7 @@ from ahc_hub_manifest import resolve_hub_addons_json
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Non-Felbite ids to keep (slim catalog; Felbite bulk removed).
+# Addon ids to keep (slim catalog).
 KEEP_IDS = frozenset(
     {
         "acp-zero",
@@ -152,7 +152,7 @@ def main() -> int:
         if not isinstance(a, dict):
             continue
         aid = a.get("id")
-        if aid in KEEP_IDS and a.get("source") != "Felbite":
+        if aid in KEEP_IDS:
             a = dict(a)
             a.pop("source", None)
             a.pop("page_url", None)

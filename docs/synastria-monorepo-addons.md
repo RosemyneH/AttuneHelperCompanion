@@ -48,10 +48,6 @@ For every catalog change going forward:
 
 Attune Helper Companion **does not** define the list elsewhere: CMake bakes from that JSON, install flows use those URLs, and the desktop/Android app refreshes from the same hub on GitHub (`raw.githubusercontent.com/.../synastria-monorepo-addons/.../addons.json`).
 
-## Felbite scripts (legacy only)
-
-[import_web_catalogs.py](../scripts/import_web_catalogs.py) with `--sources felbite`, [refresh_felbite_categories.py](../scripts/refresh_felbite_categories.py), and Felbite-related hints in [audit_tbc_zip_urls.py](../scripts/audit_tbc_zip_urls.py) are **optional maintenance** for rows that already came from scraping a third-party listing site. They are **not** part of the normal “add an addon” path. Prefer hub edits with GitHub or vendored monorepo sources only; avoid introducing new Felbite-sourced entries unless you explicitly intend that legacy path.
-
 ## Related files in this repo
 
 - [AGENTS.md](../AGENTS.md) — verification and script pointers
@@ -59,3 +55,4 @@ Attune Helper Companion **does not** define the list elsewhere: CMake bakes from
 - [scripts/emit_curated_addon_manifest.py](../scripts/emit_curated_addon_manifest.py) — optional slim export from a prior JSON dump
 - [scripts/list_synastoots_repos.py](../scripts/list_synastoots_repos.py) — list SynScoots rows in the hub manifest
 - [scripts/generate_addon_catalog.py](../scripts/generate_addon_catalog.py) — validate + generate baked C; default `--input` is the hub (or pass a path)
+- [scripts/audit_tbc_zip_urls.py](../scripts/audit_tbc_zip_urls.py) — optional: find hub manifest entries whose zip/repo URLs look like TBC-era artifacts (manual review)
