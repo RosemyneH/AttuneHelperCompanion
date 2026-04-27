@@ -4401,106 +4401,6 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_
     }
 }
 
-static const char *community_favorite_description(const AhcAddon *addon)
-{
-    if (!addon || !addon->folder) {
-        return NULL;
-    }
-    if (strcmp(addon->folder, "AttuneHelper") == 0) {
-        return "Automate your Attunement swaps and manage your gear quickly with this powerful addon.";
-    }
-    if (strcmp(addon->folder, "Mapster") == 0) {
-        return "Improves the world map and includes Synastria map quality-of-life additions.";
-    }
-    if (strcmp(addon->folder, "ScootsStats") == 0) {
-        return "Adds a stat panel beside your character panel with extra stats.";
-    }
-    if (strcmp(addon->folder, "ScootsConfirmationSkip") == 0) {
-        return "Skips confirmation dialogs for bind-on-equip gear and bind-on-pickup chest loot.";
-    }
-    if (strcmp(addon->folder, "ScootsCraft") == 0) {
-        return "Overhauls professions and includes a modified Acki's Recipe List.";
-    }
-    if (strcmp(addon->folder, "ScootsRares") == 0) {
-        return "Creates a chat link to run .findnpc when you are near a rare.";
-    }
-    return NULL;
-}
-
-static void draw_community_favorite_card(CompanionState *state, const AhcAddon *addons, size_t count, size_t index, const char *description, Rectangle bounds)
-{
-    const AhcAddon *addon = &addons[index];
-    AddonInstallStatus install_status = addon_install_status_for_index(state, addons, count, index);
-    DrawRectangleRounded(bounds, 0.08f, 8, AHC_PANEL);
-    DrawRectangleRoundedLines(bounds, 0.08f, 8, AHC_BORDER);
-    draw_wrapped_text(addon->name, (int)bounds.x + 12, (int)bounds.y + 10, 17, (int)bounds.width - 86, 1, AHC_TEXT);
-    draw_status_icon((Rectangle){ bounds.x + bounds.width - 32.0f, bounds.y + 10.0f, 22.0f, 22.0f }, install_status.installed, install_status.managed);
-    int byx = (int)bounds.x + 12;
-    int byy = (int)bounds.y + 34;
-    const char *byp = "By ";
-    draw_text(byp, byx, byy, 13, AHC_MUTED);
-    byx += measure_text_width(byp, 13);
-    char ahref[AHC_PATH_CAPACITY];
-    if (addon_url_for_author_link(addon, ahref, sizeof(ahref))) {
-        if (draw_interactive_text_link(byx, byy, 13, addon->author, ahref)) {
-            try_open_url_with_feedback(state, ahref, "Author link");
-        }
-    } else {
-        draw_text(addon->author, byx, byy, 13, AHC_MUTED);
-    }
-    draw_wrapped_text(description, (int)bounds.x + 12, (int)bounds.y + 56, 13, (int)bounds.width - 24, 2, AHC_ACCENT);
-    const char *label = install_status.installed ? (install_status.managed ? "Update" : "Replace") : "Install";
-    if (draw_wow_button(label, (Rectangle){ bounds.x + bounds.width - 82.0f, bounds.y + bounds.height - 34.0f, 70.0f, 26.0f }, state->addon_job_running != 0, 13)) {
-        begin_install_or_update_addon(state, addon);
-    }
-}
-
-static float draw_community_favorites_section(CompanionState *state, const AhcAddon *addons, size_t count, float x, float y, float right)
-{
-    size_t favorites[6] = { 0 };
-    const char *descriptions[6] = { 0 };
-    size_t favorite_count = 0u;
-    for (size_t i = 0; i < count && favorite_count < 6u; i++) {
-        const char *description = community_favorite_description(&addons[i]);
-        if (description) {
-            favorites[favorite_count] = i;
-            descriptions[favorite_count] = description;
-            favorite_count++;
-        }
-    }
-
-    if (favorite_count == 0u) {
-        return 0.0f;
-    }
-
-    draw_text("Community Favorites", (int)x, (int)y, 18, AHC_TEXT);
-    draw_text("Highly recommended addons for new players.", (int)x, (int)y + 24, 14, AHC_MUTED);
-
-    const float gap = 12.0f;
-    float available = right - x;
-    int columns = available >= 1180.0f ? 5 : (available >= 920.0f ? 4 : (available >= 680.0f ? 3 : 2));
-    if (columns < 1) {
-        columns = 1;
-    }
-    const float card_width = (available - (float)(columns - 1) * gap) / (float)columns;
-    const float card_height = 126.0f;
-    float cursor_x = x;
-    float cursor_y = y + 48.0f;
-    float bottom = cursor_y + card_height;
-
-    for (size_t i = 0; i < favorite_count; i++) {
-        if (cursor_x + card_width > right && cursor_x > x) {
-            cursor_x = x;
-            cursor_y += card_height + gap;
-            bottom = cursor_y + card_height;
-        }
-        draw_community_favorite_card(state, addons, count, favorites[i], descriptions[i], (Rectangle){ cursor_x, cursor_y, card_width, card_height });
-        cursor_x += card_width + gap;
-    }
-
-    return bottom - y + 18.0f;
-}
-
 static void draw_addons_tab(CompanionState *state)
 {
     const AhcAddon *addons = state->addons ? state->addons : ahc_addon_catalog_items();
@@ -4518,7 +4418,6 @@ static void draw_addons_tab(CompanionState *state)
     draw_card(content, title);
 
     float controls_y = content.y + 50.0f;
-    controls_y += draw_community_favorites_section(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
     int category_rows = draw_category_filters(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
     float list_y = controls_y + (float)(category_rows * 34) + 8.0f;
     float list_height = content.y + content.height - list_y - 14.0f;
