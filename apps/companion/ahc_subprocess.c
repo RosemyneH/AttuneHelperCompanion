@@ -358,6 +358,53 @@ static bool read_tar_list_posix(const char *zip_path, char *out, size_t out_cap,
 }
 #endif
 
+#if !defined(_WIN32)
+bool ahc_posix_spawn_detached_in_workdir(const char *workdir, const char *program_path, char *const *argv)
+{
+    if (!workdir || !program_path || !argv || !argv[0]) {
+        return false;
+    }
+    if (!ahc_path_safe_for_arg(workdir) || !ahc_path_safe_for_arg(program_path)) {
+        return false;
+    }
+    if (strcmp(argv[0], program_path) != 0) {
+        return false;
+    }
+    pid_t p = fork();
+    if (p < 0) {
+        return false;
+    }
+    if (p > 0) {
+        return true;
+    }
+    (void)signal(SIGHUP, SIG_IGN);
+    if (chdir(workdir) != 0) {
+        _exit(127);
+    }
+    (void)setsid();
+    int d = open("/dev/null", O_RDWR);
+    if (d >= 0) {
+        (void)dup2(d, STDIN_FILENO);
+        (void)dup2(d, STDOUT_FILENO);
+        (void)dup2(d, STDERR_FILENO);
+        if (d > 2) {
+            (void)close(d);
+        }
+    }
+    execv(program_path, argv);
+    _exit(127);
+}
+
+bool ahc_posix_unzip_to_directory(const char *zip_path, const char *dest_dir)
+{
+    if (!ahc_path_safe_for_arg(zip_path) || !ahc_path_safe_for_arg(dest_dir)) {
+        return false;
+    }
+    const char *const argv[] = { "unzip", "-q", "-o", zip_path, "-d", dest_dir, NULL };
+    return ahc_posix_execvp_wait(argv);
+}
+#endif
+
 bool ahc_preflight_zip_safe(const char *zip_path)
 {
     if (!ahc_path_safe_for_arg(zip_path)) {

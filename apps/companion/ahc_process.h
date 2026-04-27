@@ -19,10 +19,18 @@ unsigned int ahc_terminate_other_instances(void);
  */
 bool ahc_win_launch_wcmdline_in_dir(const wchar_t *cmdline, const char *workdir_utf8);
 #else
+#include "ahc/ahc_posix_argline.h"
+
 /**
- * Runs a full shell line (e.g. nohup wine … &) for detached game launch.
+ * Fork, chdir to workdir, ignore SIGHUP, stdio to /dev/null, execv(program_path, argv).
+ * argv[0] must equal program_path. No shell.
  */
-bool ahc_posix_run_detached_shell(const char *command);
+bool ahc_posix_spawn_detached_in_workdir(const char *workdir, const char *program_path, char *const *argv);
+
+/**
+ * Run unzip with argv (no shell). Requires ahc_path_safe_for_arg on both paths; caller may preflight first.
+ */
+bool ahc_posix_unzip_to_directory(const char *zip_path, const char *dest_dir);
 #endif
 
 bool ahc_curl_download_file(const char *url, const char *file_path);

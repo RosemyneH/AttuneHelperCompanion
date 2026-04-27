@@ -89,6 +89,7 @@ add_library(ahc_core
     src/ahc/ahc_mem_telemetry.c
     src/ahc/ahc_find_literal.c
     src/ahc/ahc_wow_autologin.c
+    src/ahc/ahc_posix_argline.c
     src/ahc/ahc_safe_url.c
     ${AHC_MEMCHR_SRC}
 )
@@ -263,6 +264,13 @@ if(AHC_BUILD_TESTS)
     add_executable(ahc_safe_url_test
         tests/ahc_safe_url_test.c
     )
+    add_executable(ahc_posix_argline_test
+        tests/ahc_posix_argline_test.c
+    )
+    add_executable(ahc_subprocess_zip_test
+        tests/ahc_subprocess_zip_test.c
+        apps/companion/ahc_subprocess.c
+    )
     add_executable(attune_sync_codec_test
         tests/attune_sync_codec_test.c
     )
@@ -297,6 +305,18 @@ if(AHC_BUILD_TESTS)
         PRIVATE
             ahc_core
     )
+    target_link_libraries(ahc_posix_argline_test
+        PRIVATE
+            ahc_core
+    )
+    target_link_libraries(ahc_subprocess_zip_test
+        PRIVATE
+            ahc_core
+    )
+    target_include_directories(ahc_subprocess_zip_test
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/apps/companion
+    )
     target_link_libraries(attune_sync_codec_test
         PRIVATE
             ahc_core
@@ -318,6 +338,10 @@ if(AHC_BUILD_TESTS)
         PRIVATE
             AHC_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
     )
+    target_compile_definitions(ahc_subprocess_zip_test
+        PRIVATE
+            AHC_TEST_ZIP_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+    )
     target_compile_definitions(addon_manifest_test
         PRIVATE
             "AHC_TEST_MANIFEST_PATH=\"${AHC_HUB_ADDONS_JSON}\""
@@ -330,6 +354,8 @@ if(AHC_BUILD_TESTS)
         target_compile_options(ahc_find_literal_test PRIVATE /W4)
         target_compile_options(ahc_wow_autologin_test PRIVATE /W4)
         target_compile_options(ahc_safe_url_test PRIVATE /W4)
+        target_compile_options(ahc_posix_argline_test PRIVATE /W4)
+        target_compile_options(ahc_subprocess_zip_test PRIVATE /W4)
         target_compile_options(attune_sync_codec_test PRIVATE /W4)
         target_compile_options(addon_profile_codec_test PRIVATE /W4)
         target_compile_options(wow_default_addons_test PRIVATE /W4)
@@ -340,6 +366,8 @@ if(AHC_BUILD_TESTS)
         target_compile_options(ahc_find_literal_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_wow_autologin_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_safe_url_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(ahc_posix_argline_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(ahc_subprocess_zip_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(attune_sync_codec_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(addon_profile_codec_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(wow_default_addons_test PRIVATE -Wall -Wextra -Wpedantic)
@@ -358,6 +386,10 @@ if(AHC_BUILD_TESTS)
         target_link_options(ahc_wow_autologin_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(ahc_safe_url_test PRIVATE -fsanitize=address,undefined -g)
         target_link_options(ahc_safe_url_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(ahc_posix_argline_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(ahc_posix_argline_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(ahc_subprocess_zip_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(ahc_subprocess_zip_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(attune_sync_codec_test PRIVATE -fsanitize=address,undefined -g)
         target_link_options(attune_sync_codec_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(addon_profile_codec_test PRIVATE -fsanitize=address,undefined -g)
@@ -372,6 +404,8 @@ if(AHC_BUILD_TESTS)
     add_test(NAME ahc_find_literal_test COMMAND ahc_find_literal_test)
     add_test(NAME ahc_wow_autologin_test COMMAND ahc_wow_autologin_test)
     add_test(NAME ahc_safe_url_test COMMAND ahc_safe_url_test)
+    add_test(NAME ahc_posix_argline_test COMMAND ahc_posix_argline_test)
+    add_test(NAME ahc_subprocess_zip_test COMMAND ahc_subprocess_zip_test)
     add_test(NAME attune_sync_codec_test COMMAND attune_sync_codec_test)
     add_test(NAME addon_profile_codec_test COMMAND addon_profile_codec_test)
     add_test(NAME wow_default_addons_test COMMAND wow_default_addons_test)

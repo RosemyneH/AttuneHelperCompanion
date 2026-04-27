@@ -330,12 +330,4 @@ unsigned int ahc_terminate_other_instances(void)
     return ahc_posix_other_instances(true);
 }
 
-bool ahc_posix_run_detached_shell(const char *command)
-{
-    if (!command || !command[0]) {
-        return false;
-    }
-    return system(command) == 0;
-}
-
 #endif

@@ -1,5 +1,6 @@
 #include "ahc/ahc_safe_url.h"
 
+#undef NDEBUG
 #include <assert.h>
 #include <stdbool.h>
 #include <string.h>
@@ -20,6 +21,12 @@ int main(void)
     assert(ahc_zip_list_line_looks_dangerous(bad2) == true);
     char not_bad[] = "foo..bar/ok.toc";
     assert(ahc_zip_list_line_looks_dangerous(not_bad) == false);
+    char win_abs[] = "C:/Users/x/z";
+    assert(ahc_zip_list_line_looks_dangerous(win_abs) == true);
+    char mid_dotdot[] = "u-r-main/Addon/../other/file";
+    assert(ahc_zip_list_line_looks_dangerous(mid_dotdot) == true);
+    char codeload_ok[] = "u-r-main/Addon/Addon.toc";
+    assert(ahc_zip_list_line_looks_dangerous(codeload_ok) == false);
     const char *listing = "a/b\nc/d\n";
     assert(ahc_zip_listing_looks_dangerous(listing, strlen(listing)) == false);
     return 0;

@@ -13,6 +13,7 @@
 #include "attune/attune_sync_codec.h"
 #include "qrcodegen.h"
 #include "ahc_process.h"
+#include "ahc/ahc_safe_url.h"
 #include "ahc_credentials.h"
 #include "ahc_tray.h"
 
@@ -83,9 +84,6 @@ __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #define AHC_SNAPSHOT_POLL_SECONDS 5.0
 #define AHC_PROCESS_ACTIVE_SECONDS 4.0
 #define AHC_CHROME_H 36
-#if !defined(_WIN32)
-#define AHC_SH_CMD_BYTES 4096
-#endif
 
 #if !defined(_WIN32)
 #include <strings.h>
@@ -1464,20 +1462,30 @@ static bool move_addon_folder_to_backup(CompanionState *state, const char *folde
 
 static bool extract_zip_to_path(const char *zip_path, const char *destination)
 {
+    if (!ahc_path_safe_for_arg(zip_path) || !ahc_path_safe_for_arg(destination)) {
+        return false;
+    }
     if (!ensure_directory(destination)) {
         return false;
     }
     if (!ahc_preflight_zip_safe(zip_path)) {
         return false;
     }
-
-    char command[AHC_PATH_CAPACITY * 4];
 #if defined(_WIN32)
-    snprintf(command, sizeof(command), "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '%s' -DestinationPath '%s' -Force\"", zip_path, destination);
+    {
+        char command[AHC_PATH_CAPACITY * 4];
+        snprintf(
+            command,
+            sizeof(command),
+            "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '%s' -DestinationPath '%s' -Force\"",
+            zip_path,
+            destination
+        );
+        return ahc_run_command_hidden(command);
+    }
 #else
-    snprintf(command, sizeof(command), "unzip -q -o \"%s\" -d \"%s\"", zip_path, destination);
+    return ahc_posix_unzip_to_directory(zip_path, destination);
 #endif
-    return ahc_run_command_hidden(command);
 }
 
 static void write_addon_managed_marker(const AhcAddon *addon, const char *path)
@@ -3107,57 +3115,6 @@ static bool ahc_posix_wine_or_proton_ready(void)
     int proton;
     return ahc_posix_resolve_wine_proton(runner, sizeof(runner), &proton);
 }
-
-static bool ahc_posix_build_game_launch(
-    const char *workdir,
-    const char *exe_path,
-    const char *args,
-    char *cmd,
-    size_t cmd_size
-)
-{
-    int proton_mode = 0;
-    char runner[AHC_PATH_CAPACITY];
-    if (!ahc_posix_resolve_wine_proton(runner, sizeof(runner), &proton_mode)) {
-        return false;
-    }
-    if (proton_mode) {
-        if (args[0]) {
-            return (size_t)snprintf(
-                       cmd,
-                       cmd_size,
-                       "cd \"%s\" && nohup \"%s\" run \"%s\" %s >/dev/null 2>&1 &",
-                       workdir,
-                       runner,
-                       exe_path,
-                       args) < cmd_size;
-        }
-        return (size_t)snprintf(
-                   cmd,
-                   cmd_size,
-                   "cd \"%s\" && nohup \"%s\" run \"%s\" >/dev/null 2>&1 &",
-                   workdir,
-                   runner,
-                   exe_path) < cmd_size;
-    }
-    if (args[0]) {
-        return (size_t)snprintf(
-                   cmd,
-                   cmd_size,
-                   "cd \"%s\" && nohup \"%s\" \"%s\" %s >/dev/null 2>&1 &",
-                   workdir,
-                   runner,
-                   exe_path,
-                   args) < cmd_size;
-    }
-    return (size_t)snprintf(
-               cmd,
-               cmd_size,
-               "cd \"%s\" && nohup \"%s\" \"%s\" >/dev/null 2>&1 &",
-               workdir,
-               runner,
-               exe_path) < cmd_size;
-}
 #endif
 
 static bool should_skip_directory(const char *path)
@@ -3760,15 +3717,46 @@ static bool launch_game(CompanionState *state)
             set_action_status(state, "Launch parameters are too long.", "Launch failed");
             return false;
         }
-        char command[AHC_SH_CMD_BYTES];
-        if (!ahc_posix_build_game_launch(state->synastria_path, wowext_path, final_args, command, sizeof command)) {
+        char runner[AHC_PATH_CAPACITY];
+        int proton_mode = 0;
+        if (!ahc_posix_resolve_wine_proton(runner, sizeof runner, &proton_mode)) {
             set_action_status(
                 state,
                 "Install Wine, set WINE, or set AHC_PROTON or PROTON_PATH to a Proton script from Steam.",
                 "Launch failed");
             return false;
         }
-        if (!ahc_posix_run_detached_shell(command)) {
+        if (!ahc_path_safe_for_arg(state->synastria_path) || !ahc_path_safe_for_arg(wowext_path) || !ahc_path_safe_for_arg(runner)) {
+            set_action_status(
+                state,
+                "Game or Wine/Proton path uses characters that are not allowed (quotes, control characters).",
+                "Launch failed");
+            return false;
+        }
+        char argbuf[4096];
+        char *token_ptrs[40];
+        int ntok = ahc_posix_split_arg_line_to_buf(final_args, argbuf, sizeof argbuf, token_ptrs, 40);
+        if (ntok < 0) {
+            set_action_status(state, "Launch parameters are too long or have too many words.", "Launch failed");
+            return false;
+        }
+        if (1 + (proton_mode ? 1 : 0) + 1 + ntok >= 64) {
+            set_action_status(state, "Launch has too many arguments for Wine/Proton.", "Launch failed");
+            return false;
+        }
+        char run_kwd[] = "run";
+        char *argv[64];
+        int ai = 0;
+        argv[ai++] = runner;
+        if (proton_mode) {
+            argv[ai++] = run_kwd;
+        }
+        argv[ai++] = wowext_path;
+        for (int t = 0; t < ntok; t++) {
+            argv[ai++] = token_ptrs[t];
+        }
+        argv[ai] = NULL;
+        if (!ahc_posix_spawn_detached_in_workdir(state->synastria_path, runner, argv)) {
             set_action_status(state, "Could not launch WoWExt.exe via Wine/Proton.", "Launch failed");
             return false;
         }
