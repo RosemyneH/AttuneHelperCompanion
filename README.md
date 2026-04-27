@@ -18,7 +18,7 @@ A **native C** companion for **Synastria** players: manage add-ons, read **Attun
 | **Desktop app** | `attune_helper_companion` — **raylib** + **raygui** UI (Windows and Linux: Wine/Proton supported for launch paths). |
 | **Core library** | `ahc_c` in `src/` — attune snapshot parsing, add-on manifest, arena helpers, safe URLs, and shared launch helpers (see `CMakeLists.txt`). |
 | **Tests** | CTest targets under `tests/`; CI runs the same flow as [scripts/ci-build.sh](scripts/ci-build.sh). |
-| **Add-on catalog** | **[synastria-monorepo-addons](https://github.com/RosemyneH/synastria-monorepo-addons) `manifest/addons.json`** (sibling clone) baked at build time via [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py) — see [docs/synastria-monorepo-addons.md](docs/synastria-monorepo-addons.md). |
+| **Add-on catalog** | **[synastria-monorepo-addons](https://github.com/RosemyneH/synastria-monorepo-addons) `manifest/addons.json`** — source of truth (upstream GitHub URLs or vendored paths in that repo); baked at build time via [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py). See [docs/synastria-monorepo-addons.md](docs/synastria-monorepo-addons.md). |
 | **Android** | Gradle app under `android/` — Material UI, SAF to a Synastria root, attune log, `AHC1:` / QR / NFC flows, GitHub codeload zip install into `Interface/AddOns`. See [docs/android-build.md](docs/android-build.md). |
 | **Packaging** | Linux **AppImage** build script under `packaging/appimage/`. |
 

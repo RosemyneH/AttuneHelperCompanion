@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Maintenance-only: optional Felbite HTML merge. Canonical catalog: synastria-monorepo-addons (hub).
+"""Legacy maintenance: optional Felbite HTML merge into the hub manifest.
 
-The live install list is owned by https://github.com/RosemyneH/synastria-monorepo-addons — not Felbite. Default: no-op. Run with ``--sources felbite`` only for intentional legacy re-merges into the **hub** `manifest/addons.json` (resolved like CMake, or ``--manifest``).
+Canonical catalog and normal edits: https://github.com/RosemyneH/synastria-monorepo-addons
+(`manifest/addons.json` with upstream GitHub or vendored monorepo paths — not Felbite).
+
+Default: no-op. Pass ``--sources felbite`` only for intentional re-scrapes of existing
+Felbite-style rows into the **hub** file (resolved like CMake, or ``--manifest``).
 """
 import json
 import re
@@ -313,12 +317,12 @@ def collect_zip_urls(detail_urls: list[str]) -> dict[str, str | None]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Import Felbite addon catalog pages into hub manifest/addons.json (opt-in)."
+        description="Legacy: merge Felbite listing HTML into hub manifest/addons.json (opt-in)."
     )
     parser.add_argument(
         "--sources",
         default="",
-        help="Comma-separated sources. Supported: felbite. Default: empty (no import; pass felbite to merge).",
+        help="Comma-separated sources. Supported: felbite (legacy listing scrape). Default: empty (no import).",
     )
     parser.add_argument(
         "--detail-workers",
@@ -352,6 +356,11 @@ def main() -> None:
         )
         return
     include_felbite = "felbite" in requested_sources
+    if include_felbite:
+        log(
+            "felbite-legacy: New catalog entries belong in synastria-monorepo-addons with "
+            "GitHub repo URLs or vendored paths; this run only re-merges Felbite listing data."
+        )
 
     companion_root = Path(__file__).resolve().parents[1]
     try:

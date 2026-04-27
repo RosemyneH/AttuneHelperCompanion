@@ -38,6 +38,20 @@ Add under `addons/<AddOnFolder>/` in the **hub** repo, then set `repo` to the mo
 
 **Upstream-first:** point at public GitHub when it exists; use the monorepo only when there is no upstream.
 
+## Normal workflow: hub plus GitHub (or monorepo paths)
+
+For every catalog change going forward:
+
+1. Edit **`manifest/addons.json` in [synastria-monorepo-addons](https://github.com/RosemyneH/synastria-monorepo-addons)** (clone next to this repo or under `./synastria-monorepo-addons/`).
+2. Set each addon’s **`repo`** to the real upstream Git HTTPS URL when one exists.
+3. If there is no public upstream, **vendor** the tree under the hub (for example `addons/<Folder>/`) and point **`repo`** at the monorepo plus **`source_subdir`** as documented above.
+
+Attune Helper Companion **does not** define the list elsewhere: CMake bakes from that JSON, install flows use those URLs, and the desktop/Android app refreshes from the same hub on GitHub (`raw.githubusercontent.com/.../synastria-monorepo-addons/.../addons.json`).
+
+## Felbite scripts (legacy only)
+
+[import_web_catalogs.py](../scripts/import_web_catalogs.py) with `--sources felbite`, [refresh_felbite_categories.py](../scripts/refresh_felbite_categories.py), and Felbite-related hints in [audit_tbc_zip_urls.py](../scripts/audit_tbc_zip_urls.py) are **optional maintenance** for rows that already came from scraping a third-party listing site. They are **not** part of the normal “add an addon” path. Prefer hub edits with GitHub or vendored monorepo sources only; avoid introducing new Felbite-sourced entries unless you explicitly intend that legacy path.
+
 ## Related files in this repo
 
 - [AGENTS.md](../AGENTS.md) — verification and script pointers

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Reapply Felbite category heuristics to hub manifest/addons.json (no network)."""
+"""Legacy: reapply Felbite category heuristics on existing Felbite rows in the hub (no network).
+
+Does not replace normal catalog edits (hub manifest + GitHub / monorepo vendored paths).
+"""
 
 import json
 import sys
