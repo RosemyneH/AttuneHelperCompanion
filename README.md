@@ -1,7 +1,7 @@
 <img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/905f5589-30f9-4ff9-b9e5-b1c012f6096e" />
 
 
-A **native C** companion for **Synastria** players: manage add-ons, read **AttuneHelper** daily snapshot history from local `SavedVariables`, and (on desktop) launch the game with optional **AwesomeWotLK**-style autologin. A separate **Android (Kotlin)** app covers mobile workflows (folder access, attune log, share codes, catalog installs, Winlator handoff). The project keeps data **local**—it does not download the game client, manage user accounts, or store user files on a project-operated server.
+A **native C** companion for **Synastria** players: manage add-ons, read **AttuneHelper** daily snapshot history from local `SavedVariables`, and (on desktop) launch the game with optional user-provided launch parameters. A separate **Android (Kotlin)** app covers mobile workflows (folder access, attune log, share codes, catalog installs, Winlator handoff). The project keeps data **local**—it does not download the game client, manage user accounts, or store user files on a project-operated server.
 
 - **In scope:** add-on management from static manifests and zip packages, local `WTF` / add-on backups under a chosen Synastria tree (`AttuneHelperBackup`), parsing **DailyAttuneSnapshot** from `AttuneHelper.lua`, and safe URL / zip handling in line with a documented [threat model](docs/threat-model.md).
 - **Out of scope:** cloud sync of your game or credentials by this app, remote file hosting beyond what you configure (e.g. GitHub URLs in the catalog), and storing real game passwords on **Android** until a Keystore-backed design exists (JNI is currently a **stub**).
@@ -15,7 +15,7 @@ A **native C** companion for **Synastria** players: manage add-ons, read **Attun
 | Area | Description |
 |------|-------------|
 | **Desktop app** | `attune_helper_companion` — **raylib** + **raygui** UI (Windows and Linux: Wine/Proton supported for launch paths). |
-| **Core library** | `ahc_c` in `src/` — attune snapshot parsing, add-on manifest, arena helpers, safe URLs, Wow autologin handling (see `CMakeLists.txt`). |
+| **Core library** | `ahc_c` in `src/` — attune snapshot parsing, add-on manifest, arena helpers, safe URLs, and shared launch helpers (see `CMakeLists.txt`). |
 | **Tests** | CTest targets under `tests/`; CI runs the same flow as [scripts/ci-build.sh](scripts/ci-build.sh). |
 | **Add-on catalog** | [manifest/addons.json](manifest/addons.json) baked at build time via [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py). |
 | **Android** | Gradle app under `android/` — Material UI, SAF to a Synastria root, attune log, `AHC1:` / QR / NFC flows, GitHub codeload zip install into `Interface/AddOns`. See [docs/android-build.md](docs/android-build.md). |
@@ -31,8 +31,7 @@ For product goals and boundaries in one page, see [docs/scope.md](docs/scope.md)
 
 - **Synastria folder** — point at the install; the app reads `WTF/.../SavedVariables/AttuneHelper.lua` and shows attune **snapshot history** in the status area.
 - **Add-ons** — browse the baked catalog (filters, “Community Favorites,” install / update / uninstall with backups where designed).
-- **Play Game** — launches **WoWExt.exe** by default, or **Wow.exe** with autologin when that path is enabled.
-- **Autologin (AwesomeWotLK-style)** — optional `-login` / `-password` / `-realmname` (and validated extra launch parameters). On Windows, password material uses **DPAPI** (`wow_autologin.cred`); on Linux, a user-only `0600` file—not `settings.ini`. See [docs/user-testing.md](docs/user-testing.md).
+- **Play Game** — launches **WoWExt.exe** / **WowExt.exe** with the Launch parameters entered in Settings.
 - **Tray and windowing** — hide to tray, restore, fullscreen (UI / F11 / Alt+Enter).
 
 **Android**
@@ -122,7 +121,7 @@ Tray behavior, fullscreen, add-ons tab UX, and real Synastria folder integration
 | Document | Purpose |
 |----------|---------|
 | [docs/scope.md](docs/scope.md) | Product scope and distribution model |
-| [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, autologin, Android vs desktop |
+| [docs/threat-model.md](docs/threat-model.md) | Trust boundaries, launch behavior, Android vs desktop |
 | [docs/user-testing.md](docs/user-testing.md) | Manual QA checklist |
 | [docs/android-build.md](docs/android-build.md) | Gradle, CI APK, NFC overview |
 | [docs/android-winlator.md](docs/android-winlator.md) | Android + Winlator integration paths (A / B / C) |
@@ -144,6 +143,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, the [code of conduct](COD
 
 The [description](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-settings-for-your-repository#adding-a-repository-description) is set in **Settings → General** (not in git). Suggested one-liner for **About**:
 
-*Native C + Android companion for Synastria: local add-on management, AttuneHelper daily snapshots, optional autologin; data stays on your machine. GPL-3.0.*
+*Native C + Android companion for Synastria: local add-on management, AttuneHelper daily snapshots, desktop launch helpers; data stays on your machine. GPL-3.0.*
 
 Optional [topics](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings#adding-topics) for search: e.g. `synastria`, `wow`, `attune`, `raylib`, `android`, `cmake`, `game-addon`. Issue forms and the PR template are under [`.github/`](.github/). In **Settings → [Code security]**, enable [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability) so [SECURITY.md](SECURITY.md) can be fully effective on GitHub.
