@@ -965,19 +965,29 @@ static bool addon_has_source_subdir(const AhcAddon *addon)
 {
     return addon->source_subdir && addon->source_subdir[0];
 }
-static bool resolve_addons_path(const CompanionState *state, char *out, size_t out_capacity)
+
+static bool resolve_interface_path(const CompanionState *state, char *out, size_t out_capacity)
 {
     if (!validate_synastria_path(state->synastria_path)) {
         return false;
     }
 
-    char interface_path[AHC_PATH_CAPACITY];
-    path_join(interface_path, sizeof(interface_path), state->synastria_path, "Interface");
-    path_join(out, out_capacity, interface_path, "AddOns");
-
-    if (!DirectoryExists(interface_path)) {
-        AHC_MKDIR(interface_path);
+    path_join(out, out_capacity, state->synastria_path, "Interface");
+    if (!DirectoryExists(out)) {
+        AHC_MKDIR(out);
     }
+
+    return DirectoryExists(out);
+}
+
+static bool resolve_addons_path(const CompanionState *state, char *out, size_t out_capacity)
+{
+    char interface_path[AHC_PATH_CAPACITY];
+    if (!resolve_interface_path(state, interface_path, sizeof(interface_path))) {
+        return false;
+    }
+
+    path_join(out, out_capacity, interface_path, "AddOns");
     if (!DirectoryExists(out)) {
         AHC_MKDIR(out);
     }
@@ -1288,12 +1298,12 @@ static bool addon_backup_root(const CompanionState *state, char *out, size_t out
 
 static bool addon_staging_root(const CompanionState *state, char *out, size_t out_capacity)
 {
-    char addons_path[AHC_PATH_CAPACITY];
-    if (!resolve_addons_path(state, addons_path, sizeof(addons_path))) {
+    char interface_path[AHC_PATH_CAPACITY];
+    if (!resolve_interface_path(state, interface_path, sizeof(interface_path))) {
         return false;
     }
 
-    path_join(out, out_capacity, addons_path, "_AttuneHelperCompanionStaging");
+    path_join(out, out_capacity, interface_path, "_AttuneHelperCompanionStaging");
     if (!DirectoryExists(out)) {
         AHC_MKDIR(out);
     }
@@ -1698,9 +1708,14 @@ static bool download_addon_to_addons(CompanionState *state, const AhcAddon *addo
         return false;
     }
 
+    char staging_root[AHC_PATH_CAPACITY];
+    bool has_staging_root = addon_staging_root(state, staging_root, sizeof(staging_root));
     bool promoted = promote_staged_addon_folders(state, addon, package_root);
     set_addon_job_progress(state, "Cleaning staging files");
     remove_directory_tree(package_root);
+    if (has_staging_root) {
+        remove_directory_tree(staging_root);
+    }
     return promoted;
 }
 
@@ -4394,6 +4409,9 @@ static const char *community_favorite_description(const AhcAddon *addon)
     if (strcmp(addon->folder, "AttuneHelper") == 0) {
         return "Automate your Attunement swaps and manage your gear quickly with this powerful addon.";
     }
+    if (strcmp(addon->folder, "Mapster") == 0) {
+        return "Improves the world map and includes Synastria map quality-of-life additions.";
+    }
     if (strcmp(addon->folder, "ScootsStats") == 0) {
         return "Adds a stat panel beside your character panel with extra stats.";
     }
@@ -4439,10 +4457,10 @@ static void draw_community_favorite_card(CompanionState *state, const AhcAddon *
 
 static float draw_community_favorites_section(CompanionState *state, const AhcAddon *addons, size_t count, float x, float y, float right)
 {
-    size_t favorites[5] = { 0 };
-    const char *descriptions[5] = { 0 };
+    size_t favorites[6] = { 0 };
+    const char *descriptions[6] = { 0 };
     size_t favorite_count = 0u;
-    for (size_t i = 0; i < count && favorite_count < 5u; i++) {
+    for (size_t i = 0; i < count && favorite_count < 6u; i++) {
         const char *description = community_favorite_description(&addons[i]);
         if (description) {
             favorites[favorite_count] = i;

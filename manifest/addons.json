@@ -85,7 +85,8 @@
       "version": "1.7.2",
       "categories": [
         "Attunement",
-        "Community Favorites"
+        "Community Favorites",
+        "Gear"
       ]
     },
     {
@@ -202,6 +203,55 @@
       "direct_zip": null,
       "avatar_url": "https://github.com/RosemyneH.png?size=96",
       "version": "v6"
+    },
+    {
+      "id": "cdf-synastria",
+      "name": "cDF",
+      "author": "QT",
+      "category": "UI Suite",
+      "folder": "cDF",
+      "description": "cDF UI suite for Synastria.",
+      "repo": "https://github.com/RosemyneH/cDF---Synastria.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/cDF---Synastria.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "cDF---Synastria",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null,
+      "avatar_url": "https://github.com/RosemyneH.png?size=96",
+      "version": "main"
+    },
+    {
+      "id": "mapster-synastria-hosting",
+      "name": "Mapster",
+      "author": "QT",
+      "category": "Map",
+      "folder": "Mapster",
+      "description": "Mapster package for Synastria with map quality-of-life additions.",
+      "repo": "https://github.com/RosemyneH/MapsterSynastriaHosting.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/RosemyneH/MapsterSynastriaHosting.git"
+      },
+      "github_release": {
+        "owner": "RosemyneH",
+        "repo": "MapsterSynastriaHosting",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null,
+      "avatar_url": "https://github.com/RosemyneH.png?size=96",
+      "version": "main",
+      "categories": [
+        "Map",
+        "Quality of Life",
+        "Community Favorites"
+      ]
     },
     {
       "id": "mehtrajectory",
