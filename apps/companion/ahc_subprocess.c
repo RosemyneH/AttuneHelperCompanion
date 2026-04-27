@@ -306,7 +306,8 @@ static bool read_tar_list_win(const char *zip_path, char *out, size_t out_cap, s
 #endif
 
 #if !defined(_WIN32)
-static bool read_tar_list_posix(const char *zip_path, char *out, size_t out_cap, size_t *nout)
+/* GNU tar on typical Linux does not list zip; Windows tar (libarchive) does. */
+static bool read_zip_list_posix(const char *zip_path, char *out, size_t out_cap, size_t *nout)
 {
     int pfd[2];
     if (pipe(pfd) != 0) {
@@ -324,8 +325,10 @@ static bool read_tar_list_posix(const char *zip_path, char *out, size_t out_cap,
             _exit(127);
         }
         close(pfd[1]);
-        const char *argv[] = { "tar", "-tf", zip_path, NULL };
-        execvp("tar", (char *const *)argv);
+        const char *argv[] = { "unzip", "-Z", "-1", zip_path, NULL };
+        execvp("unzip", (char *const *)argv);
+        const char *argv2[] = { "zipinfo", "-1", zip_path, NULL };
+        execvp("zipinfo", (char *const *)argv2);
         _exit(127);
     }
     close(pfd[1]);
@@ -417,7 +420,7 @@ bool ahc_preflight_zip_safe(const char *zip_path)
         return false;
     }
 #else
-    if (!read_tar_list_posix(zip_path, buf, sizeof buf, &n)) {
+    if (!read_zip_list_posix(zip_path, buf, sizeof buf, &n)) {
         return false;
     }
 #endif
