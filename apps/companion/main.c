@@ -149,6 +149,10 @@ typedef struct CompanionState {
     GraphMetric graph_metric;
     GraphDisplay graph_display;
     char selected_addon_category[64];
+    char addon_search_query[128];
+    bool addon_search_visible;
+    bool addon_search_editing;
+    char addon_filter_cache_search[128];
     char addon_catalog_source[AHC_PATH_CAPACITY];
     AddonPreset presets[AHC_PRESET_CAPACITY];
     size_t preset_count;
@@ -2303,6 +2307,10 @@ static bool try_load_addon_manifest_labeled(CompanionState *state, const char *p
     state->addon_manifest_loaded = true;
     snprintf(state->addon_catalog_source, sizeof(state->addon_catalog_source), "%s", label);
     state->selected_addon_category[0] = '\0';
+    state->addon_search_query[0] = '\0';
+    state->addon_search_visible = false;
+    state->addon_search_editing = false;
+    state->addon_filter_valid = false;
     state->addon_scroll = 0;
     return true;
 }
@@ -4720,24 +4728,92 @@ static bool addon_matches_selected_category(const CompanionState *state, const A
     return addon->category && strcmp(addon->category, state->selected_addon_category) == 0;
 }
 
+static char ahc_ascii_fold_char(char c)
+{
+    if (c >= 'A' && c <= 'Z') {
+        return (char)(c + 32);
+    }
+    return c;
+}
+
+static bool ahc_substring_match_ascii_caseless(const char *hay, const char *needle)
+{
+    if (!needle || !needle[0]) {
+        return true;
+    }
+    if (!hay) {
+        return false;
+    }
+    for (size_t i = 0; hay[i]; i++) {
+        size_t j = 0;
+        for (; needle[j]; j++) {
+            char a = hay[i + j];
+            char b = needle[j];
+            a = ahc_ascii_fold_char(a);
+            b = ahc_ascii_fold_char(b);
+            if (a != b) {
+                break;
+            }
+        }
+        if (!needle[j]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool addon_matches_search_query(const CompanionState *state, const AhcAddon *addon)
+{
+    if (!state->addon_search_query[0]) {
+        return true;
+    }
+    const char *q = state->addon_search_query;
+    if (ahc_substring_match_ascii_caseless(addon->name, q)) {
+        return true;
+    }
+    if (addon->id && ahc_substring_match_ascii_caseless(addon->id, q)) {
+        return true;
+    }
+    if (addon->folder && ahc_substring_match_ascii_caseless(addon->folder, q)) {
+        return true;
+    }
+    if (addon->author && ahc_substring_match_ascii_caseless(addon->author, q)) {
+        return true;
+    }
+    if (addon->description && ahc_substring_match_ascii_caseless(addon->description, q)) {
+        return true;
+    }
+    if (addon->category && ahc_substring_match_ascii_caseless(addon->category, q)) {
+        return true;
+    }
+    return false;
+}
+
+static bool addon_passes_catalog_filters(const CompanionState *state, const AhcAddon *addon)
+{
+    return addon_matches_selected_category(state, addon) && addon_matches_search_query(state, addon);
+}
+
 static size_t addon_filtered_count(CompanionState *state, const AhcAddon *addons, size_t count)
 {
     if (state->addon_filter_valid
         && state->addon_filter_cache_items == addons
         && state->addon_filter_cache_count == count
-        && strcmp(state->addon_filter_cache_category, state->selected_addon_category) == 0) {
+        && strcmp(state->addon_filter_cache_category, state->selected_addon_category) == 0
+        && strcmp(state->addon_filter_cache_search, state->addon_search_query) == 0) {
         return state->addon_filter_count;
     }
 
     size_t filtered = 0u;
     for (size_t i = 0; i < count; i++) {
-        if (addon_matches_selected_category(state, &addons[i])) {
+        if (addon_passes_catalog_filters(state, &addons[i])) {
             filtered++;
         }
     }
     state->addon_filter_cache_items = addons;
     state->addon_filter_cache_count = count;
     snprintf(state->addon_filter_cache_category, sizeof(state->addon_filter_cache_category), "%s", state->selected_addon_category);
+    snprintf(state->addon_filter_cache_search, sizeof(state->addon_filter_cache_search), "%s", state->addon_search_query);
     state->addon_filter_count = filtered;
     state->addon_filter_valid = true;
     return filtered;
@@ -4863,6 +4939,7 @@ static int draw_category_filters(CompanionState *state, const AhcAddon *addons, 
                 snprintf(state->selected_addon_category, sizeof(state->selected_addon_category), "%s", label);
             }
             state->addon_scroll = 0;
+            state->addon_filter_valid = false;
         }
 
         cursor_x += width + 8.0f;
@@ -5406,12 +5483,63 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_
 
 static void draw_addons_tab(CompanionState *state)
 {
+    if (!state->profile_confirm_open) {
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            state->addon_search_query[0] = '\0';
+            state->addon_search_visible = false;
+            state->addon_search_editing = false;
+            state->addon_filter_valid = false;
+            state->addon_scroll = 0;
+        } else if (!state->addon_search_visible) {
+            int ch;
+            while ((ch = GetCharPressed()) > 0) {
+                if (ch < 32 || ch > 126) {
+                    continue;
+                }
+                if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) {
+                    continue;
+                }
+                if (IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT)) {
+                    continue;
+                }
+                size_t n = strlen(state->addon_search_query);
+                if (n + 1u < sizeof(state->addon_search_query)) {
+                    state->addon_search_query[n] = (char)ch;
+                    state->addon_search_query[n + 1u] = '\0';
+                }
+                state->addon_search_visible = true;
+                state->addon_search_editing = true;
+                state->addon_filter_valid = false;
+                state->addon_scroll = 0;
+            }
+        }
+    }
+
     const AhcAddon *addons = state->addons ? state->addons : ahc_addon_catalog_items();
     size_t count = state->addons ? state->addon_count : ahc_addon_catalog_count();
     const size_t filtered_count = addon_filtered_count(state, addons, count);
 
-    char title[128];
-    if (state->selected_addon_category[0]) {
+    char title[192];
+    if (state->addon_search_query[0]) {
+        if (state->selected_addon_category[0]) {
+            snprintf(
+                title,
+                sizeof(title),
+                "Addon catalog (%zu/%zu) - %s - \"%s\"",
+                filtered_count,
+                count,
+                state->selected_addon_category,
+                state->addon_search_query);
+        } else {
+            snprintf(
+                title,
+                sizeof(title),
+                "Addon catalog (%zu/%zu) - \"%s\"",
+                filtered_count,
+                count,
+                state->addon_search_query);
+        }
+    } else if (state->selected_addon_category[0]) {
         snprintf(title, sizeof(title), "Addon catalog (%zu/%zu) - %s", filtered_count, count, state->selected_addon_category);
     } else {
         snprintf(title, sizeof(title), "Addon catalog (%zu)", count);
@@ -5429,6 +5557,19 @@ static void draw_addons_tab(CompanionState *state)
         begin_catalog_refresh(state);
     }
     controls_y += 28.0f;
+    if (state->addon_search_visible) {
+        draw_text("Search", (int)content.x + 20, (int)controls_y, 14, AHC_MUTED);
+        Rectangle search_box
+            = { content.x + 90.0f, controls_y - 4.0f, content.width - 40.0f - 90.0f, 28.0f };
+        if (GuiTextBox(
+                search_box,
+                state->addon_search_query,
+                (int)sizeof(state->addon_search_query),
+                state->addon_search_editing)) {
+            state->addon_search_editing = !state->addon_search_editing;
+        }
+        controls_y += 34.0f;
+    }
     controls_y += draw_profiles_panel(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
     int category_rows = draw_category_filters(state, addons, count, content.x + 20.0f, controls_y, content.x + content.width - 20.0f);
     float list_y = controls_y + (float)(category_rows * 34) + 8.0f;
@@ -5461,14 +5602,17 @@ static void draw_addons_tab(CompanionState *state)
         state->addon_scroll = max_scroll;
     }
     if (filtered_count == 0) {
-        draw_text("No addons found in this category.", (int)list_bounds.x + 4, (int)list_y + 20, 18, AHC_MUTED);
+        const char *empty_hint = state->addon_search_query[0]
+            ? "No add-ons match the current search and filters."
+            : (state->selected_addon_category[0] ? "No addons found in this category." : "No add-ons in catalog.");
+        draw_text(empty_hint, (int)list_bounds.x + 4, (int)list_y + 20, 18, AHC_MUTED);
     } else {
         int skipped = 0;
         int slot = 0;
         int skip_slots = state->addon_scroll * column_count;
         BeginScissorMode((int)list_bounds.x, (int)list_bounds.y, (int)list_bounds.width, (int)list_bounds.height);
         for (size_t i = 0; i < count && (size_t)slot < visible_slots; i++) {
-            if (!addon_matches_selected_category(state, &addons[i])) {
+            if (!addon_passes_catalog_filters(state, &addons[i])) {
                 continue;
             }
             if (skipped < skip_slots) {

@@ -125,22 +125,58 @@ static bool ahc_win_spawnv_wait(const char *exe_basename, const char *const *arg
 #endif
 }
 
+static bool ahc_append_https_origin_referer(const char *url, char *out, size_t cap)
+{
+    out[0] = '\0';
+    if (!url || strncmp(url, "https://", 8) != 0) {
+        return false;
+    }
+    const char *hoststart = url + 8;
+    const char *slash = strchr(hoststart, '/');
+    if (slash == NULL) {
+        if (strlen(url) + 2u >= cap) {
+            return false;
+        }
+        snprintf(out, cap, "%s/", url);
+        return true;
+    }
+    size_t hostlen = (size_t)(slash - hoststart);
+    if (8u + hostlen + 2u >= cap) {
+        return false;
+    }
+    memcpy(out, "https://", 8u);
+    memcpy(out + 8, hoststart, hostlen);
+    out[8u + hostlen] = '/';
+    out[8u + hostlen + 1u] = '\0';
+    return true;
+}
+
 bool ahc_curl_download_file(const char *url, const char *file_path)
 {
     if (!ahc_url_safe_for_download(url) || !ahc_path_safe_for_arg(file_path)) {
         return false;
     }
-    const char *argv[] = {
-        "curl",
-        "-L",
-        "--fail",
-        "--silent",
-        "--show-error",
-        "-o",
-        file_path,
-        url,
-        NULL,
-    };
+    char referer[256];
+    ahc_append_https_origin_referer(url, referer, sizeof(referer));
+    static const char *const user_agent
+        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+    const char *argv[16];
+    int argc = 0;
+    argv[argc++] = "curl";
+    argv[argc++] = "-L";
+    argv[argc++] = "--fail";
+    argv[argc++] = "--silent";
+    argv[argc++] = "--show-error";
+    if (referer[0]) {
+        argv[argc++] = "-e";
+        argv[argc++] = referer;
+    }
+    argv[argc++] = "-A";
+    argv[argc++] = user_agent;
+    argv[argc++] = "-o";
+    argv[argc++] = file_path;
+    argv[argc++] = url;
+    argv[argc] = NULL;
 #if defined(_WIN32)
     return ahc_win_spawnv_wait("curl", argv);
 #else
