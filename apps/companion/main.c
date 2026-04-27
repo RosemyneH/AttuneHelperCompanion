@@ -160,7 +160,7 @@ typedef struct CompanionState {
     bool pending_profile_valid;
     bool pending_profile_selected[AHC_PROFILE_MAX_ADDONS];
     bool profile_confirm_open;
-    char profile_code[32768];
+    char profile_code[AHC_PROFILE_CODE_CAPACITY];
     bool profile_code_editing;
     char profile_queue_ids[AHC_PROFILE_MAX_ADDONS][AHC_PROFILE_ID_CAPACITY];
     size_t profile_queue_count;
