@@ -239,5 +239,50 @@ int main(void)
         }
         free(jempty);
     }
+
+    AhcDailyAttuneSnapshot out_snap[4];
+    size_t out_n = 0u;
+    if (ahc_sync_decode_full_history(buf, out_snap, 4, &out_n) != 0 || out_n != 1u) {
+        fprintf(stderr, "decode full count mismatch\n");
+        return 1;
+    }
+    if (strcmp(out_snap[0].date, s.date) != 0
+        || out_snap[0].account != s.account
+        || out_snap[0].warforged != s.warforged
+        || out_snap[0].lightforged != s.lightforged
+        || out_snap[0].titanforged != s.titanforged) {
+        fprintf(stderr, "decode full snapshot fields mismatch\n");
+        return 1;
+    }
+    AhcDailyAttuneSnapshot empty_out[1];
+    size_t empty_n = 1u;
+    if (ahc_sync_decode_full_history(empty_buf, empty_out, 1, &empty_n) != 0 || empty_n != 0u) {
+        fprintf(stderr, "decode empty should yield 0 snapshots\n");
+        return 1;
+    }
+    {
+        char with_spaces[20000];
+        size_t w = 0u;
+        for (size_t i = 0; buf[i] && w + 2u < sizeof with_spaces; i++) {
+            if (i == 35u) {
+                with_spaces[w++] = (char)'\n';
+                with_spaces[w++] = (char)' ';
+            }
+            with_spaces[w++] = (char)buf[i];
+        }
+        with_spaces[w] = '\0';
+        if (ahc_sync_decode_full_history(with_spaces, out_snap, 4, &out_n) != 0 || out_n != 1u) {
+            fprintf(stderr, "decode with whitespace failed\n");
+            return 1;
+        }
+    }
+    {
+        AhcDailyAttuneSnapshot ign[1];
+        size_t nz = 0u;
+        if (ahc_sync_decode_full_history("not a token", ign, 1, &nz) == 0) {
+            fprintf(stderr, "decode should fail on garbage\n");
+            return 1;
+        }
+    }
     return 0;
 }

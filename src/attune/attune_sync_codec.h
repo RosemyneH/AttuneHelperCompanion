@@ -12,6 +12,8 @@
 
 int ahc_sync_encode_full_history(const AhcDailyAttuneSnapshot *snapshots, size_t count, char *out, size_t out_cap);
 
+int ahc_sync_decode_full_history(const char *token, AhcDailyAttuneSnapshot *out, size_t out_cap, size_t *out_count);
+
 int ahc_sync_encode_one_day_qr(const AhcDailyAttuneSnapshot *s, char *out, size_t out_cap);
 
 int ahc_sync_encode_multi_day_qr(const AhcDailyAttuneSnapshot *snapshots, size_t count, char *out, size_t out_cap);

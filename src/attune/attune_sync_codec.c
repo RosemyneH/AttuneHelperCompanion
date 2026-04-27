@@ -11,9 +11,140 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #define AHC_SYNC_JSON_MAX (1024U * 1024U)
 #define AHC_SYNC_MULTI_RAW_MAX 1024U
+#define AHC_SYNC_MAX_BULK_B64_CHARS 2000000U
+#define AHC_SYNC_MAX_BULK_GZIP_BYTES (1U << 20)
+#define AHC_SYNC_MAX_BULK_JSON_UNCOMP (1024U * 1024U)
+
+static int ahc_b64url_value(int c)
+{
+    if (c >= 'A' && c <= 'Z') {
+        return c - 'A';
+    }
+    if (c >= 'a' && c <= 'z') {
+        return c - 'a' + 26;
+    }
+    if (c >= '0' && c <= '9') {
+        return c - '0' + 52;
+    }
+    if (c == '-') {
+        return 62;
+    }
+    if (c == '_') {
+        return 63;
+    }
+    return -1;
+}
+
+static int ahc_b64url_decode(const char *in, size_t in_len, unsigned char *out, size_t out_cap, size_t *out_len)
+{
+    size_t o = 0;
+    size_t i = 0;
+    while (i < in_len) {
+        int rem = (int)(in_len - i);
+        if (rem >= 4) {
+            int a = ahc_b64url_value((unsigned char)in[i]);
+            int b2 = ahc_b64url_value((unsigned char)in[i + 1U]);
+            int c2 = ahc_b64url_value((unsigned char)in[i + 2U]);
+            int d2 = ahc_b64url_value((unsigned char)in[i + 3U]);
+            if (a < 0 || b2 < 0 || c2 < 0 || d2 < 0) {
+                return -1;
+            }
+            if (o + 3U > out_cap) {
+                return -1;
+            }
+            out[o++] = (unsigned char)((a << 2) | (b2 >> 4));
+            out[o++] = (unsigned char)(((b2 & 0x0f) << 4) | (c2 >> 2));
+            out[o++] = (unsigned char)(((c2 & 0x03) << 6) | d2);
+            i += 4U;
+        } else if (rem == 3) {
+            int a = ahc_b64url_value((unsigned char)in[i]);
+            int b2 = ahc_b64url_value((unsigned char)in[i + 1U]);
+            int c2 = ahc_b64url_value((unsigned char)in[i + 2U]);
+            if (a < 0 || b2 < 0 || c2 < 0) {
+                return -1;
+            }
+            if (o + 2U > out_cap) {
+                return -1;
+            }
+            out[o++] = (unsigned char)((a << 2) | (b2 >> 4));
+            out[o++] = (unsigned char)(((b2 & 0x0f) << 4) | (c2 >> 2));
+            i += 3U;
+        } else if (rem == 2) {
+            int a = ahc_b64url_value((unsigned char)in[i]);
+            int b2 = ahc_b64url_value((unsigned char)in[i + 1U]);
+            if (a < 0 || b2 < 0) {
+                return -1;
+            }
+            if (o + 1U > out_cap) {
+                return -1;
+            }
+            out[o++] = (unsigned char)((a << 2) | (b2 >> 4));
+            i += 2U;
+        } else {
+            return -1;
+        }
+    }
+    *out_len = o;
+    return 0;
+}
+
+static int ahc_sync_parse_one_snapshot_object(const char *obj, size_t obj_len, AhcDailyAttuneSnapshot *out)
+{
+    if (out == NULL || obj_len < 8U || obj_len + 1U > 1024U) {
+        return -1;
+    }
+    char buf[1024];
+    if (obj_len >= sizeof buf) {
+        return -1;
+    }
+    memcpy(buf, obj, obj_len);
+    buf[obj_len] = '\0';
+
+    const char *d = strstr(buf, "\"date\":\"");
+    if (d == NULL) {
+        return -1;
+    }
+    d += 8;
+    const char *de = strchr(d, '"');
+    if (de == NULL) {
+        return -1;
+    }
+    size_t dl = (size_t)(de - d);
+    if (dl == 0U || dl >= AHC_DATE_CAPACITY) {
+        return -1;
+    }
+    memcpy(out->date, d, dl);
+    out->date[dl] = '\0';
+
+    const char *k_account = strstr(buf, "\"account\":");
+    const char *k_wf = strstr(buf, "\"warforged\":");
+    const char *k_lf = strstr(buf, "\"lightforged\":");
+    const char *k_tf = strstr(buf, "\"titanforged\":");
+    if (k_account == NULL || k_wf == NULL || k_lf == NULL || k_tf == NULL) {
+        return -1;
+    }
+    {
+        const char *p = k_account + strlen("\"account\":");
+        out->account = (int)strtol(p, NULL, 10);
+    }
+    {
+        const char *p = k_wf + strlen("\"warforged\":");
+        out->warforged = (int)strtol(p, NULL, 10);
+    }
+    {
+        const char *p = k_lf + strlen("\"lightforged\":");
+        out->lightforged = (int)strtol(p, NULL, 10);
+    }
+    {
+        const char *p = k_tf + strlen("\"titanforged\":");
+        out->titanforged = (int)strtol(p, NULL, 10);
+    }
+    return 0;
+}
 
 static bool ahc_parse_iso_date(const char *date, int *year, int *month, int *day)
 {
@@ -406,4 +537,168 @@ int ahc_sync_encode_full_history(const AhcDailyAttuneSnapshot *snapshots, size_t
     free(gz);
     out[pre + b64o] = '\0';
     return (int)(pre + b64o);
+}
+
+int ahc_sync_decode_full_history(const char *token, AhcDailyAttuneSnapshot *out_snapshots, size_t out_cap, size_t *out_count)
+{
+    if (out_count == NULL) {
+        return -1;
+    }
+    *out_count = 0U;
+    if (token == NULL) {
+        return -1;
+    }
+    if (out_cap == 0U && out_snapshots != NULL) {
+        return -1;
+    }
+    if (out_cap > 0U && out_snapshots == NULL) {
+        return -1;
+    }
+
+    while (token[0] != '\0' && isspace((unsigned char)token[0])) {
+        token++;
+    }
+    {
+        const char *p = token;
+        if (p[0] == (char)0xefu && p[1] == (char)0xbbu && p[2] == (char)0xbfu) {
+            p += 3;
+        }
+        if (strncmp(p, AHC_SYNC_BULK_PREFIX, sizeof AHC_SYNC_BULK_PREFIX - 1U) != 0) {
+            return -1;
+        }
+        token = p + (sizeof AHC_SYNC_BULK_PREFIX - 1U);
+    }
+
+    char *b64_stripped = (char *)malloc(AHC_SYNC_MAX_BULK_B64_CHARS + 2U);
+    if (b64_stripped == NULL) {
+        return -1;
+    }
+    size_t w = 0U;
+    for (const char *q = token; *q; q++) {
+        if (isspace((unsigned char)*q)) {
+            continue;
+        }
+        if (w >= AHC_SYNC_MAX_BULK_B64_CHARS) {
+            free(b64_stripped);
+            return -1;
+        }
+        b64_stripped[w++] = *q;
+    }
+    b64_stripped[w] = '\0';
+    if (w == 0U) {
+        free(b64_stripped);
+        return -1;
+    }
+
+    unsigned char *gz = (unsigned char *)malloc(AHC_SYNC_MAX_BULK_GZIP_BYTES + 64U);
+    if (gz == NULL) {
+        free(b64_stripped);
+        return -1;
+    }
+    size_t gzlen = 0U;
+    if (ahc_b64url_decode(b64_stripped, w, gz, AHC_SYNC_MAX_BULK_GZIP_BYTES + 64U, &gzlen) != 0) {
+        free(b64_stripped);
+        free(gz);
+        return -1;
+    }
+    free(b64_stripped);
+    if (gzlen < 18U || gzlen > AHC_SYNC_MAX_BULK_GZIP_BYTES) {
+        free(gz);
+        return -1;
+    }
+    if (gz[0] != 0x1fu || gz[1] != 0x8bu) {
+        free(gz);
+        return -1;
+    }
+    if (gzlen < 10U + 8U) {
+        free(gz);
+        return -1;
+    }
+    const unsigned char *defl = gz + 10U;
+    size_t defl_len = gzlen - 10U - 8U;
+    void *json_heap = NULL;
+    size_t json_len = 0U;
+    json_heap = tinfl_decompress_mem_to_heap(defl, defl_len, &json_len, 0);
+    free(gz);
+    gz = NULL;
+    if (json_heap == NULL) {
+        return -1;
+    }
+    if (json_len == 0U || json_len > AHC_SYNC_MAX_BULK_JSON_UNCOMP) {
+        free(json_heap);
+        return -1;
+    }
+    char *json = (char *)json_heap;
+    if (json_len < AHC_SYNC_MAX_BULK_JSON_UNCOMP) {
+        json[json_len] = '\0';
+    } else {
+        free(json_heap);
+        return -1;
+    }
+    if (strstr(json, "\"v\":1") == NULL) {
+        free(json);
+        return -1;
+    }
+
+    const char *array_key = strstr(json, "\"snapshots\"");
+    if (array_key == NULL) {
+        free(json);
+        return -1;
+    }
+    const char *bracket = strchr(array_key, '[');
+    if (bracket == NULL) {
+        free(json);
+        return -1;
+    }
+    const char *p = bracket + 1U;
+    while (p[0] != '\0' && isspace((unsigned char)p[0])) {
+        p++;
+    }
+    if (p[0] == ']') {
+        *out_count = 0U;
+        free(json);
+        return 0;
+    }
+    for (;;) {
+        const char *obj = strstr(p, "{\"date\"");
+        if (obj == NULL) {
+            /* tolerate trailing space before ] */
+            const char *t = p;
+            while (t[0] != '\0' && isspace((unsigned char)t[0])) {
+                t++;
+            }
+            if (t[0] == ']' || t[0] == '\0') {
+                break;
+            }
+            free(json);
+            return -1;
+        }
+        const char *cend = strchr(obj + 1, '}');
+        if (cend == NULL) {
+            free(json);
+            return -1;
+        }
+        if (*out_count >= out_cap) {
+            free(json);
+            return -1;
+        }
+        AhcDailyAttuneSnapshot s;
+        memset(&s, 0, sizeof s);
+        if (ahc_sync_parse_one_snapshot_object(obj, (size_t)(cend - obj) + 1U, &s) == 0) {
+            s.found = true;
+            out_snapshots[(*out_count)++] = s;
+        } else {
+            free(json);
+            return -1;
+        }
+        p = cend + 1U;
+        while (p[0] != '\0' && (p[0] == ',' || isspace((unsigned char)p[0]))) {
+            p++;
+        }
+        if (p[0] == ']' || p[0] == '\0') {
+            break;
+        }
+    }
+    free(json);
+    return 0;
 }

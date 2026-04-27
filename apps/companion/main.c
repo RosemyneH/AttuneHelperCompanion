@@ -426,6 +426,60 @@ static int draw_wrapped_text(const char *text, int x, int y, int size, int max_w
     return lines;
 }
 
+static int draw_path_wrapped(
+    int x, int y, int size, int max_width, int max_lines, const char *path, Color color
+)
+{
+    if (!path || !path[0] || max_width <= 0 || max_lines <= 0) {
+        return 0;
+    }
+
+    int line = 0;
+    int start = 0;
+    int len = (int)strlen(path);
+    int cy = y;
+    int approx = (size * 5) / 8;
+    if (approx < 5) {
+        approx = 5;
+    }
+    int max_run = max_width / approx;
+    if (max_run < 8) {
+        max_run = 8;
+    }
+    if (max_run > 120) {
+        max_run = 120;
+    }
+
+    while (line < max_lines && start < len) {
+        int end = start + max_run;
+        if (end > len) {
+            end = len;
+        } else {
+            for (int k = end; k > start + 8; k--) {
+                if (path[k] == '/' || path[k] == '\\') {
+                    end = k + 1;
+                    break;
+                }
+            }
+        }
+        int n = end - start;
+        if (n <= 0) {
+            break;
+        }
+        char piece[400];
+        if (n >= (int)sizeof piece) {
+            n = (int)sizeof piece - 1;
+        }
+        memcpy(piece, path + (size_t)start, (size_t)n);
+        piece[n] = '\0';
+        draw_text(piece, x, cy, size, color);
+        line++;
+        cy += size + 4;
+        start = end;
+    }
+    return line;
+}
+
 static int color_to_gui_hex(Color color)
 {
     return ((int)color.r << 24) | ((int)color.g << 16) | ((int)color.b << 8) | color.a;
@@ -2029,6 +2083,87 @@ static void path_join(char *out, size_t out_capacity, const char *left, const ch
     snprintf(out, out_capacity, "%s%s%s", left, separator, right);
 }
 
+static void trim_path_both_ends_in_place(char *text)
+{
+    if (!text) {
+        return;
+    }
+    char *a = text;
+    while (*a == ' ' || *a == '\t') {
+        a++;
+    }
+    if (a != text) {
+        size_t len_a = strlen(a) + 1u;
+        memmove(text, a, len_a);
+    }
+    size_t length = strlen(text);
+    while (length > 0u && (text[length - 1u] == ' ' || text[length - 1u] == '\t' || text[length - 1u] == '\r' || text[length - 1u] == '\n')) {
+        text[--length] = '\0';
+    }
+}
+
+static bool ahc_path_parent(const char *path, char *out, size_t cap)
+{
+    if (!path[0] || !out || cap < 1u) {
+        return false;
+    }
+    char work[AHC_PATH_CAPACITY];
+    snprintf(work, sizeof(work), "%s", path);
+    size_t m = strlen(work);
+    while (m > 0u && (work[m - 1u] == '/' || work[m - 1u] == '\\')) {
+        m--;
+    }
+    while (m > 0u && work[m - 1u] != '/' && work[m - 1u] != '\\') {
+        m--;
+    }
+    while (m > 0u && (work[m - 1u] == '/' || work[m - 1u] == '\\')) {
+        m--;
+    }
+    if (m == 0u) {
+        return false;
+    }
+    if (m == 2u && work[1u] == ':') {
+        return false;
+    }
+    if (m >= cap) {
+        return false;
+    }
+    memcpy(out, work, m);
+    out[m] = '\0';
+    return true;
+}
+
+static bool ahc_try_resolve_synastria_root(const char *input, char *out, size_t cap)
+{
+    if (!input || !input[0] || !out || cap < 1u) {
+        return false;
+    }
+    char work[AHC_PATH_CAPACITY];
+    snprintf(work, sizeof(work), "%s", input);
+    trim_path_both_ends_in_place(work);
+    for (int step = 0; step < 40; step++) {
+        if (validate_synastria_path(work)) {
+            snprintf(out, cap, "%s", work);
+            return true;
+        }
+        if (!ahc_path_parent(work, work, sizeof work)) {
+            return false;
+        }
+    }
+    return false;
+}
+
+static void synastria_normalize_in_place(CompanionState *state)
+{
+    if (!state->synastria_path[0]) {
+        return;
+    }
+    char resolved[AHC_PATH_CAPACITY];
+    if (ahc_try_resolve_synastria_root(state->synastria_path, resolved, sizeof(resolved))) {
+        snprintf(state->synastria_path, sizeof(state->synastria_path), "%s", resolved);
+    }
+}
+
 static void trim_line(char *text)
 {
     size_t length = strlen(text);
@@ -2163,6 +2298,7 @@ static void load_settings(CompanionState *state)
 
     fclose(file);
     state->autologin_password_stored = ahc_credential_wow_password_exists(state->config_dir);
+    synastria_normalize_in_place(state);
 }
 
 static bool ahc_line_contains_ci(const char *hay, const char *needle)
@@ -2834,30 +2970,6 @@ static void upsert_history_snapshot(CompanionState *state, const AhcDailyAttuneS
     save_history(state);
 }
 
-static void seed_test_history(CompanionState *state)
-{
-    const AhcDailyAttuneSnapshot samples[] = {
-        { true, "2026-03-29", 9860, 118, 44, 380 },
-        { true, "2026-03-30", 9888, 125, 46, 404 },
-        { true, "2026-03-31", 9916, 131, 48, 431 },
-        { true, "2026-04-01", 9963, 146, 52, 468 },
-        { true, "2026-04-03", 10127, 189, 61, 580 },
-        { true, "2026-04-04", 10127, 189, 61, 580 },
-        { true, "2026-04-06", 10184, 201, 64, 622 },
-        { true, "2026-04-07", 10220, 212, 67, 644 },
-        { true, "2026-04-10", 10310, 240, 72, 701 },
-        { true, "2026-04-11", 10310, 240, 72, 701 },
-        { true, "2026-04-12", 10372, 260, 77, 738 }
-    };
-
-    for (size_t i = 0; i < sizeof(samples) / sizeof(samples[0]); i++) {
-        upsert_history_snapshot(state, &samples[i]);
-    }
-
-    state->snapshot = samples[(sizeof(samples) / sizeof(samples[0])) - 1];
-    set_action_status(state, "Loaded old-days test history with gaps and account gains.", "Seeded attune history");
-}
-
 static bool validate_synastria_path(const char *path)
 {
     if (!path[0] || !DirectoryExists(path)) {
@@ -3210,13 +3322,42 @@ static bool try_auto_detect_synastria(CompanionState *state, bool persist)
         }
     }
 
+    if (!state->synastria_path[0] && home && home[0]) {
+        const char *compat_roots[] = {
+            ".local/share/Steam/steamapps/compatdata",
+            ".steam/steam/steamapps/compatdata",
+            ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata",
+            NULL
+        };
+        for (int r = 0; !state->synastria_path[0] && compat_roots[r]; r++) {
+            char compat_base[AHC_PATH_CAPACITY];
+            path_join(compat_base, sizeof(compat_base), home, compat_roots[r]);
+            if (!DirectoryExists(compat_base)) {
+                continue;
+            }
+            FilePathList compat_ids = LoadDirectoryFiles(compat_base);
+            for (unsigned int j = 0; j < compat_ids.count && !state->synastria_path[0]; j++) {
+                const char *id_path = compat_ids.paths[j];
+                if (!DirectoryExists(id_path)) {
+                    continue;
+                }
+                char drive_c[AHC_PATH_CAPACITY];
+                path_join(drive_c, sizeof(drive_c), id_path, "pfx/drive_c");
+                if (DirectoryExists(drive_c) && try_scan_candidate(drive_c, 6, detected_path, sizeof(detected_path))) {
+                    snprintf(state->synastria_path, sizeof(state->synastria_path), "%s", detected_path);
+                }
+            }
+            UnloadDirectoryFiles(compat_ids);
+        }
+    }
+
     if (!state->synastria_path[0] && try_scan_candidate("/opt", 5, detected_path, sizeof(detected_path))) {
         snprintf(state->synastria_path, sizeof(state->synastria_path), "%s", detected_path);
     }
 #endif
 
     if (!state->synastria_path[0]) {
-        set_status(state, "Auto-detect did not find WoWExt.exe. Paste the Synastria folder path.");
+        set_status(state, "Auto-detect did not find WoWExt.exe. Paste your game folder path (Steam Proton paths are ok), or browse to the folder that contains WoWExt.exe.");
         return false;
     }
 
@@ -3232,8 +3373,9 @@ static bool try_auto_detect_synastria(CompanionState *state, bool persist)
 
 static bool scan_attunehelper_snapshot(CompanionState *state)
 {
+    synastria_normalize_in_place(state);
     if (!validate_synastria_path(state->synastria_path)) {
-        set_action_status(state, "Set a valid Synastria folder first.", "Snapshot scan blocked");
+        set_action_status(state, "Set a valid game folder (where WoWExt.exe lives) in Settings, then save.", "Snapshot scan blocked");
         return false;
     }
 
@@ -3976,8 +4118,19 @@ static void draw_header(CompanionState *state)
     DrawCircle(GetScreenWidth() - 124, 28 + c, 72, (Color){ 56, 118, 184, 36 });
     DrawRectangle(0, 70 + c, GetScreenWidth(), 2, (Color){ 88, 124, 166, 190 });
 
-    draw_text("Addon installs, updates, and attune history", 26, 12 + c, 22, AHC_TEXT);
     Rectangle launch_button = { (float)GetScreenWidth() - 188.0f, 14.0f + (float)c, 158.0f, 42.0f };
+    int max_header = (int)launch_button.x - 36;
+    if (max_header < 180) {
+        max_header = 180;
+    }
+    if (max_header > GetScreenWidth() - 40) {
+        max_header = GetScreenWidth() - 40;
+    }
+    int sub_y = 12 + c;
+    int line_h = 27;
+    int title_lines = draw_wrapped_text(
+        "Addon installs, updates, and attune history", 26, sub_y, 22, max_header, 2, AHC_TEXT);
+    int path_y = sub_y + (title_lines > 0 ? title_lines : 1) * line_h;
 
     if (state->other_instance_count > 0u) {
         char instance_line[160];
@@ -3987,16 +4140,10 @@ static void draw_header(CompanionState *state)
             "%u other companion instance%s running. Close extras before continuing.",
             state->other_instance_count,
             state->other_instance_count == 1u ? " is" : "s are");
-        draw_text(instance_line, 28, 42 + c, 15, AHC_STATUS_WARNING);
-        int button_x = 28 + measure_text_width(instance_line, 15) + 18;
-        int button_max_x = (int)launch_button.x - 144;
-        if (button_x > button_max_x) {
-            button_x = button_max_x;
-        }
-        if (button_x < 28) {
-            button_x = 28;
-        }
-        if (draw_wow_button("Close Others", (Rectangle){ (float)button_x, 38.0f + (float)c, 132.0f, 28.0f }, false, 14)) {
+        int inst_lines = draw_wrapped_text(instance_line, 28, path_y, 15, max_header, 2, AHC_STATUS_WARNING);
+        int inst_y2 = path_y + (inst_lines > 0 ? inst_lines : 1) * 22;
+        int button_x = 28;
+        if (draw_wow_button("Close Others", (Rectangle){ (float)button_x, (float)inst_y2 - 2, 132.0f, 28.0f }, false, 14)) {
             unsigned int killed = ahc_terminate_other_instances();
             state->other_instance_count = ahc_count_other_instances();
             state->next_instance_poll_time = app_time() + 1.0;
@@ -4005,11 +4152,12 @@ static void draw_header(CompanionState *state)
             set_action_status(state, status, "Closed extra instances");
         }
     } else if (state->synastria_path[0]) {
-        char path_line[AHC_PATH_CAPACITY + 32];
-        snprintf(path_line, sizeof(path_line), "Synastria: %s", state->synastria_path);
-        draw_text(path_line, 28, 42 + c, 15, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : AHC_STATUS_WARNING);
+        char path_line[AHC_PATH_CAPACITY + 40];
+        snprintf(path_line, sizeof(path_line), "Game folder: %s", state->synastria_path);
+        (void)draw_path_wrapped(28, path_y, 15, max_header, 3, path_line, validate_synastria_path(state->synastria_path) ? (Color){ 180, 230, 205, 255 } : AHC_STATUS_WARNING);
     } else {
-        draw_text("Setup needed: open Settings and paste your Synastria folder path.", 28, 42 + c, 15, AHC_STATUS_WARNING);
+        (void)draw_wrapped_text(
+            "Setup: open Settings and set the folder that contains WoWExt.exe (Steam/Proton paths are ok).", 28, path_y, 15, max_header, 3, AHC_STATUS_WARNING);
     }
 
     bool can_launch = companion_can_launch(state);
@@ -4101,10 +4249,28 @@ static void draw_snapshot_card(const CompanionState *state, Rectangle bounds)
 
     if (!state->snapshot.found) {
         draw_text("No daily snapshot loaded.", (int)bounds.x + 20, (int)bounds.y + 56, 24, AHC_TEXT);
-        draw_text("Set your Synastria folder once, then scan.", (int)bounds.x + 20, (int)bounds.y + 92, 18, AHC_MUTED);
-        draw_text("Expected file:", (int)bounds.x + 20, (int)bounds.y + 140, 16, AHC_MUTED);
-        draw_text("WTF/Account/*/SavedVariables/AttuneHelper.lua", (int)bounds.x + 20, (int)bounds.y + 164, 16, AHC_ACCENT);
-        draw_snapshot_phone_qr(state, bounds, bounds.y + 200.0f);
+        draw_text("Set your game folder in Settings, then tap Refresh from game.", (int)bounds.x + 20, (int)bounds.y + 92, 18, AHC_MUTED);
+        draw_text("Expected file (relative to that folder):", (int)bounds.x + 20, (int)bounds.y + 132, 16, AHC_MUTED);
+        {
+            int maxw = (int)bounds.width - 40;
+            if (maxw < 80) {
+                maxw = 80;
+            }
+            int plines = draw_path_wrapped(
+                (int)bounds.x + 20,
+                (int)bounds.y + 156,
+                16,
+                maxw,
+                4,
+                "WTF/Account/*/SavedVariables/AttuneHelper.lua",
+                AHC_ACCENT
+            );
+            if (plines < 1) {
+                plines = 1;
+            }
+            float y_qr = bounds.y + 156.0f + (float)plines * 22.0f + 8.0f;
+            draw_snapshot_phone_qr(state, bounds, y_qr);
+        }
         return;
     }
 
@@ -4537,8 +4703,8 @@ static void companion_refresh_phone_qr(CompanionState *state)
         text,
         qrcodegen_Ecc_MEDIUM,
         true,
-        "Scan with Attune Helper on your phone. This AHC-Q1 QR sends one easy-scan day.",
-        "AHC-Q1 ready");
+        "Scan with Attune Helper on your phone — this QR sends a single day (AHC-Q1).",
+        "One-day QR ready");
 }
 
 static void companion_refresh_phone_multi_qr(CompanionState *state)
@@ -4557,14 +4723,14 @@ static void companion_refresh_phone_multi_qr(CompanionState *state)
         text,
         qrcodegen_Ecc_LOW,
         false,
-        "Dense AHC-Q2 QR ready. Use good light and a steady camera; paste AHC1 for the full log.",
-        "AHC-Q2 ready");
+        "Multi-day QR is dense: use good light. For a full log, use Copy full sync / Import (AHC1) instead.",
+        "Multi-day QR ready");
 }
 
 static void companion_copy_full_sync(CompanionState *state)
 {
     if (state->history_count == 0) {
-        set_action_status(state, "No attune history to export.", "Nothing to copy");
+        set_action_status(state, "No attune history to copy yet.", "Nothing to copy");
         return;
     }
     size_t cap = 2U * 1024U * 1024U + 64U;
@@ -4578,7 +4744,7 @@ static void companion_copy_full_sync(CompanionState *state)
         free(buf);
         set_action_status(
             state,
-            "Full sync string is too large. Reduce how much history the companion keeps, then retry.",
+            "Sync text is too large. Reduce local attune history, then retry.",
             "Copy failed");
         return;
     }
@@ -4587,8 +4753,39 @@ static void companion_copy_full_sync(CompanionState *state)
     free(buf);
     set_action_status(
         state,
-        "Full sync (AHC1) copied. Paste in Android or another device’s companion to merge.",
-        "Copied AHC1");
+        "Copied full attune sync to the clipboard. (AHC1 — use Import on this PC or paste on another device.)",
+        "Copied sync");
+}
+
+static void companion_import_full_sync(CompanionState *state)
+{
+    const char *clip = GetClipboardText();
+    if (clip == NULL || !clip[0]) {
+        set_action_status(state, "Clipboard is empty. Copy a full sync from this app, a phone, or another PC first.", "Import skipped");
+        return;
+    }
+    AhcDailyAttuneSnapshot decoded[AHC_HISTORY_CAPACITY];
+    size_t n = 0u;
+    if (ahc_sync_decode_full_history(clip, decoded, AHC_HISTORY_CAPACITY, &n) != 0) {
+        set_action_status(
+            state,
+            "Could not read that clipboard text as a full attune sync. (It should start with AHC1: … )",
+            "Import failed");
+        return;
+    }
+    if (n == 0u) {
+        set_action_status(state, "That sync code has no attune days in it.", "Nothing to import");
+        return;
+    }
+    for (size_t i = 0; i < n; i++) {
+        upsert_history_snapshot(state, &decoded[i]);
+    }
+    if (state->history_count > 0u) {
+        state->snapshot = state->history[state->history_count - 1u];
+    }
+    char message[AHC_STATUS_CAPACITY];
+    snprintf(message, sizeof(message), "Merged %zu day(s) from the full sync into this chart.", n);
+    set_action_status(state, message, "Imported sync");
 }
 
 static void draw_attunes_tab(CompanionState *state)
@@ -4596,7 +4793,13 @@ static void draw_attunes_tab(CompanionState *state)
     Rectangle content = content_rect();
     float button_height = 42.0f;
     float button_gap = 20.0f;
-    float card_height = content.height - button_height - button_gap;
+    float row_inner_gap = 10.0f;
+    int button_rows = (content.width < 920.0f) ? 2 : 1;
+    float button_rows_height = (float)button_rows * button_height;
+    if (button_rows > 1) {
+        button_rows_height += row_inner_gap;
+    }
+    float card_height = content.height - button_rows_height - button_gap;
     if (card_height < 300.0f) {
         card_height = 300.0f;
     }
@@ -4606,8 +4809,12 @@ static void draw_attunes_tab(CompanionState *state)
         snapshot_width = 320.0f;
     }
     float graph_width = content.width - snapshot_width - gap;
-    if (graph_width < 420.0f) {
-        graph_width = 420.0f;
+    if (graph_width < 200.0f) {
+        snapshot_width = fmaxf(240.0f, content.width * 0.32f);
+        graph_width = content.width - snapshot_width - gap;
+    }
+    if (graph_width < 180.0f) {
+        graph_width = 180.0f;
     }
 
     Rectangle snapshot_bounds = { content.x, content.y, snapshot_width, card_height };
@@ -4615,21 +4822,60 @@ static void draw_attunes_tab(CompanionState *state)
     draw_snapshot_card(state, snapshot_bounds);
     draw_graph_card(state, graph_bounds);
 
-    float button_y = content.y + card_height + button_gap;
-    if (draw_wow_button("Scan now", (Rectangle){ content.x, button_y, 150.0f, button_height }, false, 18)) {
-        scan_attunehelper_snapshot(state);
-    }
-    if (draw_wow_button("QR day", (Rectangle){ content.x + 168.0f, button_y, 116.0f, button_height }, false, 16)) {
-        companion_refresh_phone_qr(state);
-    }
-    if (draw_wow_button("QR multi", (Rectangle){ content.x + 302.0f, button_y, 130.0f, button_height }, false, 16)) {
-        companion_refresh_phone_multi_qr(state);
-    }
-    if (draw_wow_button("Copy AHC1", (Rectangle){ content.x + 450.0f, button_y, 140.0f, button_height }, false, 16)) {
-        companion_copy_full_sync(state);
-    }
-    if (draw_wow_button("Seed test data", (Rectangle){ content.x + 606.0f, button_y, 180.0f, button_height }, false, 18)) {
-        seed_test_history(state);
+    float y0 = content.y + card_height + button_gap;
+    float y1 = y0 + button_height + row_inner_gap;
+    if (button_rows == 1) {
+        float w5 = (content.width - 4.0f * row_inner_gap) / 5.0f;
+        if (w5 < 100.0f) {
+            w5 = 100.0f;
+        }
+        float x = content.x;
+        if (draw_wow_button("Refresh from game", (Rectangle){ x, y0, w5, button_height }, false, 16)) {
+            scan_attunehelper_snapshot(state);
+        }
+        x += w5 + row_inner_gap;
+        if (draw_wow_button("Phone: one day", (Rectangle){ x, y0, w5, button_height }, false, 16)) {
+            companion_refresh_phone_qr(state);
+        }
+        x += w5 + row_inner_gap;
+        if (draw_wow_button("Phone: multi-day", (Rectangle){ x, y0, w5, button_height }, false, 16)) {
+            companion_refresh_phone_multi_qr(state);
+        }
+        x += w5 + row_inner_gap;
+        if (draw_wow_button("Copy full sync", (Rectangle){ x, y0, w5, button_height }, false, 16)) {
+            companion_copy_full_sync(state);
+        }
+        x += w5 + row_inner_gap;
+        if (draw_wow_button("Import from clipboard", (Rectangle){ x, y0, w5, button_height }, false, 16)) {
+            companion_import_full_sync(state);
+        }
+    } else {
+        float w3 = (content.width - 2.0f * row_inner_gap) / 3.0f;
+        if (w3 < 100.0f) {
+            w3 = 100.0f;
+        }
+        float x = content.x;
+        if (draw_wow_button("Refresh from game", (Rectangle){ x, y0, w3, button_height }, false, 16)) {
+            scan_attunehelper_snapshot(state);
+        }
+        x += w3 + row_inner_gap;
+        if (draw_wow_button("Phone: one day", (Rectangle){ x, y0, w3, button_height }, false, 16)) {
+            companion_refresh_phone_qr(state);
+        }
+        x += w3 + row_inner_gap;
+        if (draw_wow_button("Phone: multi-day", (Rectangle){ x, y0, w3, button_height }, false, 16)) {
+            companion_refresh_phone_multi_qr(state);
+        }
+        float w2 = (content.width - row_inner_gap) / 2.0f;
+        if (w2 < 100.0f) {
+            w2 = 100.0f;
+        }
+        if (draw_wow_button("Copy full sync", (Rectangle){ content.x, y1, w2, button_height }, false, 16)) {
+            companion_copy_full_sync(state);
+        }
+        if (draw_wow_button("Import from clipboard", (Rectangle){ content.x + w2 + row_inner_gap, y1, w2, button_height }, false, 16)) {
+            companion_import_full_sync(state);
+        }
     }
 }
 
@@ -5398,13 +5644,18 @@ static void draw_settings_tab(CompanionState *state)
         right_width = content.width;
     }
 
-    Rectangle setup_card = { content.x, content.y, left_width, 600.0f };
-    Rectangle data_card = { content.x, content.y + 618.0f, left_width, 174.0f };
-    Rectangle wow_card = { two_columns ? right_x : content.x, two_columns ? content.y : content.y + 810.0f, right_width, 456.0f };
+    Rectangle setup_card = { content.x, content.y, left_width, 680.0f };
+    Rectangle data_card = { content.x, content.y + 698.0f, left_width, 174.0f };
+    Rectangle wow_card = { two_columns ? right_x : content.x, two_columns ? content.y : content.y + 890.0f, right_width, 456.0f };
 
     draw_card(setup_card, "Setup");
-    draw_text("Synastria folder", (int)setup_card.x + 20, (int)setup_card.y + 50, 22, AHC_TEXT);
-    draw_text("Paste the folder that contains WoWExt.exe, or let the app detect it.", (int)setup_card.x + 20, (int)setup_card.y + 80, 16, AHC_MUTED);
+    draw_text("Game install folder", (int)setup_card.x + 20, (int)setup_card.y + 50, 22, AHC_TEXT);
+    draw_text(
+        "Pick the folder that contains WoWExt.exe. Steam / Proton paths are fine — the app will walk up to find it.",
+        (int)setup_card.x + 20,
+        (int)setup_card.y + 80,
+        16,
+        AHC_MUTED);
 
     bool paste_requested = state->synastria_path_editing
         && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) || IsKeyDown(KEY_LEFT_SUPER) || IsKeyDown(KEY_RIGHT_SUPER))
@@ -5415,7 +5666,9 @@ static void draw_settings_tab(CompanionState *state)
         if (clipboard && clipboard[0]) {
             snprintf(state->synastria_path, sizeof(state->synastria_path), "%s", clipboard);
             trim_line(state->synastria_path);
-            set_action_status(state, "Pasted Synastria path from clipboard.", "Path pasted");
+            trim_path_both_ends_in_place(state->synastria_path);
+            synastria_normalize_in_place(state);
+            set_action_status(state, "Pasted path from clipboard.", "Path pasted");
         }
     }
 
@@ -5428,12 +5681,17 @@ static void draw_settings_tab(CompanionState *state)
     }
 
     if (draw_wow_button("Save", (Rectangle){ textbox.x + textbox.width + 16.0f, textbox.y, 100.0f, 38.0f }, false, 17)) {
+        trim_path_both_ends_in_place(state->synastria_path);
+        synastria_normalize_in_place(state);
         if (validate_synastria_path(state->synastria_path)) {
             save_settings(state);
             scan_attunehelper_snapshot(state);
             load_wow_config(state);
         } else {
-            set_action_status(state, "That folder does not look like a Synastria install.", "Path validation failed");
+            set_action_status(
+                state,
+                "Could not find WoWExt.exe in that folder. Try the parent folder (or the folder that directly contains WoWExt.exe).",
+                "Path validation failed");
         }
     }
 
@@ -5446,43 +5704,48 @@ static void draw_settings_tab(CompanionState *state)
             load_wow_config(state);
         }
     }
-    draw_text("UI scale", (int)setup_card.x + 20, (int)setup_card.y + 205, 15, AHC_MUTED);
+    {
+        bool path_ok = validate_synastria_path(state->synastria_path);
+#if !defined(_WIN32)
+        bool run_ok = path_ok && ahc_posix_wine_or_proton_ready();
+        const char *ready_msg = !path_ok    ? "Status: set the folder that contains WoWExt.exe (Steam/Proton: paste the path you use; we resolve parents automatically)."
+            : !run_ok ? "Status: WoWExt.exe is visible here; install Wine or set AHC_PROTON / PROTON_PATH to launch."
+                      : "Status: WoWExt.exe found, Wine/Proton available — you can use Play Game.";
+#else
+        bool run_ok = path_ok;
+        const char *ready_msg
+            = path_ok ? "Status: WoWExt.exe found in this folder — you can use Play Game." : "Status: set the folder that directly contains WoWExt.exe.";
+#endif
+        int wrap_w = (int)setup_card.width - 40;
+        if (wrap_w < 120) {
+            wrap_w = 120;
+        }
+        (void)draw_wrapped_text(ready_msg, (int)setup_card.x + 20, (int)setup_card.y + 202, 14, wrap_w, 3, run_ok ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
+    }
+    draw_text("UI scale", (int)setup_card.x + 20, (int)setup_card.y + 268, 15, AHC_MUTED);
     const char *scale_labels[] = { "Auto", "100%", "125%", "150%" };
     for (int i = 0; i < 4; i++) {
-        Rectangle scale_button = { setup_card.x + 92.0f + (float)i * 72.0f, setup_card.y + 199.0f, 64.0f, 30.0f };
+        Rectangle scale_button = { setup_card.x + 92.0f + (float)i * 72.0f, setup_card.y + 262.0f, 64.0f, 30.0f };
         if (draw_wow_button(scale_labels[i], scale_button, state->ui_scale_index == i, 13)) {
             state->ui_scale_index = i;
             update_ui_scale(state);
             save_settings(state);
         }
     }
-    {
-        bool path_ok = validate_synastria_path(state->synastria_path);
-#if !defined(_WIN32)
-        bool run_ok = path_ok && ahc_posix_wine_or_proton_ready();
-        const char *ready_msg = !path_ok    ? "Choose the folder with WoWExt.exe."
-            : !run_ok ? "WoWExt found: install Wine or set AHC_PROTON / PROTON_PATH for Proton."
-                      : "Ready: WoWExt.exe found; Wine/Proton available.";
-#else
-        bool run_ok = path_ok;
-        const char *ready_msg = path_ok ? "Ready: WoWExt.exe found." : "Choose the folder with WoWExt.exe.";
-#endif
-        draw_text(ready_msg, (int)setup_card.x + 352, (int)setup_card.y + 171, 15, run_ok ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
-    }
 
     if (state->awesome_wotlk_autologin) {
         state->launch_parameters_editing = false;
     }
-    draw_text("Launch parameters", (int)setup_card.x + 20, (int)setup_card.y + 244, 16, AHC_MUTED);
+    draw_text("Launch parameters", (int)setup_card.x + 20, (int)setup_card.y + 300, 16, AHC_MUTED);
     if (state->awesome_wotlk_autologin) {
         draw_text(
             "Autologin on: only extra client flags here (no -login / -password).",
             (int)setup_card.x + 20,
-            (int)setup_card.y + 221,
+            (int)setup_card.y + 277,
             14,
             AHC_STATUS_WARNING);
     }
-    Rectangle launch_box = { setup_card.x + 20.0f, setup_card.y + 266.0f, setup_card.width - 166.0f, 34.0f };
+    Rectangle launch_box = { setup_card.x + 20.0f, setup_card.y + 322.0f, setup_card.width - 166.0f, 34.0f };
     if (launch_box.width < 300.0f) {
         launch_box.width = 300.0f;
     }
@@ -5492,16 +5755,16 @@ static void draw_settings_tab(CompanionState *state)
             state->launch_parameters_editing = !state->launch_parameters_editing;
         }
     }
-    draw_text("Use Play Game in the header for quick launch.", (int)setup_card.x + 352, (int)setup_card.y + 274, 14, AHC_MUTED);
+    draw_text("Use Play Game in the header for quick launch.", (int)setup_card.x + 20, (int)setup_card.y + 330, 14, AHC_MUTED);
 
     draw_text(
         "AwesomeWotLK autologin: launches Wow.exe with -login, -password, -realmname; optional extras in Launch parameters.",
         (int)setup_card.x + 20,
-        (int)setup_card.y + 300,
+        (int)setup_card.y + 356,
         15,
         AHC_MUTED);
     (void)GuiCheckBox(
-        (Rectangle){ setup_card.x + 20.0f, setup_card.y + 328.0f, 420.0f, 28.0f },
+        (Rectangle){ setup_card.x + 20.0f, setup_card.y + 384.0f, 420.0f, 28.0f },
         "Enable autologin (password: Windows DPAPI, Linux 0600 file, Android not yet wired).",
         &state->awesome_wotlk_autologin);
     {
@@ -5509,17 +5772,17 @@ static void draw_settings_tab(CompanionState *state)
         draw_text(
             pwst,
             (int)setup_card.x + 20,
-            (int)setup_card.y + 364,
+            (int)setup_card.y + 420,
             14,
             state->autologin_password_stored ? (Color){ 140, 224, 186, 255 } : AHC_STATUS_WARNING);
     }
-    draw_labeled_textbox("Account (login name)", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 402.0f, setup_card.width - 200.0f, 32.0f },
+    draw_labeled_textbox("Account (login name)", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 458.0f, setup_card.width - 200.0f, 32.0f },
         state->autologin_user, (int)sizeof(state->autologin_user), &state->autologin_user_editing);
-    draw_labeled_textbox("Realm", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 474.0f, setup_card.width - 200.0f, 32.0f },
+    draw_labeled_textbox("Realm", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 530.0f, setup_card.width - 200.0f, 32.0f },
         state->autologin_realm, (int)sizeof(state->autologin_realm), &state->autologin_realm_editing);
-    draw_labeled_textbox("Password (type to set/change; cleared on save from memory only)", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 544.0f, setup_card.width - 200.0f, 32.0f },
+    draw_labeled_textbox("Password (type to set/change; cleared on save from memory only)", (Rectangle){ setup_card.x + 20.0f, setup_card.y + 600.0f, setup_card.width - 200.0f, 32.0f },
         state->autologin_password_edit, (int)sizeof(state->autologin_password_edit), &state->autologin_password_editing);
-    if (draw_wow_button("Save autologin", (Rectangle){ setup_card.x + setup_card.width - 192.0f, setup_card.y + 542.0f, 180.0f, 40.0f }, false, 16)) {
+    if (draw_wow_button("Save autologin", (Rectangle){ setup_card.x + setup_card.width - 192.0f, setup_card.y + 598.0f, 180.0f, 40.0f }, false, 16)) {
         (void)persist_autologin_settings(state);
     }
 
