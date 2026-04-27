@@ -31,8 +31,16 @@ if [ "${RUNNER_OS:-}" = "Linux" ] && [ -n "${GITHUB_ACTIONS:-}" ] && [ "${AHC_SK
     libasound2-dev
 fi
 
-# Same core flags as build-app.bat (no app launch in CI)
-"${PYTHON:-python}" scripts/generate_addon_catalog.py --check
+# Add-on list: synastria-monorepo-addons (sibling, or ./synastria-monorepo-addons in CI)
+HUB_MANIFEST="${ROOT}/../synastria-monorepo-addons/manifest/addons.json"
+if [ ! -f "$HUB_MANIFEST" ]; then
+  HUB_MANIFEST="${ROOT}/synastria-monorepo-addons/manifest/addons.json"
+fi
+if [ ! -f "$HUB_MANIFEST" ]; then
+  echo "ci-build: missing hub manifest. Clone next to this repo or into ./synastria-monorepo-addons/" >&2
+  exit 1
+fi
+"${PYTHON:-python}" scripts/generate_addon_catalog.py --check --input "$HUB_MANIFEST"
 
 CMAKE_CMD=(
   -S "$ROOT"

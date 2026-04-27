@@ -78,9 +78,18 @@ android {
     sourceSets {
         getByName("main") {
             assets {
+                val companionRoot = rootProject.projectDir.resolve("..")
+                val hubInRepo = companionRoot.resolve("synastria-monorepo-addons/manifest")
+                val hubSibling = companionRoot.resolve("../synastria-monorepo-addons/manifest")
+                val hubManifest = listOf(hubInRepo, hubSibling).firstOrNull { it.isDirectory } ?: hubInRepo
                 srcDir(
-                    file("${rootProject.projectDir}/../manifest").also {
-                        require(it.isDirectory) { "Expected manifest/ at ${it.path}" }
+                    file("${companionRoot}/manifest").also {
+                        require(it.isDirectory) { "Expected manifest/ with presets.json at ${it.path}" }
+                    }
+                )
+                srcDir(
+                    file(hubManifest).also {
+                        require(it.isDirectory) { "Expected synastria-monorepo-addons manifest (clone into repo or sibling): ${it.path}" }
                     }
                 )
             }

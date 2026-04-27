@@ -18,6 +18,17 @@ set_property(CACHE AHC_OPT_PROFILE PROPERTY STRINGS default release lto pgo_inst
 
 include(GNUInstallDirs)
 
+# ʕ •ᴥ•ʔ Add-on list is maintained in the synastria-monorepo-addons repo (sibling directory or git submodule).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/synastria-monorepo-addons/manifest/addons.json")
+    set(AHC_HUB_ADDONS_JSON "${CMAKE_CURRENT_SOURCE_DIR}/synastria-monorepo-addons/manifest/addons.json")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../synastria-monorepo-addons/manifest/addons.json")
+    set(AHC_HUB_ADDONS_JSON "${CMAKE_CURRENT_SOURCE_DIR}/../synastria-monorepo-addons/manifest/addons.json")
+else()
+    message(FATAL_ERROR
+        "Could not find synastria-monorepo-addons/manifest/addons.json. "
+        "Clone the hub repo next to this one (e.g. e:/Repos/synastria-monorepo-addons) or add it as a submodule at ./synastria-monorepo-addons")
+endif()
+
 if(AHC_ENABLE_MASM AND MSVC)
     if(NOT (CMAKE_SIZEOF_VOID_P EQUAL 8))
         set(AHC_ENABLE_MASM OFF CACHE BOOL "" FORCE)
@@ -43,10 +54,10 @@ add_custom_command(
     OUTPUT "${AHC_GENERATED_ADDON_CATALOG}"
     COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_addon_catalog.py"
-        --input "${CMAKE_CURRENT_SOURCE_DIR}/manifest/addons.json"
+        --input "${AHC_HUB_ADDONS_JSON}"
         --output "${AHC_GENERATED_ADDON_CATALOG}"
     DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/manifest/addons.json"
+        "${AHC_HUB_ADDONS_JSON}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_addon_catalog.py"
     COMMENT "Generating baked addon catalog"
     VERBATIM
@@ -175,7 +186,7 @@ if(AHC_BUILD_APP)
     )
     target_compile_definitions(attune_helper_companion
         PRIVATE
-            AHC_SOURCE_MANIFEST_PATH="${CMAKE_CURRENT_SOURCE_DIR}/manifest/addons.json"
+            "AHC_SOURCE_MANIFEST_PATH=\"${AHC_HUB_ADDONS_JSON}\""
     )
 
     target_link_libraries(attune_helper_companion
@@ -189,9 +200,14 @@ if(AHC_BUILD_APP)
     endif()
 
     add_custom_command(TARGET attune_helper_companion POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_SOURCE_DIR}/manifest
+        COMMAND ${CMAKE_COMMAND} -E make_directory
             $<TARGET_FILE_DIR:attune_helper_companion>/manifest
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${AHC_HUB_ADDONS_JSON}
+            $<TARGET_FILE_DIR:attune_helper_companion>/manifest/addons.json
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_CURRENT_SOURCE_DIR}/manifest/presets.json
+            $<TARGET_FILE_DIR:attune_helper_companion>/manifest/presets.json
     )
 
     if(MSVC)
@@ -205,10 +221,10 @@ if(AHC_BUILD_APP)
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
     )
     install(
-        DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/manifest/"
+        FILES
+            "${AHC_HUB_ADDONS_JSON}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/manifest/presets.json"
         DESTINATION "${CMAKE_INSTALL_BINDIR}/manifest"
-        FILES_MATCHING
-            PATTERN "*"
     )
 endif()
 
@@ -290,7 +306,7 @@ if(AHC_BUILD_TESTS)
     )
     target_compile_definitions(addon_manifest_test
         PRIVATE
-            AHC_TEST_MANIFEST_PATH="${CMAKE_CURRENT_SOURCE_DIR}/manifest/addons.json"
+            "AHC_TEST_MANIFEST_PATH=\"${AHC_HUB_ADDONS_JSON}\""
     )
 
     if(MSVC)

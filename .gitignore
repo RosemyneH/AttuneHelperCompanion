@@ -1,3 +1,6 @@
+# Optional local clone of the hub catalog (CI also clones into-repo)
+synastria-monorepo-addons/
+
 build/
 build_masm/
 build-tests/

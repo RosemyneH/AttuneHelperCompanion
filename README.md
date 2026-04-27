@@ -17,7 +17,7 @@ A **native C** companion for **Synastria** players: manage add-ons, read **Attun
 | **Desktop app** | `attune_helper_companion` — **raylib** + **raygui** UI (Windows and Linux: Wine/Proton supported for launch paths). |
 | **Core library** | `ahc_c` in `src/` — attune snapshot parsing, add-on manifest, arena helpers, safe URLs, and shared launch helpers (see `CMakeLists.txt`). |
 | **Tests** | CTest targets under `tests/`; CI runs the same flow as [scripts/ci-build.sh](scripts/ci-build.sh). |
-| **Add-on catalog** | [manifest/addons.json](manifest/addons.json) baked at build time via [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py). |
+| **Add-on catalog** | **[synastria-monorepo-addons](https://github.com/RosemyneH/synastria-monorepo-addons) `manifest/addons.json`** (sibling clone) baked at build time via [scripts/generate_addon_catalog.py](scripts/generate_addon_catalog.py) — see [docs/synastria-monorepo-addons.md](docs/synastria-monorepo-addons.md). |
 | **Android** | Gradle app under `android/` — Material UI, SAF to a Synastria root, attune log, `AHC1:` / QR / NFC flows, GitHub codeload zip install into `Interface/AddOns`. See [docs/android-build.md](docs/android-build.md). |
 | **Packaging** | Linux **AppImage** build script under `packaging/appimage/`. |
 
@@ -135,7 +135,7 @@ Tray behavior, fullscreen, add-ons tab UX, and real Synastria folder integration
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, the [code of conduct](CODE_OF_CONDUCT.md), and PR/issue expectations. Quick checks: add-on catalog `python scripts/generate_addon_catalog.py --check` when the manifest or generator changes; [verify build and test](.cursor/rules/verify-build-and-test.mdc) and [AGENTS.md](AGENTS.md) for local verification.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, the [code of conduct](CODE_OF_CONDUCT.md), and PR/issue expectations. Quick checks: hub catalog `python scripts/generate_addon_catalog.py --check --input ../synastria-monorepo-addons/manifest/addons.json` when the catalog or generator changes; [verify build and test](.cursor/rules/verify-build-and-test.mdc) and [AGENTS.md](AGENTS.md) for local verification.
 
 ---
 

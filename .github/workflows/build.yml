@@ -24,6 +24,9 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Check out add-on catalog hub
+        run: git clone --depth 1 https://github.com/RosemyneH/synastria-monorepo-addons.git "$GITHUB_WORKSPACE/synastria-monorepo-addons"
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -100,6 +103,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      - name: Check out add-on catalog hub
+        shell: bash
+        run: git clone --depth 1 https://github.com/RosemyneH/synastria-monorepo-addons.git "$GITHUB_WORKSPACE/synastria-monorepo-addons"
 
       - name: MSVC environment (Windows)
         if: matrix.os == 'windows-2022'

@@ -25,7 +25,7 @@ object AddonInstall {
     private const val MAX_EXTRACTED_TOTAL_BYTES = 256L * 1024 * 1024
     private const val MAX_SINGLE_ZIP_FILE_BYTES = 32L * 1024 * 1024
     private const val CATALOG_CACHE_TTL_MS = 24L * 60L * 60L * 1000L
-    private const val REMOTE_MANIFEST_URL = "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/addons.json"
+    private const val REMOTE_MANIFEST_URL = "https://raw.githubusercontent.com/RosemyneH/synastria-monorepo-addons/main/manifest/addons.json"
     private const val REMOTE_PRESETS_URL = "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/presets.json"
     private const val MOBILE_CONTROLLER_CATEGORY = "Mobile & Controller"
     private const val HTTP_USER_AGENT = "AttuneHelperCompanion-Android/1.0"

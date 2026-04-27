@@ -7,7 +7,7 @@ The `android/` directory is a standard Gradle (Kotlin) Android app used for the 
 | Path | Purpose |
 |------|--------|
 | `android/settings.gradle.kts` | Project name and `include(":app")` |
-| `android/app/build.gradle.kts` | App module, SDK levels, dependencies; `assets` include `../manifest/addons.json` for the in-app add-on list |
+| `android/app/build.gradle.kts` | App module, SDK levels, dependencies; `assets` merge `../manifest` (presets) and `../../synastria-monorepo-addons/manifest` (addons.json) |
 | `android/gradlew` (and `gradlew.bat`) | Gradle wrapper (version pinned in `gradle/wrapper/`) |
 
 ## What the Android app does (v1+)

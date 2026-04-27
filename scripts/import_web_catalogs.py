@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Optional Felbite HTML merge into manifest/addons.json (opt-in; default: no-op).
+"""Maintenance-only: optional Felbite HTML merge. Canonical catalog: synastria-monorepo-addons (hub).
 
-The in-app catalog is upstream-first (see docs/synastria-monorepo-addons.md and AGENTS.md).
-Run with ``--sources felbite`` only when intentionally re-merging Felbite rows.
+The live install list is owned by https://github.com/RosemyneH/synastria-monorepo-addons — not Felbite. Default: no-op. Run with ``--sources felbite`` only for intentional legacy re-merges into a **checked-out** `manifest/addons.json` (hub workflow).
 """
 import json
 import re

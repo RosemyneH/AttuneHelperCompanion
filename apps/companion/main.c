@@ -77,7 +77,7 @@ __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #define AHC_ADDON_STATIC_FPS 30
 #define AHC_HIDDEN_FPS 2
 #define AHC_REMOTE_MANIFEST_TTL_SECONDS 86400
-#define AHC_REMOTE_MANIFEST_URL "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/addons.json"
+#define AHC_REMOTE_MANIFEST_URL "https://raw.githubusercontent.com/RosemyneH/synastria-monorepo-addons/main/manifest/addons.json"
 #define AHC_REMOTE_PRESETS_URL "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/presets.json"
 #define AHC_FONT_GLYPHS 95
 #define AHC_SNAPSHOT_POLL_SECONDS 5.0
@@ -968,10 +968,6 @@ static bool addon_url_for_source_link(const AhcAddon *addon, char *out, size_t o
             return false;
         }
         snprintf(out, out_capacity, "%s", addon->repo);
-        return true;
-    }
-    if (AHC_STRICMP(addon_source_label(addon), "Felbite") == 0) {
-        snprintf(out, out_capacity, "%s", "https://felbite.com/wow-3-3-5-addons/");
         return true;
     }
     return false;
