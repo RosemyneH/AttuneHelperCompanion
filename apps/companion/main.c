@@ -4839,6 +4839,20 @@ static void draw_status_icon(Rectangle bounds, bool installed, bool managed)
     draw_tooltip_box(!installed ? "Not installed" : (managed ? "Managed install" : "Manual install detected"), bounds);
 }
 
+static const char *path_basename_any_separator(const char *path)
+{
+    if (!path || !path[0]) {
+        return "";
+    }
+    const char *last = path;
+    for (const char *p = path; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            last = p + 1;
+        }
+    }
+    return last;
+}
+
 static void copy_installed_profile_to_clipboard(CompanionState *state, const AhcAddon *addons, size_t count)
 {
     AhcAddonProfile *profile = (AhcAddonProfile *)calloc(1, sizeof(*profile));
@@ -4868,6 +4882,7 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
     size_t skipped_hidden = 0u;
     size_t skipped_non_directory = 0u;
     size_t skipped_long_token = 0u;
+    size_t skipped_invalid_token = 0u;
     size_t skipped_profile_limit = 0u;
     size_t longest_token = 0u;
     for (unsigned int i = 0; i < entries.count; i++) {
@@ -4876,7 +4891,7 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
             skipped_non_directory++;
             continue;
         }
-        const char *folder = GetFileName(entry);
+        const char *folder = path_basename_any_separator(entry);
         if (!folder || !folder[0] || folder[0] == '.') {
             skipped_hidden++;
             continue;
@@ -4900,6 +4915,17 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
         }
         if (token_len >= sizeof(profile->addon_ids[0])) {
             skipped_long_token++;
+            continue;
+        }
+        bool token_valid = true;
+        for (const unsigned char *p = (const unsigned char *)token; *p; p++) {
+            if (*p < 0x20u) {
+                token_valid = false;
+                break;
+            }
+        }
+        if (!token_valid) {
+            skipped_invalid_token++;
             continue;
         }
         if (profile->addon_count >= AHC_PROFILE_MAX_ADDONS) {
@@ -4938,13 +4964,14 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
         snprintf(
             message,
             sizeof(message),
-            "Profile export empty: scanned %u entries in %s; folders=%zu, hidden/staging=%zu, files=%zu, overlong names=%zu.",
+            "Profile export empty: scanned %u entries in %s; folders=%zu, hidden/staging=%zu, files=%zu, overlong=%zu, invalid=%zu.",
             scanned_entries,
             addons_path,
             directory_count,
             skipped_hidden,
             skipped_non_directory,
-            skipped_long_token);
+            skipped_long_token,
+            skipped_invalid_token);
         set_action_status(state, message, "Profile export empty");
         free(profile);
         return;
@@ -4955,14 +4982,16 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
         snprintf(
             message,
             sizeof(message),
-            "Profile encode failed: add-ons=%zu, catalog=%zu, manual=%zu, longest token=%zu/%zu, buffer=%zu, limit-skipped=%zu.",
+            "Profile encode failed: add-ons=%zu, catalog=%zu, manual=%zu, longest token=%zu/%zu, buffer=%zu, limit=%zu, overlong=%zu, invalid=%zu.",
             profile->addon_count,
             catalog_count,
             manual_count,
             longest_token,
             sizeof(profile->addon_ids[0]) - 1u,
             sizeof(state->profile_code),
-            skipped_profile_limit);
+            skipped_profile_limit,
+            skipped_long_token,
+            skipped_invalid_token);
         set_action_status(state, message, "Profile export failed");
         free(profile);
         return;
@@ -4972,13 +5001,14 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
     snprintf(
         message,
         sizeof(message),
-        "Copied profile: %zu add-ons (%zu catalog, %zu manual), scanned %u entries, code=%d chars, skipped limit=%zu.",
+        "Copied profile: %zu add-ons (%zu catalog, %zu manual), scanned %u entries, code=%d chars, skipped limit=%zu, overlong=%zu.",
         profile->addon_count,
         catalog_count,
         manual_count,
         scanned_entries,
         n,
-        skipped_profile_limit);
+        skipped_profile_limit,
+        skipped_long_token);
     set_action_status(state, message, "Profile copied");
     free(profile);
 }
