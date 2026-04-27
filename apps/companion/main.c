@@ -4841,9 +4841,12 @@ static void draw_status_icon(Rectangle bounds, bool installed, bool managed)
 
 static void copy_installed_profile_to_clipboard(CompanionState *state, const AhcAddon *addons, size_t count)
 {
-    AhcAddonProfile profile;
-    memset(&profile, 0, sizeof(profile));
-    snprintf(profile.name, sizeof(profile.name), "%s", "My Add-on Profile");
+    AhcAddonProfile *profile = (AhcAddonProfile *)calloc(1, sizeof(*profile));
+    if (!profile) {
+        set_action_status(state, "Could not allocate profile export buffer.", "Profile export failed");
+        return;
+    }
+    snprintf(profile->name, sizeof(profile->name), "%s", "My Add-on Profile");
     char addons_path[AHC_PATH_CAPACITY];
     if (!resolve_addons_path(state, addons_path, sizeof(addons_path))) {
         char message[AHC_STATUS_CAPACITY];
@@ -4853,6 +4856,7 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
             "Profile export failed: Synastria path is invalid or Interface/AddOns could not be created. Path: %s",
             state->synastria_path[0] ? state->synastria_path : "(empty)");
         set_action_status(state, message, "Profile export failed");
+        free(profile);
         return;
     }
 
@@ -4894,20 +4898,20 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
         if (token_len > longest_token) {
             longest_token = token_len;
         }
-        if (token_len >= sizeof(profile.addon_ids[0])) {
+        if (token_len >= sizeof(profile->addon_ids[0])) {
             skipped_long_token++;
             continue;
         }
-        if (profile.addon_count >= AHC_PROFILE_MAX_ADDONS) {
+        if (profile->addon_count >= AHC_PROFILE_MAX_ADDONS) {
             skipped_profile_limit++;
             continue;
         }
         snprintf(
-            profile.addon_ids[profile.addon_count],
-            sizeof(profile.addon_ids[profile.addon_count]),
+            profile->addon_ids[profile->addon_count],
+            sizeof(profile->addon_ids[profile->addon_count]),
             "%s",
             token);
-        profile.addon_count++;
+        profile->addon_count++;
         if (catalog_addon && catalog_addon->id) {
             catalog_count++;
         } else {
@@ -4916,11 +4920,11 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
     }
     UnloadDirectoryFiles(entries);
 
-    if (profile.addon_count == 0u) {
-        for (size_t i = 0; i < count && profile.addon_count < AHC_PROFILE_MAX_ADDONS; i++) {
+    if (profile->addon_count == 0u) {
+        for (size_t i = 0; i < count && profile->addon_count < AHC_PROFILE_MAX_ADDONS; i++) {
             if (addons[i].id && addon_is_installed(state, &addons[i])) {
-                snprintf(profile.addon_ids[profile.addon_count], sizeof(profile.addon_ids[profile.addon_count]), "%s", addons[i].id);
-                profile.addon_count++;
+                snprintf(profile->addon_ids[profile->addon_count], sizeof(profile->addon_ids[profile->addon_count]), "%s", addons[i].id);
+                profile->addon_count++;
                 catalog_count++;
                 size_t id_len = strlen(addons[i].id);
                 if (id_len > longest_token) {
@@ -4929,7 +4933,7 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
             }
         }
     }
-    if (profile.addon_count == 0u) {
+    if (profile->addon_count == 0u) {
         char message[AHC_STATUS_CAPACITY];
         snprintf(
             message,
@@ -4942,23 +4946,25 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
             skipped_non_directory,
             skipped_long_token);
         set_action_status(state, message, "Profile export empty");
+        free(profile);
         return;
     }
-    int n = ahc_profile_encode(&profile, state->profile_code, sizeof(state->profile_code));
+    int n = ahc_profile_encode(profile, state->profile_code, sizeof(state->profile_code));
     if (n < 0) {
         char message[AHC_STATUS_CAPACITY];
         snprintf(
             message,
             sizeof(message),
             "Profile encode failed: add-ons=%zu, catalog=%zu, manual=%zu, longest token=%zu/%zu, buffer=%zu, limit-skipped=%zu.",
-            profile.addon_count,
+            profile->addon_count,
             catalog_count,
             manual_count,
             longest_token,
-            sizeof(profile.addon_ids[0]) - 1u,
+            sizeof(profile->addon_ids[0]) - 1u,
             sizeof(state->profile_code),
             skipped_profile_limit);
         set_action_status(state, message, "Profile export failed");
+        free(profile);
         return;
     }
     SetClipboardText(state->profile_code);
@@ -4967,13 +4973,14 @@ static void copy_installed_profile_to_clipboard(CompanionState *state, const Ahc
         message,
         sizeof(message),
         "Copied profile: %zu add-ons (%zu catalog, %zu manual), scanned %u entries, code=%d chars, skipped limit=%zu.",
-        profile.addon_count,
+        profile->addon_count,
         catalog_count,
         manual_count,
         scanned_entries,
         n,
         skipped_profile_limit);
     set_action_status(state, message, "Profile copied");
+    free(profile);
 }
 
 static void import_profile_from_code(CompanionState *state, const char *code)

@@ -295,31 +295,40 @@ int ahc_profile_encode(const AhcAddonProfile *profile, char *out, size_t out_cap
     if (!profile || !out || out_cap == 0u || profile->addon_count > AHC_PROFILE_MAX_ADDONS) {
         return -1;
     }
-    char json[AHC_PROFILE_JSON_MAX];
+    char *json = (char *)malloc(AHC_PROFILE_JSON_MAX);
+    if (!json) {
+        return -1;
+    }
     size_t len = 0;
     json[0] = '\0';
-    if (ahc_json_append_raw(json, sizeof(json), &len, "{\"v\":1,\"name\":") != 0
-        || ahc_json_append_string(json, sizeof(json), &len, profile->name[0] ? profile->name : "Add-on Profile") != 0
-        || ahc_json_append_raw(json, sizeof(json), &len, ",\"addon_ids\":[") != 0) {
+    if (ahc_json_append_raw(json, AHC_PROFILE_JSON_MAX, &len, "{\"v\":1,\"name\":") != 0
+        || ahc_json_append_string(json, AHC_PROFILE_JSON_MAX, &len, profile->name[0] ? profile->name : "Add-on Profile") != 0
+        || ahc_json_append_raw(json, AHC_PROFILE_JSON_MAX, &len, ",\"addon_ids\":[") != 0) {
+        free(json);
         return -1;
     }
     for (size_t i = 0; i < profile->addon_count; i++) {
-        if (i > 0u && ahc_json_append_char(json, sizeof(json), &len, ',') != 0) {
+        if (i > 0u && ahc_json_append_char(json, AHC_PROFILE_JSON_MAX, &len, ',') != 0) {
+            free(json);
             return -1;
         }
-        if (!profile->addon_ids[i][0] || ahc_json_append_string(json, sizeof(json), &len, profile->addon_ids[i]) != 0) {
+        if (!profile->addon_ids[i][0] || ahc_json_append_string(json, AHC_PROFILE_JSON_MAX, &len, profile->addon_ids[i]) != 0) {
+            free(json);
             return -1;
         }
     }
-    if (ahc_json_append_raw(json, sizeof(json), &len, "]}") != 0) {
+    if (ahc_json_append_raw(json, AHC_PROFILE_JSON_MAX, &len, "]}") != 0) {
+        free(json);
         return -1;
     }
 
     unsigned char *gz = NULL;
     size_t gz_len = 0;
     if (ahc_gzip_to_heap((const unsigned char *)json, len, &gz, &gz_len) != 0) {
+        free(json);
         return -1;
     }
+    free(json);
     size_t prefix_len = strlen(AHC_PROFILE_CODE_PREFIX);
     if (prefix_len >= out_cap) {
         free(gz);
