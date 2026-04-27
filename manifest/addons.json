@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "updated_at": "2026-04-25",
+  "updated_at": "2026-04-26",
   "default_install_type": "git",
   "supported_install_types": [
     "git",
@@ -8,6 +8,33 @@
     "direct_zip"
   ],
   "addons": [
+    {
+      "id": "acp-zero",
+      "name": "Addon Control Panel",
+      "author": "DivideByZeroToDeleteWorld",
+      "category": "Utility",
+      "folder": "ACP-Zero",
+      "source_subdir": "src",
+      "description": "In-game add-on control panel for WoW 3.3.5 private servers; includes ZeroMod quick search to filter add-ons by name.",
+      "repo": "https://github.com/DivideByZeroToDeleteWorld/ACP-Zero.git",
+      "install": {
+        "type": "git",
+        "url": "https://github.com/DivideByZeroToDeleteWorld/ACP-Zero.git"
+      },
+      "github_release": {
+        "owner": "DivideByZeroToDeleteWorld",
+        "repo": "ACP-Zero",
+        "asset_pattern": "*.zip",
+        "enabled": false
+      },
+      "direct_zip": null,
+      "avatar_url": "https://github.com/DivideByZeroToDeleteWorld.png?size=96",
+      "version": "main",
+      "categories": [
+        "Utility",
+        "Quality of Life"
+      ]
+    },
     {
       "id": "arkinventory",
       "name": "ArkInventory",
