@@ -1,3 +1,0 @@
-Vendored add-on folders: place one WoW add-on per subdirectory (e.g. RaajikWarpAlias/…).
-The companion app uses each manifest `folder` and optional `source_subdir` to match
-the .toc after clone.

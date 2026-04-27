@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Optional Felbite HTML merge into manifest/addons.json (opt-in; default: no-op).
 
-The in-app catalog is upstream-first (see curated-wotlk-addons/ and AGENTS.md).
+The in-app catalog is upstream-first (see docs/curated-monorepo.md and AGENTS.md).
 Run with ``--sources felbite`` only when intentionally re-merging Felbite rows.
 """
 import json
