@@ -1,5 +1,6 @@
 <img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/905f5589-30f9-4ff9-b9e5-b1c012f6096e" />
 
+**STILL IN WIP** Post any issues in Issues
 
 A **native C** companion for **Synastria** players: manage add-ons, read **AttuneHelper** daily snapshot history from local `SavedVariables`, and (on desktop) launch the game with optional user-provided launch parameters. A separate **Android (Kotlin)** app covers mobile workflows (folder access, attune log, share codes, catalog installs, Winlator handoff). The project keeps data **local**—it does not download the game client, manage user accounts, or store user files on a project-operated server.
 
