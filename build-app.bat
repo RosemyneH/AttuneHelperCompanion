@@ -42,6 +42,7 @@ taskkill /f /im attune_helper_companion.exe >nul 2>nul
 
 call "%ROOT%\scripts\ensure-synastria-hub.bat" "%ROOT%"
 if errorlevel 1 exit /b 1
+echo Hub clone is not auto-updated on each run; to check freshness use scripts\verify-synastria-hub-freshness.bat
 
 echo Configuring app build. The first run downloads raylib and raygui.
 :: Release + AHC_OPT_PROFILE=lto: CMAKE_BUILD_TYPE=Release; MSVC /O2 + /GL (LTO) on ahc_core (see AHC_OPT_PROFILE in CMakeLists.txt).

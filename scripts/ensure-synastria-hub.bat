@@ -1,5 +1,8 @@
 @echo off
 setlocal EnableExtensions
+:: ʕ •ᴥ•ʔ Ensures synastria-monorepo-addons manifest exists (clone if missing) and runs generate_addon_catalog --check.
+:: This script does not run git pull: an existing in-repo or sibling clone is left as-is. In-repo path wins over sibling for CMake
+:: when AHC_HUB_ADDONS_JSON is unset. To compare your clone to origin/main, run: scripts\verify-synastria-hub-freshness.bat "%~dp0.."
 set "ROOT=%~1"
 if not defined ROOT (
     echo ensure-synastria-hub: missing repo root argument.
