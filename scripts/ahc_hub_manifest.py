@@ -3,7 +3,43 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+
+_GITHUB_HTTPS_OWNER_REPO = re.compile(
+    r"https?://github\.com/([^/]+)/([^/?.#]+)", re.IGNORECASE
+)
+_GITHUB_SSH_OWNER_REPO = re.compile(
+    r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", re.IGNORECASE
+)
+
+
+def hub_monorepo_github_slug() -> str:
+    """Owner/name for the add-on hub (single GitHub repo), e.g. RosemyneH/synastria-monorepo-addons."""
+    slug = (os.environ.get("AHC_HUB_MONOREPO_GITHUB_SLUG") or "").strip()
+    if slug:
+        return slug
+    return "RosemyneH/synastria-monorepo-addons"
+
+
+def parse_github_owner_repo(repo_url: str) -> tuple[str | None, str | None]:
+    if not repo_url or not isinstance(repo_url, str):
+        return None, None
+    u = repo_url.strip().rstrip("/")
+    m = _GITHUB_SSH_OWNER_REPO.match(u)
+    if m:
+        return m.group(1), m.group(2)
+    m = _GITHUB_HTTPS_OWNER_REPO.search(u)
+    if m:
+        return m.group(1), m.group(2)
+    return None, None
+
+
+def repo_is_hub_monorepo(owner: str | None, repo: str | None) -> bool:
+    if not owner or not repo:
+        return False
+    target = hub_monorepo_github_slug().lower()
+    return f"{owner}/{repo}".lower() == target
 
 
 def resolve_hub_addons_json(companion_root: Path) -> Path:
