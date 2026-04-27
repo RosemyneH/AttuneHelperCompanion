@@ -1662,20 +1662,6 @@ static void find_toc_folders_recursive(const char *root, AddonTocFolderList *fol
         snprintf(folders->paths[folders->count], sizeof(folders->paths[folders->count]), "%s", root);
         snprintf(folders->names[folders->count], sizeof(folders->names[folders->count]), "%s", base_name[0] ? base_name : GetFileName(root));
         folders->count++;
-
-        FilePathList sub = LoadDirectoryFiles(root);
-        for (unsigned int j = 0; j < sub.count && folders->count < 32u; j++) {
-            const char *entry = sub.paths[j];
-            const char *name = GetFileName(entry);
-            if (!DirectoryExists(entry) || AHC_STRICMP(name, ".git") == 0 || AHC_STRICMP(name, ".github") == 0) {
-                continue;
-            }
-            if (is_embedded_dependency_folder_name(name)) {
-                continue;
-            }
-            find_toc_folders_recursive(entry, folders, depth + 1);
-        }
-        UnloadDirectoryFiles(sub);
         return;
     }
 

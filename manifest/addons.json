@@ -232,6 +232,7 @@
       "author": "QT",
       "category": "Map",
       "folder": "Mapster",
+      "source_subdir": "Mapster",
       "description": "Mapster package for Synastria with map quality-of-life additions.",
       "repo": "https://github.com/RosemyneH/MapsterSynastriaHosting.git",
       "install": {
