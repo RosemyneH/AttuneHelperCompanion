@@ -85,6 +85,7 @@ __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #define AHC_SNAPSHOT_POLL_SECONDS 5.0
 #define AHC_PROCESS_ACTIVE_SECONDS 4.0
 #define AHC_CHROME_H 36
+#define AHC_LAUNCH_TEMPLATE_CAPACITY 512
 
 #if !defined(_WIN32)
 #include <strings.h>
@@ -188,6 +189,14 @@ typedef struct CompanionState {
     bool addon_status_root_valid;
     AddonInstallStatus addon_statuses[AHC_ADDON_STATUS_CACHE_CAPACITY];
     char launch_parameters[256];
+    bool linux_proton_template_editing;
+    bool linux_wine_template_editing;
+    bool linux_proton_prefix_editing;
+    bool linux_wine_prefix_editing;
+    char linux_proton_command_template[AHC_LAUNCH_TEMPLATE_CAPACITY];
+    char linux_wine_command_template[AHC_LAUNCH_TEMPLATE_CAPACITY];
+    char linux_proton_prefix[AHC_PATH_CAPACITY];
+    char linux_wine_prefix[AHC_PATH_CAPACITY];
     char monitor_name[128];
     long snapshot_mod_time;
     double next_snapshot_poll_time;
@@ -2372,6 +2381,24 @@ static void resolve_config_paths(CompanionState *state)
     path_join(state->history_path, sizeof(state->history_path), state->config_dir, "attune-history.csv");
 }
 
+static void set_linux_launch_defaults(CompanionState *state)
+{
+#if defined(_WIN32)
+    (void)state;
+#else
+    snprintf(
+        state->linux_proton_command_template,
+        sizeof(state->linux_proton_command_template),
+        "STEAM_COMPAT_DATA_PATH={proton_prefix} WINEPREFIX={wine_prefix} {runner} run {exe} {args}");
+    snprintf(
+        state->linux_wine_command_template,
+        sizeof(state->linux_wine_command_template),
+        "WINEPREFIX={wine_prefix} {runner} {exe} {args}");
+    state->linux_proton_prefix[0] = '\0';
+    state->linux_wine_prefix[0] = '\0';
+#endif
+}
+
 static void load_settings(CompanionState *state)
 {
     FILE *file = fopen(state->config_path, "rb");
@@ -2386,6 +2413,16 @@ static void load_settings(CompanionState *state)
             snprintf(state->synastria_path, sizeof(state->synastria_path), "%s", line + 15);
         } else if (strncmp(line, "launch_parameters=", 18) == 0) {
             snprintf(state->launch_parameters, sizeof(state->launch_parameters), "%s", line + 18);
+#if !defined(_WIN32)
+        } else if (strncmp(line, "linux_proton_command_template=", 30) == 0) {
+            snprintf(state->linux_proton_command_template, sizeof(state->linux_proton_command_template), "%s", line + 30);
+        } else if (strncmp(line, "linux_wine_command_template=", 28) == 0) {
+            snprintf(state->linux_wine_command_template, sizeof(state->linux_wine_command_template), "%s", line + 28);
+        } else if (strncmp(line, "linux_proton_prefix=", 20) == 0) {
+            snprintf(state->linux_proton_prefix, sizeof(state->linux_proton_prefix), "%s", line + 20);
+        } else if (strncmp(line, "linux_wine_prefix=", 18) == 0) {
+            snprintf(state->linux_wine_prefix, sizeof(state->linux_wine_prefix), "%s", line + 18);
+#endif
         } else if (strncmp(line, "ui_scale=", 9) == 0) {
             state->ui_scale_index = atoi(line + 9);
             if (state->ui_scale_index < 0 || state->ui_scale_index > 3) {
@@ -2409,6 +2446,12 @@ static bool save_settings(CompanionState *state)
 
     fprintf(file, "synastria_path=%s\n", state->synastria_path);
     fprintf(file, "launch_parameters=%s\n", state->launch_parameters);
+#if !defined(_WIN32)
+    fprintf(file, "linux_proton_command_template=%s\n", state->linux_proton_command_template);
+    fprintf(file, "linux_wine_command_template=%s\n", state->linux_wine_command_template);
+    fprintf(file, "linux_proton_prefix=%s\n", state->linux_proton_prefix);
+    fprintf(file, "linux_wine_prefix=%s\n", state->linux_wine_prefix);
+#endif
     fprintf(file, "ui_scale=%d\n", state->ui_scale_index);
     fclose(file);
     set_status(state, "Settings saved.");
@@ -3233,6 +3276,16 @@ static bool ahc_posix_resolve_wine_proton(char *runner, size_t runner_size, int 
         *use_proton_run = 1;
         return true;
     }
+    if (ahc_posix_find_steam_proton(buffer, sizeof(buffer))) {
+        snprintf(runner, runner_size, "%s", buffer);
+        *use_proton_run = 1;
+        return true;
+    }
+    if (ahc_posix_find_in_path("proton", buffer, sizeof(buffer))) {
+        snprintf(runner, runner_size, "%s", buffer);
+        *use_proton_run = 1;
+        return true;
+    }
     const char *w = getenv("WINE");
     if (w && w[0] && ahc_posix_env_executable_path(w, buffer, sizeof(buffer))) {
         snprintf(runner, runner_size, "%s", buffer);
@@ -3242,16 +3295,6 @@ static bool ahc_posix_resolve_wine_proton(char *runner, size_t runner_size, int 
     if (ahc_posix_find_in_path("wine", buffer, sizeof(buffer))) {
         snprintf(runner, runner_size, "%s", buffer);
         *use_proton_run = 0;
-        return true;
-    }
-    if (ahc_posix_find_steam_proton(buffer, sizeof(buffer))) {
-        snprintf(runner, runner_size, "%s", buffer);
-        *use_proton_run = 1;
-        return true;
-    }
-    if (ahc_posix_find_in_path("proton", buffer, sizeof(buffer))) {
-        snprintf(runner, runner_size, "%s", buffer);
-        *use_proton_run = 1;
         return true;
     }
     *use_proton_run = 0;
@@ -3831,6 +3874,159 @@ static bool resolve_wowext_path(const CompanionState *state, char *out, size_t o
     return resolve_file_in_directory_ci(state->synastria_path, "WoWExt.exe", out, out_capacity);
 }
 
+#if !defined(_WIN32)
+static bool append_shell_quoted(char *out, size_t out_size, size_t *used, const char *value)
+{
+    if (!out || !used || !value) {
+        return false;
+    }
+    if (*used + 2u >= out_size) {
+        return false;
+    }
+    out[(*used)++] = '\'';
+    for (const char *p = value; *p; p++) {
+        if (*p == '\'') {
+            if (*used + 4u >= out_size) {
+                return false;
+            }
+            out[(*used)++] = '\'';
+            out[(*used)++] = '\\';
+            out[(*used)++] = '\'';
+            out[(*used)++] = '\'';
+        } else {
+            if (*used + 1u >= out_size) {
+                return false;
+            }
+            out[(*used)++] = *p;
+        }
+    }
+    if (*used + 1u >= out_size) {
+        return false;
+    }
+    out[(*used)++] = '\'';
+    out[*used] = '\0';
+    return true;
+}
+
+static bool build_shell_quoted_args(const char *arg_line, char *out, size_t out_size)
+{
+    if (!out || out_size < 1u) {
+        return false;
+    }
+    out[0] = '\0';
+    if (!arg_line || !arg_line[0]) {
+        return true;
+    }
+    char argline_copy[4096];
+    int n = snprintf(argline_copy, sizeof(argline_copy), "%s", arg_line);
+    if (n < 0 || (size_t)n >= sizeof(argline_copy)) {
+        return false;
+    }
+    char token_buf[4096];
+    char *tokens[40];
+    int token_count = ahc_posix_split_arg_line_to_buf(argline_copy, token_buf, sizeof(token_buf), tokens, 40);
+    if (token_count < 0) {
+        return false;
+    }
+    size_t used = 0u;
+    for (int i = 0; i < token_count; i++) {
+        if (i > 0) {
+            if (used + 1u >= out_size) {
+                return false;
+            }
+            out[used++] = ' ';
+            out[used] = '\0';
+        }
+        if (!append_shell_quoted(out, out_size, &used, tokens[i])) {
+            return false;
+        }
+    }
+    out[used] = '\0';
+    return true;
+}
+
+static bool append_placeholder_value(char *out, size_t out_size, size_t *used, const char *value)
+{
+    if (!out || !used || !value) {
+        return false;
+    }
+    size_t value_len = strlen(value);
+    if (*used + value_len >= out_size) {
+        return false;
+    }
+    memcpy(out + *used, value, value_len);
+    *used += value_len;
+    out[*used] = '\0';
+    return true;
+}
+
+static bool build_linux_launch_command(const CompanionState *state, const char *template_text, const char *runner, const char *wowext_path, const char *arg_line, char *out, size_t out_size)
+{
+    char q_runner[AHC_PATH_CAPACITY * 2];
+    char q_exe[AHC_PATH_CAPACITY * 2];
+    char q_proton_prefix[AHC_PATH_CAPACITY * 2];
+    char q_wine_prefix[AHC_PATH_CAPACITY * 2];
+    char q_args[4096];
+    size_t used = 0u;
+    if (!append_shell_quoted(q_runner, sizeof(q_runner), &used, runner)) {
+        return false;
+    }
+    used = 0u;
+    if (!append_shell_quoted(q_exe, sizeof(q_exe), &used, wowext_path)) {
+        return false;
+    }
+    used = 0u;
+    if (!append_shell_quoted(q_proton_prefix, sizeof(q_proton_prefix), &used, state->linux_proton_prefix)) {
+        return false;
+    }
+    used = 0u;
+    if (!append_shell_quoted(q_wine_prefix, sizeof(q_wine_prefix), &used, state->linux_wine_prefix)) {
+        return false;
+    }
+    if (!build_shell_quoted_args(arg_line, q_args, sizeof(q_args))) {
+        return false;
+    }
+
+    used = 0u;
+    out[0] = '\0';
+    for (const char *p = template_text; p && *p;) {
+        if (strncmp(p, "{runner}", 8) == 0) {
+            if (!append_placeholder_value(out, out_size, &used, q_runner)) {
+                return false;
+            }
+            p += 8;
+        } else if (strncmp(p, "{exe}", 5) == 0) {
+            if (!append_placeholder_value(out, out_size, &used, q_exe)) {
+                return false;
+            }
+            p += 5;
+        } else if (strncmp(p, "{args}", 6) == 0) {
+            if (!append_placeholder_value(out, out_size, &used, q_args)) {
+                return false;
+            }
+            p += 6;
+        } else if (strncmp(p, "{proton_prefix}", 15) == 0) {
+            if (!append_placeholder_value(out, out_size, &used, q_proton_prefix)) {
+                return false;
+            }
+            p += 15;
+        } else if (strncmp(p, "{wine_prefix}", 13) == 0) {
+            if (!append_placeholder_value(out, out_size, &used, q_wine_prefix)) {
+                return false;
+            }
+            p += 13;
+        } else {
+            if (used + 1u >= out_size) {
+                return false;
+            }
+            out[used++] = *p++;
+            out[used] = '\0';
+        }
+    }
+    return true;
+}
+#endif
+
 static bool launch_game(CompanionState *state)
 {
     if (!validate_synastria_path(state->synastria_path)) {
@@ -3861,52 +4057,26 @@ static bool launch_game(CompanionState *state)
     }
 #else
     {
-        char final_args[4096];
-        int na = snprintf(final_args, sizeof final_args, "%s", state->launch_parameters);
-        if (na < 0 || (size_t)na >= sizeof final_args) {
-            set_action_status(state, "Launch parameters are too long.", "Launch failed");
-            return false;
-        }
         char runner[AHC_PATH_CAPACITY];
         int proton_mode = 0;
         if (!ahc_posix_resolve_wine_proton(runner, sizeof runner, &proton_mode)) {
             set_action_status(
                 state,
-                "Install Wine, set WINE, or set AHC_PROTON or PROTON_PATH to a Proton script from Steam.",
+                "Install Proton/Wine, or set AHC_PROTON / PROTON_PATH / WINE to your runner path.",
                 "Launch failed");
             return false;
         }
-        if (!ahc_path_safe_for_arg(state->synastria_path) || !ahc_path_safe_for_arg(wowext_path) || !ahc_path_safe_for_arg(runner)) {
-            set_action_status(
-                state,
-                "Game or Wine/Proton path uses characters that are not allowed (quotes, control characters).",
-                "Launch failed");
+        const char *template_text = proton_mode ? state->linux_proton_command_template : state->linux_wine_command_template;
+        if (!template_text[0]) {
+            set_action_status(state, "Linux launch template is empty. Set it in Settings.", "Launch failed");
             return false;
         }
-        char argbuf[4096];
-        char *token_ptrs[40];
-        int ntok = ahc_posix_split_arg_line_to_buf(final_args, argbuf, sizeof argbuf, token_ptrs, 40);
-        if (ntok < 0) {
-            set_action_status(state, "Launch parameters are too long or have too many words.", "Launch failed");
+        char command[8192];
+        if (!build_linux_launch_command(state, template_text, runner, wowext_path, state->launch_parameters, command, sizeof(command))) {
+            set_action_status(state, "Launch command is too long or invalid for the template placeholders.", "Launch failed");
             return false;
         }
-        if (1 + (proton_mode ? 1 : 0) + 1 + ntok >= 64) {
-            set_action_status(state, "Launch has too many arguments for Wine/Proton.", "Launch failed");
-            return false;
-        }
-        char run_kwd[] = "run";
-        char *argv[64];
-        int ai = 0;
-        argv[ai++] = runner;
-        if (proton_mode) {
-            argv[ai++] = run_kwd;
-        }
-        argv[ai++] = wowext_path;
-        for (int t = 0; t < ntok; t++) {
-            argv[ai++] = token_ptrs[t];
-        }
-        argv[ai] = NULL;
-        if (!ahc_posix_spawn_detached_in_workdir(state->synastria_path, runner, argv)) {
+        if (!ahc_posix_spawn_shell_detached_in_workdir(state->synastria_path, command)) {
             set_action_status(state, "Could not launch WoWExt.exe via Wine/Proton.", "Launch failed");
             return false;
         }
@@ -3930,6 +4100,7 @@ static void clear_companion_data(CompanionState *state)
     state->next_snapshot_poll_time = 0.0;
     memset(&state->snapshot, 0, sizeof(state->snapshot));
     reset_wow_config_fields(state);
+    set_linux_launch_defaults(state);
     state->clear_data_confirming = false;
     companion_dispose_phone_qr(state);
     set_action_status(state, "Cleared local companion settings and attune history.", "Companion data cleared");
@@ -5803,8 +5974,8 @@ static void draw_settings_tab(CompanionState *state)
         right_width = content.width;
     }
 
-    Rectangle setup_card = { content.x, content.y, left_width, 394.0f };
-    Rectangle data_card = { content.x, content.y + 412.0f, left_width, 174.0f };
+    Rectangle setup_card = { content.x, content.y, left_width, 620.0f };
+    Rectangle data_card = { content.x, content.y + 638.0f, left_width, 174.0f };
     Rectangle wow_card = { two_columns ? right_x : content.x, two_columns ? content.y : content.y + 604.0f, right_width, 456.0f };
 
     draw_card(setup_card, "Setup");
@@ -5868,8 +6039,8 @@ static void draw_settings_tab(CompanionState *state)
 #if !defined(_WIN32)
         bool run_ok = path_ok && ahc_posix_wine_or_proton_ready();
         const char *ready_msg = !path_ok    ? "Status: set the folder that contains WoWExt.exe (Steam/Proton: paste the path you use; we resolve parents automatically)."
-            : !run_ok ? "Status: WoWExt.exe is visible here; install Wine or set AHC_PROTON / PROTON_PATH to launch."
-                      : "Status: WoWExt.exe found, Wine/Proton available — you can use Play Game.";
+            : !run_ok ? "Status: WoWExt.exe is visible here; install Proton/Wine or set AHC_PROTON / PROTON_PATH / WINE."
+                      : "Status: WoWExt.exe found, Proton/Wine available — you can use Play Game.";
 #else
         bool run_ok = path_ok;
         const char *ready_msg
@@ -5901,6 +6072,44 @@ static void draw_settings_tab(CompanionState *state)
         state->launch_parameters_editing = !state->launch_parameters_editing;
     }
     draw_text("Use Play Game in the header for quick launch.", (int)setup_card.x + 20, (int)setup_card.y + 366, 14, AHC_MUTED);
+#if !defined(_WIN32)
+    draw_text("Linux launch templates", (int)setup_card.x + 20, (int)setup_card.y + 396, 16, AHC_MUTED);
+    draw_text("{runner} {exe} {args} {proton_prefix} {wine_prefix}", (int)setup_card.x + 20, (int)setup_card.y + 418, 14, AHC_MUTED);
+    Rectangle proton_template_box = { setup_card.x + 20.0f, setup_card.y + 442.0f, setup_card.width - 40.0f, 32.0f };
+    if (GuiTextBox(
+            proton_template_box,
+            state->linux_proton_command_template,
+            (int)sizeof(state->linux_proton_command_template),
+            state->linux_proton_template_editing)) {
+        state->linux_proton_template_editing = !state->linux_proton_template_editing;
+    }
+    Rectangle wine_template_box = { setup_card.x + 20.0f, setup_card.y + 482.0f, setup_card.width - 40.0f, 32.0f };
+    if (GuiTextBox(
+            wine_template_box,
+            state->linux_wine_command_template,
+            (int)sizeof(state->linux_wine_command_template),
+            state->linux_wine_template_editing)) {
+        state->linux_wine_template_editing = !state->linux_wine_template_editing;
+    }
+    draw_text("Proton prefix path", (int)setup_card.x + 20, (int)setup_card.y + 522, 14, AHC_MUTED);
+    Rectangle proton_prefix_box = { setup_card.x + 164.0f, setup_card.y + 516.0f, setup_card.width - 184.0f, 32.0f };
+    if (GuiTextBox(
+            proton_prefix_box,
+            state->linux_proton_prefix,
+            (int)sizeof(state->linux_proton_prefix),
+            state->linux_proton_prefix_editing)) {
+        state->linux_proton_prefix_editing = !state->linux_proton_prefix_editing;
+    }
+    draw_text("Wine prefix path", (int)setup_card.x + 20, (int)setup_card.y + 560, 14, AHC_MUTED);
+    Rectangle wine_prefix_box = { setup_card.x + 164.0f, setup_card.y + 554.0f, setup_card.width - 184.0f, 32.0f };
+    if (GuiTextBox(
+            wine_prefix_box,
+            state->linux_wine_prefix,
+            (int)sizeof(state->linux_wine_prefix),
+            state->linux_wine_prefix_editing)) {
+        state->linux_wine_prefix_editing = !state->linux_wine_prefix_editing;
+    }
+#endif
 
     draw_card(data_card, "Data and backups");
     draw_text("Backups are copied under Synastria/AttuneHelperBackup.", (int)data_card.x + 20, (int)data_card.y + 52, 16, AHC_MUTED);
@@ -6024,6 +6233,7 @@ static void init_state(CompanionState *state)
     state->graph_metric = GRAPH_METRIC_ACCOUNT;
     state->graph_display = GRAPH_DISPLAY_PLOT;
     reset_wow_config_fields(state);
+    set_linux_launch_defaults(state);
     resolve_config_paths(state);
     load_addon_catalog(state, false);
     load_addon_presets(state, false);

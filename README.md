@@ -32,7 +32,7 @@ For product goals and boundaries in one page, see [docs/scope.md](docs/scope.md)
 
 - **Synastria folder** — point at the install; the app reads `WTF/.../SavedVariables/AttuneHelper.lua` and shows attune **snapshot history** in the status area.
 - **Add-ons** — browse the baked catalog (filters, “Community Favorites,” install / update / uninstall with backups where designed).
-- **Play Game** — launches **WoWExt.exe** / **WowExt.exe** with the Launch parameters entered in Settings.
+- **Play Game** — launches **WoWExt.exe** / **WowExt.exe** with Launch parameters; on Linux the app prefers **Proton** first, then Wine, and supports editable launch templates/prefix paths in Settings.
 - **Tray and windowing** — hide to tray, restore, fullscreen (UI / F11 / Alt+Enter).
 
 **Android**

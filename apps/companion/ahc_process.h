@@ -26,6 +26,7 @@ bool ahc_win_launch_wcmdline_in_dir(const wchar_t *cmdline, const char *workdir_
  * argv[0] must equal program_path. No shell.
  */
 bool ahc_posix_spawn_detached_in_workdir(const char *workdir, const char *program_path, char *const *argv);
+bool ahc_posix_spawn_shell_detached_in_workdir(const char *workdir, const char *command);
 
 /**
  * Run unzip with argv (no shell). Requires ahc_path_safe_for_arg on both paths; caller may preflight first.

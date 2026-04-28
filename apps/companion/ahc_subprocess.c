@@ -423,6 +423,39 @@ bool ahc_posix_spawn_detached_in_workdir(const char *workdir, const char *progra
     _exit(127);
 }
 
+bool ahc_posix_spawn_shell_detached_in_workdir(const char *workdir, const char *command)
+{
+    if (!workdir || !workdir[0] || !command || !command[0]) {
+        return false;
+    }
+    if (!ahc_path_safe_for_arg(workdir)) {
+        return false;
+    }
+    pid_t p = fork();
+    if (p < 0) {
+        return false;
+    }
+    if (p > 0) {
+        return true;
+    }
+    (void)signal(SIGHUP, SIG_IGN);
+    if (chdir(workdir) != 0) {
+        _exit(127);
+    }
+    (void)setsid();
+    int d = open("/dev/null", O_RDWR);
+    if (d >= 0) {
+        (void)dup2(d, STDIN_FILENO);
+        (void)dup2(d, STDOUT_FILENO);
+        (void)dup2(d, STDERR_FILENO);
+        if (d > 2) {
+            (void)close(d);
+        }
+    }
+    execl("/bin/sh", "sh", "-lc", command, (char *)NULL);
+    _exit(127);
+}
+
 bool ahc_posix_unzip_to_directory(const char *zip_path, const char *dest_dir)
 {
     if (!ahc_path_safe_for_arg(zip_path) || !ahc_path_safe_for_arg(dest_dir)) {
