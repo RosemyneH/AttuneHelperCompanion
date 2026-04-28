@@ -162,7 +162,7 @@ if(AHC_BUILD_APP)
     FetchContent_Declare(
         raylib
         GIT_REPOSITORY https://github.com/raysan5/raylib.git
-        GIT_TAG 5.5
+        GIT_TAG 6.0
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
         GIT_CONFIG http.version=HTTP/1.1

@@ -385,7 +385,7 @@ object AddonInstall {
             val srcDir = findAddonSourceDir(work, e) ?: return Result.failure(
                 IllegalStateException("Folder \"${e.folder}\" not found in the downloaded archive.")
             )
-            copyAddonFolder(context, addOns, e, srcDir)
+            copyAddonFolders(context, addOns, e, srcDir)
         } catch (e2: Exception) {
             Result.failure(e2)
         } finally {
@@ -422,7 +422,7 @@ object AddonInstall {
             val srcDir = findAddonSourceDir(work, e) ?: return Result.failure(
                 IllegalStateException("Folder \"${e.folder}\" not found in the downloaded zip.")
             )
-            copyAddonFolder(context, addOns, e, srcDir)
+            copyAddonFolders(context, addOns, e, srcDir)
         } catch (e2: Exception) {
             Result.failure(e2)
         } finally {
@@ -430,19 +430,25 @@ object AddonInstall {
         }
     }
 
-    private fun copyAddonFolder(
+    private fun copyAddonFolders(
         context: Context,
         addOns: DocumentFile,
         e: Entry,
         srcDir: File,
     ): Result<String> {
-        var target: DocumentFile = addOns.findFile(e.folder) ?: addOns.createDirectory(e.folder)
-            ?: return Result.failure(IllegalStateException("Could not use AddOns/${e.folder}"))
-        for (c in target.listFiles().orEmpty()) {
-            c.delete()
+        val sourceDirs = discoverSiblingAddonDirs(srcDir)
+        val installed = ArrayList<String>(sourceDirs.size)
+        for (source in sourceDirs) {
+            val folder = source.name
+            var target: DocumentFile = addOns.findFile(folder) ?: addOns.createDirectory(folder)
+                ?: return Result.failure(IllegalStateException("Could not use AddOns/$folder"))
+            for (c in target.listFiles().orEmpty()) {
+                c.delete()
+            }
+            copyFileTreeToDocument(context, source, target)
+            installed.add("Interface/AddOns/$folder/")
         }
-        copyFileTreeToDocument(context, srcDir, target)
-        return Result.success("Installed: Interface/AddOns/${e.folder}/")
+        return Result.success("Installed: ${installed.joinToString(", ")}")
     }
 
     private fun getOrCreateInterfaceAddOns(context: Context, tree: Uri): DocumentFile? {
@@ -641,16 +647,75 @@ object AddonInstall {
     }
 
     private fun findAddonSourceDir(work: File, e: Entry): File? {
-        if (e.sourceSubdir.isNotEmpty()) {
-            val subRoot = work.walkTopDown().firstOrNull { it.isDirectory && it.name == e.sourceSubdir }
-            if (subRoot != null) {
-                val a = subRoot.walkTopDown().firstOrNull { it.isDirectory && it.name == e.folder }
-                if (a != null) {
-                    return a
-                }
+        val subRoot = findSourceSubdirRoot(work, e.sourceSubdir)
+        if (subRoot != null) {
+            val direct = File(subRoot, e.folder)
+            if (direct.isDirectory) {
+                return direct
+            }
+            val nested = subRoot.walkTopDown().firstOrNull { it.isDirectory && it.name.equals(e.folder, ignoreCase = true) }
+            if (nested != null) {
+                return nested
             }
         }
-        return work.walkTopDown().firstOrNull { it.isDirectory && it.name == e.folder }
+        return work.walkTopDown().firstOrNull { it.isDirectory && it.name.equals(e.folder, ignoreCase = true) }
+    }
+
+    private fun findSourceSubdirRoot(work: File, sourceSubdir: String): File? {
+        if (sourceSubdir.isBlank()) {
+            return null
+        }
+        val rawParts = sourceSubdir
+            .replace('\\', '/')
+            .split('/')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it != "." }
+        if (rawParts.isEmpty()) {
+            return null
+        }
+        val parts = rawParts.map { it.lowercase() }
+        val dirs = work.walkTopDown().filter { it.isDirectory }
+        for (dir in dirs) {
+            val rel = dir.relativeTo(work).invariantSeparatorsPath
+            if (rel.isEmpty()) {
+                continue
+            }
+            val relParts = rel.split('/').map { it.lowercase() }
+            if (relParts.endsWith(parts)) {
+                return dir
+            }
+        }
+        return null
+    }
+
+    private fun List<String>.endsWith(suffix: List<String>): Boolean {
+        if (suffix.size > this.size) {
+            return false
+        }
+        val start = this.size - suffix.size
+        for (i in suffix.indices) {
+            if (this[start + i] != suffix[i]) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun discoverSiblingAddonDirs(primary: File): List<File> {
+        val parent = primary.parentFile ?: return listOf(primary)
+        val candidates = parent.listFiles().orEmpty()
+            .filter { it.isDirectory && hasTocFile(it) }
+            .sortedBy { it.name.lowercase() }
+        if (candidates.none { it.canonicalFile == primary.canonicalFile }) {
+            return listOf(primary)
+        }
+        return candidates
+    }
+
+    private fun hasTocFile(dir: File): Boolean {
+        return dir.listFiles().orEmpty().any { child ->
+            child.isFile && child.name.endsWith(".toc", ignoreCase = true)
+        }
     }
 
     private fun copyFileTreeToDocument(context: Context, src: File, dest: DocumentFile) {

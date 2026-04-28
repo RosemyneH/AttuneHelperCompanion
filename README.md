@@ -53,7 +53,7 @@ For product goals and boundaries in one page, see [docs/scope.md](docs/scope.md)
 - **C11** compiler (MSVC with Desktop C++, or GCC/Clang on Linux)
 - **Python 3** (add-on catalog generation and `--check` in CI)
 - **Ninja** (used by the provided Windows and CI scripts; other generators can work if you adapt flags)
-- **Desktop app:** [raylib](https://github.com/raysan5/raylib) 5.5 and [raygui](https://github.com/raysan5/raygui) 4.0 are **fetched by CMake** when `AHC_BUILD_APP` is on.
+- **Desktop app:** [raylib](https://github.com/raysan5/raylib) v6.0 and [raygui](https://github.com/raysan5/raygui) 4.0 are **fetched by CMake** when `AHC_BUILD_APP` is on.
 
 **Linux (desktop)** additionally needs the usual OpenGL / X11 (or Wayland) dev packages for raylib—see [scripts/ci-build.sh](scripts/ci-build.sh) for an `apt-get` list used in CI.
 

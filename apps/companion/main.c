@@ -152,6 +152,7 @@ typedef struct CompanionState {
     char addon_search_query[128];
     bool addon_search_visible;
     bool addon_search_editing;
+    bool addon_search_keyboard_capture;
     char addon_filter_cache_search[128];
     char addon_catalog_source[AHC_PATH_CAPACITY];
     AddonPreset presets[AHC_PRESET_CAPACITY];
@@ -1471,18 +1472,39 @@ static bool addon_marker_matches(const AhcAddon *addon, const char *path)
     }
 
     char line[AHC_PATH_CAPACITY];
-    bool matches = false;
+    char marker_repo[AHC_PATH_CAPACITY];
+    char marker_source_subdir[AHC_PATH_CAPACITY];
+    marker_repo[0] = '\0';
+    marker_source_subdir[0] = '\0';
     while (fgets(line, sizeof(line), file)) {
         if (strncmp(line, "repo=", 5) == 0) {
             char *value = line + 5;
             value[strcspn(value, "\r\n")] = '\0';
-            const char *install_url = ahc_addon_install_url(addon);
-            matches = install_url && strcmp(value, install_url) == 0;
-            break;
+            snprintf(marker_repo, sizeof(marker_repo), "%s", value);
+        } else if (strncmp(line, "source_subdir=", 14) == 0) {
+            char *value = line + 14;
+            value[strcspn(value, "\r\n")] = '\0';
+            snprintf(marker_source_subdir, sizeof(marker_source_subdir), "%s", value);
         }
     }
     fclose(file);
-    return matches;
+
+    const char *install_url = ahc_addon_install_url(addon);
+    if (!install_url || !install_url[0]) {
+        return false;
+    }
+    const char *expected_subdir = addon_has_source_subdir(addon) ? addon->source_subdir : "";
+    if (strcmp(marker_repo, install_url) != 0) {
+        return false;
+    }
+    if (strcmp(marker_source_subdir, expected_subdir) == 0) {
+        return true;
+    }
+    if (!marker_source_subdir[0]) {
+        const char *folder_name = GetFileName(path);
+        return folder_name && AHC_STRICMP(folder_name, addon->folder) == 0;
+    }
+    return false;
 }
 
 static bool find_managed_addon_path_in_root(const AhcAddon *addon, const char *addons_path, char *out, size_t out_capacity)
@@ -1645,6 +1667,62 @@ static void find_toc_folders_recursive(const char *root, AddonTocFolderList *fol
     UnloadDirectoryFiles(entries);
 }
 
+static bool addon_toc_folder_name_exists(const AddonTocFolderList *folders, const char *name)
+{
+    if (!folders || !name || !name[0]) {
+        return false;
+    }
+    for (size_t i = 0; i < folders->count; i++) {
+        if (AHC_STRICMP(folders->names[i], name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void append_addon_toc_folder_unique(AddonTocFolderList *folders, const char *path, const char *name)
+{
+    if (!folders || !path || !path[0] || !name || !name[0] || folders->count >= 32u) {
+        return;
+    }
+    if (addon_toc_folder_name_exists(folders, name)) {
+        return;
+    }
+    snprintf(folders->paths[folders->count], sizeof(folders->paths[folders->count]), "%s", path);
+    snprintf(folders->names[folders->count], sizeof(folders->names[folders->count]), "%s", name);
+    folders->count++;
+}
+
+static bool path_parent(const char *path, char *out, size_t out_capacity)
+{
+    if (!path || !path[0] || !out || out_capacity == 0u) {
+        return false;
+    }
+    int n = snprintf(out, out_capacity, "%s", path);
+    if (n <= 0 || (size_t)n >= out_capacity) {
+        return false;
+    }
+    size_t len = strlen(out);
+    while (len > 0u && (out[len - 1u] == '/' || out[len - 1u] == '\\')) {
+        out[len - 1u] = '\0';
+        len--;
+    }
+    if (len == 0u) {
+        return false;
+    }
+    while (len > 0u && out[len - 1u] != '/' && out[len - 1u] != '\\') {
+        len--;
+    }
+    if (len == 0u) {
+        return false;
+    }
+    while (len > 1u && (out[len - 1u] == '/' || out[len - 1u] == '\\')) {
+        len--;
+    }
+    out[len] = '\0';
+    return out[0] != '\0';
+}
+
 static bool synastria_git_submodule_path_from_source_subdir(const char *source_subdir, char *out, size_t out_cap)
 {
     if (!source_subdir || strncmp(source_subdir, "addons/", 7) != 0) {
@@ -1735,15 +1813,17 @@ static bool promote_staged_addon_folders(CompanionState *state, const AhcAddon *
 {
     char addons_path[AHC_PATH_CAPACITY];
     char scan_root[AHC_PATH_CAPACITY];
+    char source_path[AHC_PATH_CAPACITY];
+    bool source_path_exists = false;
     if (!resolve_addons_path(state, addons_path, sizeof(addons_path))) {
         return false;
     }
 
     snprintf(scan_root, sizeof(scan_root), "%s", package_root);
     if (addon_has_source_subdir(addon)) {
-        char source_path[AHC_PATH_CAPACITY];
         path_join(source_path, sizeof(source_path), package_root, addon->source_subdir);
-        if (DirectoryExists(source_path)) {
+        source_path_exists = DirectoryExists(source_path);
+        if (source_path_exists) {
             snprintf(scan_root, sizeof(scan_root), "%s", source_path);
         }
     }
@@ -1751,6 +1831,19 @@ static bool promote_staged_addon_folders(CompanionState *state, const AhcAddon *
     set_addon_job_progress(state, "Finding addon folders");
     AddonTocFolderList folders = { 0 };
     find_toc_folders_recursive(scan_root, &folders, 0);
+    if (source_path_exists) {
+        char source_basename[128];
+        if (pick_addon_basename_for_toc_folder(source_path, source_basename, sizeof(source_basename))) {
+            char source_parent[AHC_PATH_CAPACITY];
+            if (path_parent(source_path, source_parent, sizeof(source_parent)) && DirectoryExists(source_parent)) {
+                AddonTocFolderList sibling_folders = { 0 };
+                find_toc_folders_recursive(source_parent, &sibling_folders, 0);
+                for (size_t i = 0; i < sibling_folders.count; i++) {
+                    append_addon_toc_folder_unique(&folders, sibling_folders.paths[i], sibling_folders.names[i]);
+                }
+            }
+        }
+    }
     if (folders.count == 0u) {
         set_status(state, "Download did not contain an addon folder with a .toc file.");
         return false;
@@ -1758,6 +1851,8 @@ static bool promote_staged_addon_folders(CompanionState *state, const AhcAddon *
 
     char legacy_path[AHC_PATH_CAPACITY];
     addon_install_path(state, addon, legacy_path, sizeof(legacy_path));
+    bool legacy_existed_before_promote = DirectoryExists(legacy_path);
+    bool legacy_backup_done = false;
     for (size_t i = 0; i < folders.count; i++) {
         char destination[AHC_PATH_CAPACITY];
         path_join(destination, sizeof(destination), addons_path, folders.names[i]);
@@ -1765,10 +1860,14 @@ static bool promote_staged_addon_folders(CompanionState *state, const AhcAddon *
         if (!move_addon_folder_to_backup(state, destination, folders.names[i], "update")) {
             return false;
         }
-        if (AHC_STRICMP(folders.names[i], addon->folder) != 0 && DirectoryExists(legacy_path)) {
+        if (!legacy_backup_done
+            && legacy_existed_before_promote
+            && AHC_STRICMP(folders.names[i], addon->folder) != 0
+            && DirectoryExists(legacy_path)) {
             if (!move_addon_folder_to_backup(state, legacy_path, addon->folder, "legacy-backup")) {
                 return false;
             }
+            legacy_backup_done = true;
         }
         set_addon_job_progress(state, "Installing addon folder");
         if (rename(folders.paths[i], destination) != 0) {
@@ -2333,6 +2432,7 @@ static bool try_load_addon_manifest_labeled(CompanionState *state, const char *p
     state->addon_search_query[0] = '\0';
     state->addon_search_visible = false;
     state->addon_search_editing = false;
+    state->addon_search_keyboard_capture = false;
     state->addon_filter_valid = false;
     state->addon_scroll = 0;
     return true;
@@ -5513,34 +5613,51 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_
 
 static void draw_addons_tab(CompanionState *state)
 {
+    bool ctrl_down = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    bool alt_down = IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT);
     if (!state->profile_confirm_open) {
         if (IsKeyPressed(KEY_ESCAPE)) {
             state->addon_search_query[0] = '\0';
             state->addon_search_visible = false;
             state->addon_search_editing = false;
+            state->addon_search_keyboard_capture = false;
             state->addon_filter_valid = false;
             state->addon_scroll = 0;
-        } else if (!state->addon_search_visible) {
+        } else if (!state->addon_search_editing) {
             int ch;
+            bool typed = false;
             while ((ch = GetCharPressed()) > 0) {
                 if (ch < 32 || ch > 126) {
                     continue;
                 }
-                if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) {
+                if (ctrl_down) {
                     continue;
                 }
-                if (IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT)) {
+                if (alt_down) {
                     continue;
                 }
                 size_t n = strlen(state->addon_search_query);
                 if (n + 1u < sizeof(state->addon_search_query)) {
                     state->addon_search_query[n] = (char)ch;
                     state->addon_search_query[n + 1u] = '\0';
+                    typed = true;
                 }
-                state->addon_search_visible = true;
-                state->addon_search_editing = true;
                 state->addon_filter_valid = false;
                 state->addon_scroll = 0;
+            }
+            if (typed) {
+                state->addon_search_visible = true;
+                state->addon_search_keyboard_capture = true;
+            }
+            if (state->addon_search_visible && !ctrl_down && !alt_down) {
+                if (IsKeyPressed(KEY_BACKSPACE)) {
+                    size_t n = strlen(state->addon_search_query);
+                    if (n > 0u) {
+                        state->addon_search_query[n - 1u] = '\0';
+                        state->addon_filter_valid = false;
+                        state->addon_scroll = 0;
+                    }
+                }
             }
         }
     }
@@ -5595,8 +5712,9 @@ static void draw_addons_tab(CompanionState *state)
                 search_box,
                 state->addon_search_query,
                 (int)sizeof(state->addon_search_query),
-                state->addon_search_editing)) {
+                state->addon_search_editing && !state->addon_search_keyboard_capture)) {
             state->addon_search_editing = !state->addon_search_editing;
+            state->addon_search_keyboard_capture = false;
         }
         controls_y += 34.0f;
     }
