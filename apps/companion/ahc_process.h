@@ -35,6 +35,7 @@ bool ahc_posix_unzip_to_directory(const char *zip_path, const char *dest_dir);
 
 bool ahc_curl_download_file(const char *url, const char *file_path);
 bool ahc_git_shallow_clone(const char *url, const char *dest_path);
+bool ahc_git_submodule_update_init_shallow(const char *repo_root, const char *submodule_path);
 bool ahc_preflight_zip_safe(const char *zip_path);
 
 #endif

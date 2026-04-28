@@ -205,6 +205,31 @@ bool ahc_git_shallow_clone(const char *url, const char *dest_path)
 #endif
 }
 
+bool ahc_git_submodule_update_init_shallow(const char *repo_root, const char *submodule_path)
+{
+    if (!ahc_path_safe_for_arg(repo_root) || !ahc_path_safe_for_arg(submodule_path)) {
+        return false;
+    }
+    const char *argv[] = {
+        "git",
+        "-C",
+        repo_root,
+        "submodule",
+        "update",
+        "--init",
+        "--depth",
+        "1",
+        "--",
+        submodule_path,
+        NULL,
+    };
+#if defined(_WIN32)
+    return ahc_win_spawnv_wait("git", argv);
+#else
+    return ahc_posix_execvp_wait(argv);
+#endif
+}
+
 #if defined(_WIN32)
 static bool read_tar_list_win(const char *zip_path, char *out, size_t out_cap, size_t *nout)
 {

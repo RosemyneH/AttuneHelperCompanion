@@ -1686,6 +1686,28 @@ static void find_toc_folders_recursive(const char *root, AddonTocFolderList *fol
     UnloadDirectoryFiles(entries);
 }
 
+static bool synastria_git_submodule_path_from_source_subdir(const char *source_subdir, char *out, size_t out_cap)
+{
+    if (!source_subdir || strncmp(source_subdir, "addons/", 7) != 0) {
+        return false;
+    }
+    const char *p = source_subdir + 7;
+    if (!*p) {
+        return false;
+    }
+    const char *slash = strchr(p, '/');
+    if (!slash) {
+        int n = snprintf(out, out_cap, "addons/%s", p);
+        return n > 0 && (size_t)n < out_cap;
+    }
+    size_t first_len = (size_t)(slash - p);
+    if (first_len == 0) {
+        return false;
+    }
+    int n = snprintf(out, out_cap, "addons/%.*s", (int)first_len, p);
+    return n > 0 && (size_t)n < out_cap;
+}
+
 static bool stage_addon_source(CompanionState *state, const AhcAddon *addon, char *package_root, size_t package_root_capacity)
 {
     char staging_root[AHC_PATH_CAPACITY];
@@ -1728,6 +1750,20 @@ static bool stage_addon_source(CompanionState *state, const AhcAddon *addon, cha
     if (!ahc_git_shallow_clone(addon->repo, package_root)) {
         remove_directory_tree(package_root);
         return false;
+    }
+
+    char gitmodules_path[AHC_PATH_CAPACITY];
+    path_join(gitmodules_path, sizeof(gitmodules_path), package_root, ".gitmodules");
+    if (FileExists(gitmodules_path) && addon_has_source_subdir(addon)) {
+        char sub_path[256];
+        if (synastria_git_submodule_path_from_source_subdir(addon->source_subdir, sub_path, sizeof(sub_path))) {
+            set_addon_job_progress(state, "Fetching Synastria submodule (add-on source)");
+            if (!ahc_git_submodule_update_init_shallow(package_root, sub_path)) {
+                set_status(state, "Could not fetch add-on from git submodule. Check that git is installed and try again.");
+                remove_directory_tree(package_root);
+                return false;
+            }
+        }
     }
     return true;
 }
