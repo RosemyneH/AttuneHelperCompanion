@@ -85,6 +85,7 @@ add_custom_command(
 
 add_library(ahc_core
     "${AHC_GENERATED_ADDON_CATALOG}"
+    src/addons/addon_links.c
     src/addons/addon_manifest.c
     src/addons/addon_profile_codec.c
     src/addons/wow_default_addons.c
@@ -258,6 +259,9 @@ if(AHC_BUILD_TESTS)
     add_executable(addon_manifest_test
         tests/addon_manifest_test.c
     )
+    add_executable(addon_links_test
+        tests/addon_links_test.c
+    )
     add_executable(ahc_arena_test
         tests/ahc_arena_test.c
     )
@@ -292,6 +296,10 @@ if(AHC_BUILD_TESTS)
             ahc_core
     )
     target_link_libraries(addon_manifest_test
+        PRIVATE
+            ahc_core
+    )
+    target_link_libraries(addon_links_test
         PRIVATE
             ahc_core
     )
@@ -352,10 +360,15 @@ if(AHC_BUILD_TESTS)
         PRIVATE
             "AHC_TEST_MANIFEST_PATH=\"${AHC_HUB_ADDONS_JSON}\""
     )
+    target_compile_definitions(addon_links_test
+        PRIVATE
+            "AHC_TEST_MANIFEST_PATH=\"${AHC_HUB_ADDONS_JSON}\""
+    )
 
     if(MSVC)
         target_compile_options(attune_snapshot_test PRIVATE /W4)
         target_compile_options(addon_manifest_test PRIVATE /W4)
+        target_compile_options(addon_links_test PRIVATE /W4)
         target_compile_options(ahc_arena_test PRIVATE /W4)
         target_compile_options(ahc_find_literal_test PRIVATE /W4)
         target_compile_options(ahc_wow_autologin_test PRIVATE /W4)
@@ -368,6 +381,7 @@ if(AHC_BUILD_TESTS)
     else()
         target_compile_options(attune_snapshot_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(addon_manifest_test PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(addon_links_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_arena_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_find_literal_test PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(ahc_wow_autologin_test PRIVATE -Wall -Wextra -Wpedantic)
@@ -384,6 +398,8 @@ if(AHC_BUILD_TESTS)
         target_link_options(attune_snapshot_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(addon_manifest_test PRIVATE -fsanitize=address,undefined -g)
         target_link_options(addon_manifest_test PRIVATE -fsanitize=address,undefined)
+        target_compile_options(addon_links_test PRIVATE -fsanitize=address,undefined -g)
+        target_link_options(addon_links_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(ahc_arena_test PRIVATE -fsanitize=address,undefined -g)
         target_link_options(ahc_arena_test PRIVATE -fsanitize=address,undefined)
         target_compile_options(ahc_find_literal_test PRIVATE -fsanitize=address,undefined -g)
@@ -406,6 +422,7 @@ if(AHC_BUILD_TESTS)
 
     add_test(NAME attune_snapshot_test COMMAND attune_snapshot_test)
     add_test(NAME addon_manifest_test COMMAND addon_manifest_test)
+    add_test(NAME addon_links_test COMMAND addon_links_test)
     add_test(NAME ahc_arena_test COMMAND ahc_arena_test)
     add_test(NAME ahc_find_literal_test COMMAND ahc_find_literal_test)
     add_test(NAME ahc_wow_autologin_test COMMAND ahc_wow_autologin_test)
