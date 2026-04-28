@@ -51,6 +51,18 @@ static bool source_subdir_hub_tree_url(const AhcAddon *addon, char *out, size_t 
     return n > 0 && (size_t)n < out_capacity;
 }
 
+static bool mapped_upstream_repo_url(const AhcAddon *addon, char *out, size_t out_capacity)
+{
+    if (!addon || !addon->id || !out || out_capacity == 0) {
+        return false;
+    }
+    if (strcmp(addon->id, "attune-helper") == 0) {
+        int n = snprintf(out, out_capacity, "https://github.com/RosemyneH/AttuneHelper");
+        return n > 0 && (size_t)n < out_capacity;
+    }
+    return false;
+}
+
 static bool infer_upstream_repo_url(const AhcAddon *addon, char *out, size_t out_capacity)
 {
     if (!addon || !addon->folder || !addon->folder[0] || !addon->source_subdir || !addon->source_subdir[0]) {
@@ -102,6 +114,9 @@ bool ahc_addon_source_page_url(const AhcAddon *addon, char *out, size_t out_capa
         return false;
     }
     if (addon->page_url && addon->page_url[0]) {
+        if (is_synastria_hub_url(addon->page_url) && mapped_upstream_repo_url(addon, out, out_capacity)) {
+            return true;
+        }
         if (is_synastria_hub_url(addon->page_url) && infer_upstream_repo_url(addon, out, out_capacity)) {
             return true;
         }
@@ -112,6 +127,9 @@ bool ahc_addon_source_page_url(const AhcAddon *addon, char *out, size_t out_capa
         return true;
     }
     if (has_http_scheme(addon->repo)) {
+        if (is_synastria_hub_url(addon->repo) && mapped_upstream_repo_url(addon, out, out_capacity)) {
+            return true;
+        }
         if (is_synastria_hub_url(addon->repo) && infer_upstream_repo_url(addon, out, out_capacity)) {
             return true;
         }

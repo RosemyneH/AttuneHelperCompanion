@@ -47,6 +47,23 @@ int main(void)
         return 1;
     }
 
+    const AhcAddon *attune_helper = find_addon_by_id(&manifest, "attune-helper");
+    if (!attune_helper) {
+        fprintf(stderr, "attune-helper not found in manifest.\n");
+        ahc_addon_manifest_free(&manifest);
+        return 1;
+    }
+    if (!ahc_addon_source_page_url(attune_helper, url, sizeof(url))) {
+        fprintf(stderr, "Could not resolve source page URL for attune-helper.\n");
+        ahc_addon_manifest_free(&manifest);
+        return 1;
+    }
+    if (strcmp(url, "https://github.com/RosemyneH/AttuneHelper") != 0) {
+        fprintf(stderr, "Unexpected attune-helper source page URL: %s\n", url);
+        ahc_addon_manifest_free(&manifest);
+        return 1;
+    }
+
     ahc_addon_manifest_free(&manifest);
     return 0;
 }
