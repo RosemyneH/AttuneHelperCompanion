@@ -1451,35 +1451,6 @@ static bool addon_staging_root(const CompanionState *state, char *out, size_t ou
     return DirectoryExists(out);
 }
 
-static void make_backup_path(const CompanionState *state, const AhcAddon *addon, const char *reason, char *out, size_t out_capacity)
-{
-    char root[AHC_PATH_CAPACITY];
-    if (!addon_backup_root(state, root, sizeof(root))) {
-        out[0] = '\0';
-        return;
-    }
-
-    char name[256];
-    snprintf(name, sizeof(name), "%s-%s-%lld", addon->folder, reason, (long long)time(NULL));
-    path_join(out, out_capacity, root, name);
-}
-
-static bool move_installed_addon_to_backup(CompanionState *state, const AhcAddon *addon, const char *path, const char *reason, char *backup_path, size_t backup_path_capacity)
-{
-    make_backup_path(state, addon, reason, backup_path, backup_path_capacity);
-    if (!backup_path[0]) {
-        set_status(state, "Could not create addon backup folder.");
-        return false;
-    }
-
-    if (rename(path, backup_path) != 0) {
-        set_status(state, "Could not move addon to backup folder.");
-        return false;
-    }
-
-    return true;
-}
-
 static void make_backup_path_for_folder(const CompanionState *state, const char *folder, const char *reason, char *out, size_t out_capacity)
 {
     char root[AHC_PATH_CAPACITY];
@@ -2102,19 +2073,38 @@ static void poll_addon_install_job(CompanionState *state)
 static void uninstall_addon(CompanionState *state, const AhcAddon *addon)
 {
     char path[AHC_PATH_CAPACITY];
-    char backup_path[AHC_PATH_CAPACITY];
+    size_t moved = 0u;
 
-    if (!addon_current_install_path(state, addon, path, sizeof(path))) {
+    for (size_t guard = 0u; guard < 64u; guard++) {
+        if (!addon_current_install_path(state, addon, path, sizeof(path))) {
+            break;
+        }
+
+        const char *folder_name = GetFileName(path);
+        if (!folder_name || !folder_name[0]) {
+            set_status(state, "Could not determine addon folder path.");
+            addon_status_cache_invalidate(state);
+            return;
+        }
+
+        if (!move_addon_folder_to_backup(state, path, folder_name, "uninstalled")) {
+            addon_status_cache_invalidate(state);
+            return;
+        }
+        moved++;
+    }
+
+    if (moved == 0u) {
         set_status(state, "Addon is not installed.");
         return;
     }
 
-    if (!move_installed_addon_to_backup(state, addon, path, "uninstalled", backup_path, sizeof(backup_path))) {
-        return;
-    }
-
     char message[AHC_STATUS_CAPACITY];
-    snprintf(message, sizeof(message), "Uninstalled %s. Backup saved.", addon->name);
+    if (moved == 1u) {
+        snprintf(message, sizeof(message), "Uninstalled %s. Backup saved.", addon->name);
+    } else {
+        snprintf(message, sizeof(message), "Uninstalled %s (%zu folders). Backups saved.", addon->name, moved);
+    }
     set_status(state, message);
     addon_status_cache_invalidate(state);
 }
