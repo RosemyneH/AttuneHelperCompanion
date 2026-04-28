@@ -48,6 +48,55 @@ static int baked_catalog_has_source(const char *source)
     return 0;
 }
 
+static int test_install_url_preserves_repo(void)
+{
+    const char *path = "addon_manifest_install_url_fixture.json";
+    const char *repo = "https://github.com/example/upstream-addon.git";
+    const char *install_url = "https://github.com/RosemyneH/synastria-monorepo-addons.git";
+    FILE *file = fopen(path, "wb");
+    if (!file) {
+        fprintf(stderr, "Failed to create temporary manifest fixture.\n");
+        return 0;
+    }
+    if (fputs(
+            "{"
+            "\"addons\":[{"
+            "\"id\":\"fixture-addon\","
+            "\"name\":\"Fixture Addon\","
+            "\"author\":\"Fixture Author\","
+            "\"category\":\"Utility\","
+            "\"folder\":\"FixtureAddon\","
+            "\"repo\":\"https://github.com/example/upstream-addon.git\","
+            "\"description\":\"Fixture add-on.\","
+            "\"install\":{\"type\":\"git\",\"url\":\"https://github.com/RosemyneH/synastria-monorepo-addons.git\"}"
+            "}]"
+            "}",
+            file
+        ) < 0) {
+        fclose(file);
+        remove(path);
+        fprintf(stderr, "Failed to write temporary manifest fixture.\n");
+        return 0;
+    }
+    fclose(file);
+
+    AhcAddonManifest manifest = { 0 };
+    int ok = 1;
+    if (!ahc_addon_manifest_load_file(path, &manifest)) {
+        fprintf(stderr, "Failed to parse temporary manifest fixture.\n");
+        ok = 0;
+    } else {
+        const AhcAddon *addon = find_addon_by_id(&manifest, "fixture-addon");
+        if (!addon || strcmp(addon->repo, repo) != 0 || !addon->install_url || strcmp(addon->install_url, install_url) != 0) {
+            fprintf(stderr, "Manifest install.url should not replace the source repo.\n");
+            ok = 0;
+        }
+    }
+    ahc_addon_manifest_free(&manifest);
+    remove(path);
+    return ok;
+}
+
 int main(void)
 {
     if (ahc_addon_catalog_count() < 30u) {
@@ -111,13 +160,16 @@ int main(void)
 
     {
         const AhcAddon *acp_zero = find_addon_by_id(&manifest, "acp-zero");
-        if (!acp_zero || strcmp(acp_zero->repo, mono_repo) != 0) {
-            fprintf(stderr, "acp-zero repo (manifest install merge) was not parsed correctly.\n");
+        if (!acp_zero || strcmp(acp_zero->repo, mono_repo) != 0 || !acp_zero->install_url || strcmp(acp_zero->install_url, mono_repo) != 0) {
+            fprintf(stderr, "acp-zero repo/install_url was not parsed correctly.\n");
             ahc_addon_manifest_free(&manifest);
             return 1;
         }
     }
 
     ahc_addon_manifest_free(&manifest);
+    if (!test_install_url_preserves_repo()) {
+        return 1;
+    }
     return 0;
 }

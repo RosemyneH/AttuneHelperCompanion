@@ -902,20 +902,64 @@ static bool addon_is_github_source(const AhcAddon *addon)
     return strcmp(addon_source_label(addon), "GitHub") == 0;
 }
 
-static bool addon_repo_is_git_checkout(const AhcAddon *addon)
+static const char *addon_install_source_url(const AhcAddon *addon)
 {
-    if (!addon || !addon->repo || !addon->repo[0]) {
+    if (!addon) {
+        return NULL;
+    }
+    if (addon->install_url && addon->install_url[0]) {
+        return addon->install_url;
+    }
+    return addon->repo;
+}
+
+static bool addon_url_has_http_scheme(const char *url)
+{
+    return url && (strncmp(url, "https://", 8) == 0 || strncmp(url, "http://", 7) == 0);
+}
+
+static bool addon_url_is_synastria_hub(const char *url)
+{
+    return url && strstr(url, "github.com/RosemyneH/synastria-monorepo-addons") != NULL;
+}
+
+static bool addon_url_for_synastria_source_subdir(const AhcAddon *addon, char *out, size_t out_capacity)
+{
+    if (!addon || !addon->source_subdir || !addon->source_subdir[0] || !out || out_capacity == 0) {
         return false;
     }
-    return strstr(addon->repo, "github.com/") != NULL || strstr(addon->repo, ".git") != NULL;
+    const char *source_subdir = addon->source_subdir;
+    while (*source_subdir == '/' || *source_subdir == '\\') {
+        source_subdir++;
+    }
+    if (!source_subdir[0]) {
+        return false;
+    }
+    int n = snprintf(
+        out,
+        out_capacity,
+        "https://github.com/RosemyneH/synastria-monorepo-addons/tree/main/%s",
+        source_subdir
+    );
+    return n > 0 && (size_t)n < out_capacity;
+}
+
+static bool addon_repo_is_git_checkout(const AhcAddon *addon)
+{
+    const char *install_url = addon_install_source_url(addon);
+    if (!install_url || !install_url[0]) {
+        return false;
+    }
+    return strstr(install_url, "github.com/") != NULL || strstr(install_url, ".git") != NULL;
 }
 
 static bool addon_repo_is_zip_url(const AhcAddon *addon)
 {
-    if (!addon || !addon->repo || !addon->repo[0]) {
+    const char *install_url = addon_install_source_url(addon);
+    if (!install_url || !install_url[0]) {
         return false;
     }
-    return strstr(addon->repo, ".zip") != NULL;
+    return strstr(install_url, ".zip") != NULL;
 }
 
 static bool addon_has_install_source(const AhcAddon *addon)
@@ -945,7 +989,7 @@ static bool addon_url_for_author_link(const AhcAddon *addon, char *out, size_t o
         snprintf(out, out_capacity, "%s", addon->page_url);
         return true;
     }
-    if (addon->repo && (strstr(addon->repo, "https://") || strstr(addon->repo, "http://"))) {
+    if (addon_url_has_http_scheme(addon->repo)) {
         snprintf(out, out_capacity, "%s", addon->repo);
         return true;
     }
@@ -958,11 +1002,19 @@ static bool addon_url_for_source_link(const AhcAddon *addon, char *out, size_t o
         return false;
     }
     if (addon->page_url && addon->page_url[0]) {
+        if (addon_url_is_synastria_hub(addon->page_url)
+            && addon_url_for_synastria_source_subdir(addon, out, out_capacity)) {
+            return true;
+        }
         snprintf(out, out_capacity, "%s", addon->page_url);
         return true;
     }
-    if (addon->repo && addon->repo[0] && (strstr(addon->repo, "https://") || strstr(addon->repo, "http://"))) {
-        if (addon_repo_is_zip_url(addon)) {
+    if (addon_url_has_http_scheme(addon->repo)) {
+        if (addon_url_is_synastria_hub(addon->repo)
+            && addon_url_for_synastria_source_subdir(addon, out, out_capacity)) {
+            return true;
+        }
+        if (strstr(addon->repo, ".zip") != NULL) {
             return false;
         }
         snprintf(out, out_capacity, "%s", addon->repo);
@@ -1498,7 +1550,8 @@ static void write_addon_managed_marker(const AhcAddon *addon, const char *path)
         return;
     }
 
-    fprintf(file, "repo=%s\n", addon->repo);
+    const char *install_url = addon_install_source_url(addon);
+    fprintf(file, "repo=%s\n", install_url ? install_url : "");
     fprintf(file, "source_subdir=%s\n", addon_has_source_subdir(addon) ? addon->source_subdir : "");
     fclose(file);
 }
@@ -1518,7 +1571,8 @@ static bool addon_marker_matches(const AhcAddon *addon, const char *path)
         if (strncmp(line, "repo=", 5) == 0) {
             char *value = line + 5;
             value[strcspn(value, "\r\n")] = '\0';
-            matches = strcmp(value, addon->repo) == 0;
+            const char *install_url = addon_install_source_url(addon);
+            matches = install_url && strcmp(value, install_url) == 0;
             break;
         }
     }
@@ -1720,6 +1774,10 @@ static bool stage_addon_source(CompanionState *state, const AhcAddon *addon, cha
     path_join(package_root, package_root_capacity, staging_root, stage_name);
     remove_directory_tree(package_root);
 
+    const char *install_url = addon_install_source_url(addon);
+    if (!install_url || !install_url[0]) {
+        return false;
+    }
     if (addon_repo_is_zip_url(addon)) {
         set_addon_job_progress(state, "Downloading addon ZIP");
         char zip_path[AHC_PATH_CAPACITY];
@@ -1730,7 +1788,7 @@ static bool stage_addon_source(CompanionState *state, const AhcAddon *addon, cha
         path_join(extract_path, sizeof(extract_path), staging_root, stage_name);
         remove(zip_path);
         remove_directory_tree(extract_path);
-        if (!ahc_curl_download_file(addon->repo, zip_path)) {
+        if (!ahc_curl_download_file(install_url, zip_path)) {
             remove(zip_path);
             remove_directory_tree(extract_path);
             return false;
@@ -1747,7 +1805,7 @@ static bool stage_addon_source(CompanionState *state, const AhcAddon *addon, cha
     }
 
     set_addon_job_progress(state, "Cloning addon repository");
-    if (!ahc_git_shallow_clone(addon->repo, package_root)) {
+    if (!ahc_git_shallow_clone(install_url, package_root)) {
         remove_directory_tree(package_root);
         return false;
     }
@@ -5517,7 +5575,9 @@ static void draw_addon_card(CompanionState *state, const AhcAddon *addons, size_
             uninstall_addon(state, addon);
         }
     } else if (draw_wow_button(downloadable ? "Download" : "Open Page", (Rectangle){ bounds.x + bounds.width - 108.0f, bounds.y + 58.0f, 96.0f, 30.0f }, false, 14)) {
-        if (open_external_url(addon->repo)) {
+        char source_url[AHC_PATH_CAPACITY];
+        const char *open_url = addon_url_for_source_link(addon, source_url, sizeof(source_url)) ? source_url : addon->repo;
+        if (open_external_url(open_url)) {
             char message[AHC_STATUS_CAPACITY];
             snprintf(message, sizeof(message), downloadable ? "Started download for %s." : "Opened %s page in browser.", addon->name);
             set_action_status(state, message, downloadable ? "Download started" : "Opened addon page");

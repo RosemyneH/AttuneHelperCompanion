@@ -46,6 +46,14 @@ def optional_string(addon: dict[str, Any], field: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def optional_install_url(addon: dict[str, Any]) -> str | None:
+    install = addon.get("install")
+    if not isinstance(install, dict):
+        return None
+    value = install.get("url")
+    return value if isinstance(value, str) and value else None
+
+
 def addon_categories(addon: dict[str, Any], index: int) -> list[str]:
     category = require_string(addon, "category", index)
     raw = addon.get("categories")
@@ -142,6 +150,7 @@ def generate_c(addons: list[dict[str, Any]]) -> str:
             optional_string(addon, "version"),
             optional_string(addon, "source"),
             optional_string(addon, "page_url"),
+            optional_install_url(addon),
         ]
         rendered = ", ".join(c_string(value) for value in fields)
         category_count = len(addon_categories(addon, index))
