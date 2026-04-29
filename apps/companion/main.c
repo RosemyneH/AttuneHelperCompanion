@@ -41,6 +41,14 @@
 __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void *hModule, char *lpFilename, unsigned long nSize);
 __declspec(dllimport) int __stdcall MoveFileExA(const char *lpExistingFileName, const char *lpNewFileName, unsigned long dwFlags);
 __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
+__declspec(dllimport) void *__stdcall GetCurrentProcess(void);
+__declspec(dllimport) int __stdcall SetPriorityClass(void *hProcess, unsigned long dwPriorityClass);
+#ifndef BELOW_NORMAL_PRIORITY_CLASS
+#define BELOW_NORMAL_PRIORITY_CLASS 0x00004000u
+#endif
+#ifndef NORMAL_PRIORITY_CLASS
+#define NORMAL_PRIORITY_CLASS 0x00000020u
+#endif
 #include <direct.h>
 #include <process.h>
 #include <sys/stat.h>
@@ -78,6 +86,10 @@ __declspec(dllimport) int __stdcall CloseHandle(void *hObject);
 #define AHC_ADDON_STATUS_REFRESH_SECONDS 5.0
 #define AHC_ADDON_STATIC_FPS 30
 #define AHC_HIDDEN_FPS 2
+#define AHC_HIDDEN_FRAME_WAIT ((float)(1.0 / (double)AHC_HIDDEN_FPS))
+#define AHC_INSTANCE_POLL_FOREGROUND_SECONDS 3.0
+#define AHC_INSTANCE_POLL_BACKGROUND_SECONDS 45.0
+#define AHC_SNAPSHOT_POLL_BACKGROUND_SECONDS 12.0
 #define AHC_REMOTE_MANIFEST_TTL_SECONDS 86400
 #define AHC_REMOTE_MANIFEST_URL "https://raw.githubusercontent.com/RosemyneH/synastria-monorepo-addons/main/manifest/addons.json"
 #define AHC_REMOTE_PRESETS_URL "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/presets.json"
@@ -2181,7 +2193,10 @@ static void poll_other_instances(CompanionState *state)
         return;
     }
     state->other_instance_count = ahc_count_other_instances();
-    state->next_instance_poll_time = now + 3.0;
+    double period = (IsWindowHidden() || IsWindowMinimized())
+        ? AHC_INSTANCE_POLL_BACKGROUND_SECONDS
+        : AHC_INSTANCE_POLL_FOREGROUND_SECONDS;
+    state->next_instance_poll_time = now + period;
 }
 
 static void set_addon_job_progress(CompanionState *state, const char *message)
@@ -3541,7 +3556,10 @@ static void poll_attunehelper_snapshot(CompanionState *state)
         return;
     }
 
-    state->next_snapshot_poll_time = now + AHC_SNAPSHOT_POLL_SECONDS;
+    double snapshot_period = (IsWindowHidden() || IsWindowMinimized())
+        ? AHC_SNAPSHOT_POLL_BACKGROUND_SECONDS
+        : AHC_SNAPSHOT_POLL_SECONDS;
+    state->next_snapshot_poll_time = now + snapshot_period;
     if (!validate_synastria_path(state->synastria_path)) {
         return;
     }
@@ -6511,17 +6529,41 @@ int main(void)
             RestoreWindow();
             state->windowed_maximized = false;
             SetWindowFocused();
+            state->next_instance_poll_time = 0.0;
         }
         if (g_quit) {
             break;
         }
+
+        bool throttled = IsWindowHidden() || IsWindowMinimized();
+        {
+            static int s_prev_throttled;
+            if (s_prev_throttled && !throttled) {
+                state->next_instance_poll_time = 0.0;
+            }
+            s_prev_throttled = throttled ? 1 : 0;
+        }
+#if defined(_WIN32)
+        {
+            static int s_tray_low_priority;
+            int want_low = throttled ? 1 : 0;
+            if (want_low != s_tray_low_priority) {
+                s_tray_low_priority = want_low;
+                SetPriorityClass(
+                    GetCurrentProcess(),
+                    want_low ? BELOW_NORMAL_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS);
+            }
+        }
+#endif
 
         if (IsKeyPressed(KEY_F11) || ((IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT)) && IsKeyPressed(KEY_ENTER))) {
             state->windowed_maximized = false;
             ToggleFullscreen();
         }
 
-        update_ui_scale(state);
+        if (!throttled) {
+            update_ui_scale(state);
+        }
         if (!IsWindowHidden() && !IsWindowMinimized() && !g_chrome_drag && !state->windowed_maximized && !IsWindowMaximized()) {
             constrain_window_to_current_monitor();
         }
@@ -6530,7 +6572,6 @@ int main(void)
         poll_catalog_refresh_job(state);
         poll_attunehelper_snapshot(state);
 
-        bool throttled = IsWindowHidden() || IsWindowMinimized();
         if (!throttled) {
             ahc_process_avatar_deferred_loads();
         }
@@ -6543,7 +6584,7 @@ int main(void)
         }
         if (throttled) {
             PollInputEvents();
-            WaitTime(0.20f);
+            WaitTime(AHC_HIDDEN_FRAME_WAIT);
         }
 
         if (IsWindowHidden() || IsWindowMinimized()) {
