@@ -6376,8 +6376,10 @@ static void constrain_window_to_monitor(int monitor, bool center_if_resized)
     }
 
     Vector2 window_pos = GetWindowPosition();
-    int x = (int)window_pos.x;
-    int y = (int)window_pos.y;
+    int orig_x = (int)window_pos.x;
+    int orig_y = (int)window_pos.y;
+    int x = orig_x;
+    int y = orig_y;
     int left = (int)monitor_pos.x;
     int top = (int)monitor_pos.y;
     int right = left + monitor_width;
@@ -6401,7 +6403,9 @@ static void constrain_window_to_monitor(int monitor, bool center_if_resized)
         }
     }
 
-    SetWindowPosition(x, y);
+    if (x != orig_x || y != orig_y) {
+        SetWindowPosition(x, y);
+    }
 }
 
 static void constrain_window_to_current_monitor(void)
