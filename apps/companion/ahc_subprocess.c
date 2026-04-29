@@ -9,6 +9,7 @@
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <winhttp.h>
 #else
 #include <errno.h>
 #include <fcntl.h>
@@ -151,11 +152,184 @@ static bool ahc_append_https_origin_referer(const char *url, char *out, size_t c
     return true;
 }
 
+static bool ahc_utf8_to_wide_heap(const char *input, wchar_t **out_wide)
+{
+#if !defined(_WIN32)
+    (void)input;
+    (void)out_wide;
+    return false;
+#else
+    if (!input || !out_wide) {
+        return false;
+    }
+    *out_wide = NULL;
+    int needed = MultiByteToWideChar(CP_UTF8, 0, input, -1, NULL, 0);
+    if (needed <= 0) {
+        return false;
+    }
+    wchar_t *wide = (wchar_t *)calloc((size_t)needed, sizeof(wchar_t));
+    if (!wide) {
+        return false;
+    }
+    if (MultiByteToWideChar(CP_UTF8, 0, input, -1, wide, needed) <= 0) {
+        free(wide);
+        return false;
+    }
+    *out_wide = wide;
+    return true;
+#endif
+}
+
+bool ahc_http_download_file(const char *url, const char *file_path, size_t max_bytes)
+{
+    if (!ahc_url_safe_for_download(url) || !ahc_path_safe_for_arg(file_path)) {
+        return false;
+    }
+#if defined(_WIN32)
+    if (max_bytes == 0u) {
+        return false;
+    }
+
+    bool ok = false;
+    FILE *out = NULL;
+    wchar_t *wurl = NULL;
+    wchar_t *wpath = NULL;
+    HINTERNET session = NULL;
+    HINTERNET connect = NULL;
+    HINTERNET request = NULL;
+    URL_COMPONENTS parts;
+    wchar_t host[256];
+    wchar_t path[2048];
+    char buffer[8192];
+
+    if (!ahc_utf8_to_wide_heap(url, &wurl) || !ahc_utf8_to_wide_heap(file_path, &wpath)) {
+        goto cleanup;
+    }
+    memset(&parts, 0, sizeof(parts));
+    memset(host, 0, sizeof(host));
+    memset(path, 0, sizeof(path));
+    parts.dwStructSize = sizeof(parts);
+    parts.lpszHostName = host;
+    parts.dwHostNameLength = (DWORD)(sizeof(host) / sizeof(host[0]));
+    parts.lpszUrlPath = path;
+    parts.dwUrlPathLength = (DWORD)(sizeof(path) / sizeof(path[0]));
+    if (!WinHttpCrackUrl(wurl, 0u, 0u, &parts)) {
+        goto cleanup;
+    }
+    if (parts.nScheme != INTERNET_SCHEME_HTTPS || parts.dwHostNameLength == 0u || parts.dwUrlPathLength == 0u) {
+        goto cleanup;
+    }
+
+    session = WinHttpOpen(
+        L"AttuneHelperCompanion/1.0",
+        WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+        WINHTTP_NO_PROXY_NAME,
+        WINHTTP_NO_PROXY_BYPASS,
+        0u);
+    if (!session) {
+        goto cleanup;
+    }
+    connect = WinHttpConnect(session, host, parts.nPort, 0u);
+    if (!connect) {
+        goto cleanup;
+    }
+    request = WinHttpOpenRequest(
+        connect,
+        L"GET",
+        path,
+        NULL,
+        WINHTTP_NO_REFERER,
+        WINHTTP_DEFAULT_ACCEPT_TYPES,
+        WINHTTP_FLAG_SECURE);
+    if (!request) {
+        goto cleanup;
+    }
+    if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0u, WINHTTP_NO_REQUEST_DATA, 0u, 0u, 0u)) {
+        goto cleanup;
+    }
+    if (!WinHttpReceiveResponse(request, NULL)) {
+        goto cleanup;
+    }
+
+    DWORD status = 0u;
+    DWORD status_size = sizeof(status);
+    if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size, WINHTTP_NO_HEADER_INDEX)) {
+        goto cleanup;
+    }
+    if (status < 200u || status >= 300u) {
+        goto cleanup;
+    }
+
+    out = _wfopen(wpath, L"wb");
+    if (!out) {
+        goto cleanup;
+    }
+
+    size_t total = 0u;
+    for (;;) {
+        DWORD available = 0u;
+        if (!WinHttpQueryDataAvailable(request, &available)) {
+            goto cleanup;
+        }
+        if (available == 0u) {
+            break;
+        }
+        while (available > 0u) {
+            DWORD chunk = available > (DWORD)sizeof(buffer) ? (DWORD)sizeof(buffer) : available;
+            DWORD read = 0u;
+            if (!WinHttpReadData(request, buffer, chunk, &read)) {
+                goto cleanup;
+            }
+            if (read == 0u) {
+                break;
+            }
+            if (total + (size_t)read > max_bytes) {
+                goto cleanup;
+            }
+            if (fwrite(buffer, 1u, (size_t)read, out) != (size_t)read) {
+                goto cleanup;
+            }
+            total += (size_t)read;
+            available -= read;
+        }
+    }
+    ok = total > 0u;
+
+cleanup:
+    if (out) {
+        fclose(out);
+    }
+    if (!ok && wpath) {
+        (void)DeleteFileW(wpath);
+    }
+    if (request) {
+        WinHttpCloseHandle(request);
+    }
+    if (connect) {
+        WinHttpCloseHandle(connect);
+    }
+    if (session) {
+        WinHttpCloseHandle(session);
+    }
+    free(wurl);
+    free(wpath);
+    return ok;
+#else
+    (void)max_bytes;
+    return ahc_posix_execvp_wait((const char *const[]) {
+        "curl", "-L", "--fail", "--silent", "--show-error", "-o", file_path, url, NULL
+    });
+#endif
+}
+
 bool ahc_curl_download_file(const char *url, const char *file_path)
 {
     if (!ahc_url_safe_for_download(url) || !ahc_path_safe_for_arg(file_path)) {
         return false;
     }
+#if defined(_WIN32)
+    return ahc_http_download_file(url, file_path, 64u * 1024u * 1024u);
+#else
     char referer[256];
     ahc_append_https_origin_referer(url, referer, sizeof(referer));
     static const char *const user_agent
@@ -181,6 +355,7 @@ bool ahc_curl_download_file(const char *url, const char *file_path)
     return ahc_win_spawnv_wait("curl", argv);
 #else
     return ahc_posix_execvp_wait(argv);
+#endif
 #endif
 }
 

@@ -23,6 +23,13 @@ This is a lightweight model for the **Attune Helper Companion** desktop app and 
 - **Process listing** and **debuggers** on Windows/Linux can observe command lines while the launcher starts.
 - **Emulators** (e.g. Winlator-style) may have their own user profiles and path mappings. See [android-winlator.md](android-winlator.md).
 
+## Expected sandbox and EDR telemetry
+
+- **Network fetches:** desktop/Android refreshes of add-on metadata call GitHub-hosted manifests on `raw.githubusercontent.com` over HTTPS.
+- **Cache writes:** metadata fetches write temporary files under the app config directory (`addon_catalog_cache.tmp`, `addon_preset_cache.tmp`) and atomically promote validated JSON to cache files.
+- **Clipboard activity:** import/export profile features intentionally read and write clipboard data and can be mapped to generic ATT&CK input-capture style heuristics.
+- **False-positive ATT&CK tags:** behavioral engines may classify normal UI/process operations (module loading, process inspection, clipboard use) as credential/input techniques even when no credential dumping path exists in this project.
+
 ## References
 
 - [user-testing.md](user-testing.md) — manual checks and launch behavior

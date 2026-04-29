@@ -30,6 +30,16 @@ We aim to acknowledge reasonable reports in a timely manner. Response time depen
 - **In scope:** bugs in *this* repository that could lead to information disclosure, unsafe file handling, or other security impact when used as designed (see [docs/threat-model.md](docs/threat-model.md)).
 - **Out of scope (examples):** third-party game clients or add-ons not maintained here, generic OS misconfiguration, or issues that require the victim to run untrusted code with full trust in the app.
 
+## Expected runtime behavior
+
+During normal operation, security tools may report activity that is expected for this app:
+
+- HTTPS requests to GitHub manifest endpoints on `raw.githubusercontent.com` for add-on catalog/preset refresh.
+- Temporary cache file writes in the app config directory before validated JSON is promoted to cache.
+- Clipboard read/write calls used by profile import/export UX.
+
+These signals can resemble ATT&CK heuristics in automated sandboxes; treat them as suspicious only when they diverge from documented hosts, paths, or app features.
+
 ## Safe Harbor
 
 We support good-faith security research. Do not test against systems you do not own or lack permission to test, and do not exfiltrate, modify, or destroy data beyond what is needed to demonstrate the issue to maintainers.

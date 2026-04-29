@@ -95,6 +95,8 @@ __declspec(dllimport) int __stdcall SetPriorityClass(void *hProcess, unsigned lo
 #define AHC_REMOTE_MANIFEST_TTL_SECONDS 86400
 #define AHC_REMOTE_MANIFEST_URL "https://raw.githubusercontent.com/RosemyneH/synastria-monorepo-addons/main/manifest/addons.json"
 #define AHC_REMOTE_PRESETS_URL "https://raw.githubusercontent.com/RosemyneH/AttuneHelperCompanion/master/manifest/presets.json"
+#define AHC_REMOTE_MANIFEST_MAX_BYTES (4u * 1024u * 1024u)
+#define AHC_REMOTE_PRESETS_MAX_BYTES (2u * 1024u * 1024u)
 #define AHC_FONT_GLYPHS 95
 #define AHC_SNAPSHOT_POLL_SECONDS 5.0
 #define AHC_PROCESS_ACTIVE_SECONDS 4.0
@@ -2539,6 +2541,49 @@ static bool file_newer_for_catalog_choice(const char *a, const char *b)
     return difftime(sa.st_mtime, sb.st_mtime) > 0.0;
 }
 
+static void append_refresh_breadcrumb(const CompanionState *state, const char *phase, const char *detail)
+{
+    if (!state || !state->config_dir[0] || !ensure_directory(state->config_dir)) {
+        return;
+    }
+    char breadcrumb_path[AHC_PATH_CAPACITY];
+    path_join(breadcrumb_path, sizeof(breadcrumb_path), state->config_dir, "refresh_breadcrumbs.log");
+    FILE *file = fopen(breadcrumb_path, "ab");
+    if (!file) {
+        return;
+    }
+    time_t now = time(NULL);
+    long long ts = now == (time_t)-1 ? 0ll : (long long)now;
+    fprintf(file, "%lld|%s|%s\n", ts, phase ? phase : "unknown", detail ? detail : "none");
+    fclose(file);
+}
+
+static bool remote_manifest_url_allowed(const char *url)
+{
+    if (!url) {
+        return false;
+    }
+    return strcmp(url, AHC_REMOTE_MANIFEST_URL) == 0 || strcmp(url, AHC_REMOTE_PRESETS_URL) == 0;
+}
+
+static bool download_remote_manifest_with_limits(
+    CompanionState *state,
+    const char *url,
+    const char *temp_path,
+    size_t max_bytes,
+    const char *phase)
+{
+    if (!remote_manifest_url_allowed(url)) {
+        append_refresh_breadcrumb(state, phase, "refused_unapproved_remote_url");
+        return false;
+    }
+    if (!ahc_http_download_file(url, temp_path, max_bytes)) {
+        append_refresh_breadcrumb(state, phase, "download_failed");
+        return false;
+    }
+    return true;
+}
+
 static bool replace_file_with_temp(const char *temp_path, const char *destination_path)
 {
 #if defined(_WIN32)
@@ -2560,20 +2605,23 @@ static bool addon_catalog_cache_paths(const CompanionState *state, char *cache_p
 
 static bool refresh_remote_addon_catalog_cache(CompanionState *state, const char *cache_path, const char *temp_path)
 {
-    (void)state;
     remove(temp_path);
-    if (!ahc_curl_download_file(AHC_REMOTE_MANIFEST_URL, temp_path)) {
+    append_refresh_breadcrumb(state, "catalog_refresh", "begin");
+    if (!download_remote_manifest_with_limits(state, AHC_REMOTE_MANIFEST_URL, temp_path, AHC_REMOTE_MANIFEST_MAX_BYTES, "catalog_refresh")) {
         remove(temp_path);
         return false;
     }
     if (!addon_manifest_file_valid(temp_path)) {
+        append_refresh_breadcrumb(state, "catalog_refresh", "invalid_manifest_json");
         remove(temp_path);
         return false;
     }
     if (!replace_file_with_temp(temp_path, cache_path)) {
+        append_refresh_breadcrumb(state, "catalog_refresh", "cache_replace_failed");
         remove(temp_path);
         return false;
     }
+    append_refresh_breadcrumb(state, "catalog_refresh", "success");
     return true;
 }
 
@@ -2961,12 +3009,14 @@ static bool try_load_preset_manifest(CompanionState *state, const char *path, co
 {
     char *text = read_text_file_heap(path);
     if (!text) {
+        append_refresh_breadcrumb(state, "preset_load", "file_read_failed");
         return false;
     }
     size_t count = 0u;
     bool ok = parse_preset_manifest_text(text, state->presets, AHC_PRESET_CAPACITY, &count);
     free(text);
     if (!ok) {
+        append_refresh_breadcrumb(state, "preset_load", "parse_failed");
         return false;
     }
     state->preset_count = count;
@@ -2997,11 +3047,15 @@ static void load_addon_presets(CompanionState *state, bool force_remote_refresh)
             return;
         }
         if (force_remote_refresh || !cache_fresh) {
+            append_refresh_breadcrumb(state, "preset_refresh", "begin");
             remove(temp_path);
-            if (ahc_curl_download_file(AHC_REMOTE_PRESETS_URL, temp_path) && try_load_preset_manifest(state, temp_path, "community presets")) {
+            if (download_remote_manifest_with_limits(state, AHC_REMOTE_PRESETS_URL, temp_path, AHC_REMOTE_PRESETS_MAX_BYTES, "preset_refresh")
+                && try_load_preset_manifest(state, temp_path, "community presets")) {
                 (void)replace_file_with_temp(temp_path, cache_path);
+                append_refresh_breadcrumb(state, "preset_refresh", "success");
                 return;
             }
+            append_refresh_breadcrumb(state, "preset_refresh", "failed_or_invalid");
             remove(temp_path);
         }
         if (cache_exists && try_load_preset_manifest(state, cache_path, "cached community presets")) {
