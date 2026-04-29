@@ -87,6 +87,8 @@ __declspec(dllimport) int __stdcall SetPriorityClass(void *hProcess, unsigned lo
 #define AHC_ADDON_STATIC_FPS 30
 #define AHC_HIDDEN_FPS 2
 #define AHC_HIDDEN_FRAME_WAIT ((float)(1.0 / (double)AHC_HIDDEN_FPS))
+#define AHC_UNFOCUSED_IDLE_FPS 1
+#define AHC_UNFOCUSED_IDLE_FRAME_WAIT (1.0f / (float)AHC_UNFOCUSED_IDLE_FPS)
 #define AHC_INSTANCE_POLL_FOREGROUND_SECONDS 3.0
 #define AHC_INSTANCE_POLL_BACKGROUND_SECONDS 45.0
 #define AHC_SNAPSHOT_POLL_BACKGROUND_SECONDS 12.0
@@ -6293,6 +6295,31 @@ static int monitor_for_window_center(void)
     return fallback;
 }
 
+static bool ahc_mouse_in_client(void)
+{
+    Vector2 m = GetMousePosition();
+    return m.x >= 0.0f && m.y >= 0.0f
+        && m.x < (float)GetScreenWidth() && m.y < (float)GetScreenHeight();
+}
+
+static bool ahc_interaction_wake(void)
+{
+    if (IsWindowFocused()) {
+        return true;
+    }
+    if (!ahc_mouse_in_client()) {
+        return false;
+    }
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)
+        || IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)) {
+        return true;
+    }
+    if (GetMouseWheelMove() != 0.0f) {
+        return true;
+    }
+    return false;
+}
+
 static int ahc_display_fps_cap(const CompanionState *state)
 {
     if (state->tab == COMPANION_TAB_ADDONS) {
@@ -6540,6 +6567,7 @@ int main(void)
         }
 
         bool throttled = IsWindowHidden() || IsWindowMinimized();
+        bool unfocused_idle = !throttled && !ahc_interaction_wake();
         {
             static int s_prev_throttled;
             if (s_prev_throttled && !throttled) {
@@ -6550,7 +6578,7 @@ int main(void)
 #if defined(_WIN32)
         {
             static int s_tray_low_priority;
-            int want_low = throttled ? 1 : 0;
+            int want_low = (throttled || unfocused_idle) ? 1 : 0;
             if (want_low != s_tray_low_priority) {
                 s_tray_low_priority = want_low;
                 SetPriorityClass(
@@ -6576,11 +6604,13 @@ int main(void)
         poll_catalog_refresh_job(state);
         poll_attunehelper_snapshot(state);
 
-        if (!throttled) {
+        if (!throttled && !unfocused_idle) {
             ahc_process_avatar_deferred_loads();
         }
         {
-            int want = throttled ? AHC_HIDDEN_FPS : ahc_display_fps_cap(state);
+            int want = throttled ? AHC_HIDDEN_FPS
+                : unfocused_idle ? AHC_UNFOCUSED_IDLE_FPS
+                                   : ahc_display_fps_cap(state);
             if (want != last_fps_target) {
                 SetTargetFPS(want);
                 last_fps_target = want;
@@ -6626,6 +6656,12 @@ int main(void)
         draw_process_footer(state);
 
         EndDrawing();
+        if (unfocused_idle) {
+            float slack = AHC_UNFOCUSED_IDLE_FRAME_WAIT - GetFrameTime();
+            if (slack > 0.0f) {
+                WaitTime(slack);
+            }
+        }
         }
     }
 
