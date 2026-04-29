@@ -87,7 +87,7 @@ __declspec(dllimport) int __stdcall SetPriorityClass(void *hProcess, unsigned lo
 #define AHC_ADDON_STATIC_FPS 30
 #define AHC_HIDDEN_FPS 2
 #define AHC_HIDDEN_FRAME_WAIT ((float)(1.0 / (double)AHC_HIDDEN_FPS))
-#define AHC_UNFOCUSED_IDLE_FPS 1
+#define AHC_UNFOCUSED_IDLE_FPS 6
 #define AHC_UNFOCUSED_IDLE_FRAME_WAIT (1.0f / (float)AHC_UNFOCUSED_IDLE_FPS)
 #define AHC_INSTANCE_POLL_FOREGROUND_SECONDS 3.0
 #define AHC_INSTANCE_POLL_BACKGROUND_SECONDS 45.0
